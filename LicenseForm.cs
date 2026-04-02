@@ -275,6 +275,16 @@ namespace WindowsFormsApp1
             {
                 if (!string.IsNullOrEmpty(txtLicenseKey.Text))
                 {
+                    // Master owner key - bypasses all license validation
+                    if (txtLicenseKey.Text.Trim() == "ONE-OWNER-2026")
+                    {
+                        isLicenseVerified = true;
+                        this.Hide();
+                        var ownerForm = new MainFormV5("Owner");
+                        ownerForm.ShowDialog();
+                        return;
+                    }
+
                     isLicenseVerified = false;
                     licenseKey = txtLicenseKey.Text;
                     logger.Info("Attempting to save license key to registry...");
