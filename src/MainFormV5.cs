@@ -57,18 +57,24 @@ namespace WindowsFormsApp1
         private static readonly Color TEXT_WHITE = Color.White;
         private static readonly Color TEXT_GREY  = Color.FromArgb(180, 180, 180);
 
-        private const int HEADER_H     = 110;
-        private const int REDLINE_H    = 3;
-        private const int DEVICE_ROW_H = 50;
-        private const int FOOTER_H     = 44;
-        private const int SIDE_PAD     = 32;
-        private const int PANEL_W      = 280;
-        private const int VIDEO_W      = 380;
-        private const int VIDEO_H      = 280;
-        private const int METER_H      = 28;
-        private const int METER_GAP    = 18;
-        private const int BTN_H        = 40;
-        private const int BADGE_H      = 30;
+        // ── Layout constants — computed at runtime from screen height ─────────
+        // Base design was made for 1080p (900px working height after taskbar).
+        // All values scale proportionally so the form always fits any screen.
+        private float _scale = 1.0f;   // set in CenterWithMargin()
+        private int HEADER_H     => (int)(110 * _scale);
+        private int REDLINE_H    => 3;
+        private int DEVICE_ROW_H => (int)(50  * _scale);
+        private int FOOTER_H     => (int)(44  * _scale);
+        private int SIDE_PAD     => (int)(32  * _scale);
+        private int PANEL_W      => (int)(280 * _scale);
+        private int VIDEO_W      => (int)(380 * _scale);
+        private int VIDEO_H      => (int)(280 * _scale);
+        private int METER_H      => (int)(28  * _scale);
+        private int METER_GAP    => (int)(18  * _scale);
+        private int BTN_H        => (int)(40  * _scale);
+        private int BADGE_H      => (int)(30  * _scale);
+        // Scaled font helper
+        private float SF(float pt) => Math.Max(7f, (float)Math.Round(pt * _scale, 1));
 
         // ── Logger ────────────────────────────────────────────────────────────
         private static readonly Logger Log = LogManager.GetCurrentClassLogger();
@@ -181,22 +187,24 @@ namespace WindowsFormsApp1
         {
             Screen screen = Screen.FromPoint(Cursor.Position);
             Rectangle wa = screen.WorkingArea;
-            int dpi = GetDpi();
-            int margin = (int)(1.5 * dpi); // 1.5 inches in pixels
 
-            int w = wa.Width  - (margin * 2);
-            int h = wa.Height - (margin * 2);
+            // Use 96% of the working area so the form always fits with a small margin
+            int w = (int)(wa.Width  * 0.96);
+            int h = (int)(wa.Height * 0.96);
 
             // Clamp to a reasonable minimum
-            w = Math.Max(w, 900);
-            h = Math.Max(h, 620);
+            w = Math.Max(w, 800);
+            h = Math.Max(h, 560);
+
+            // Compute scale relative to the 1080p base design height (900px usable)
+            _scale = Math.Min((float)w / 1280f, (float)h / 900f);
+            _scale = Math.Max(0.60f, Math.Min(_scale, 1.20f)); // clamp 60%–120%
 
             this.ClientSize = new Size(w, h);
             this.Location   = new Point(
                 wa.Left + (wa.Width  - w) / 2,
                 wa.Top  + (wa.Height - h) / 2);
         }
-
         private int GetDpi()
         {
             using (Graphics g = this.CreateGraphics())
@@ -252,7 +260,7 @@ namespace WindowsFormsApp1
                 Text      = "Voice Solution",
                 ForeColor = Color.White,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", 11f, FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(13f), FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleCenter,
                 Bounds    = new Rectangle(SIDE_PAD, 82, 160, 22)
@@ -265,7 +273,7 @@ namespace WindowsFormsApp1
                 Text      = "Audio Dashboard",
                 ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", 30f, FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(34f), FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleCenter,
                 Bounds    = new Rectangle(0, 8, W, 52)
@@ -278,7 +286,7 @@ namespace WindowsFormsApp1
                 Text      = "Agent: " + AppSettings.Instance.AgentName,
                 ForeColor = TEXT_GREY,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", 14f, FontStyle.Regular),
+                Font      = new Font("Segoe UI", SF(16f), FontStyle.Regular),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleCenter,
                 Bounds    = new Rectangle(0, 62, W, 26)
@@ -311,7 +319,7 @@ namespace WindowsFormsApp1
             using (var dot = new SolidBrush(pulse ? Color.White : Color.FromArgb(180, 255, 255, 255)))
                 g.FillEllipse(dot, 12, (p.Height - 10) / 2, 10, 10);
             // Text
-            using (var font = new Font("Segoe UI", 12f, FontStyle.Bold))
+            using (var font = new Font("Segoe UI", SF(14f), FontStyle.Bold))
             using (var brush = new SolidBrush(Color.White))
             {
                 var sf = new StringFormat { Alignment = StringAlignment.Near, LineAlignment = StringAlignment.Center };
@@ -332,9 +340,15 @@ namespace WindowsFormsApp1
                 BackColor     = BG_PANEL,
                 ForeColor     = TEXT_WHITE,
                 FlatStyle     = FlatStyle.Flat,
-                Font          = new Font("Segoe UI", 11f)
+                Font          = new Font("Segoe UI", SF(13f))
             };
-            _cboMic.SelectedIndexChanged += (s, e) => { AppSettings.Instance.MicDevice = _cboMic.Text; AppSettings.Instance.Save(); };
+            _cboMic.SelectedIndexChanged += (s, e) =>
+            {
+                AppSettings.Instance.MicDevice = _cboMic.Text;
+                AppSettings.Instance.Save();
+                // Restart capture on the newly selected device
+                StartAudioCapture(_cboMic.Text);
+            };
             this.Controls.Add(_cboMic);
 
             int rightX = W - SIDE_PAD - dropW;
@@ -346,7 +360,7 @@ namespace WindowsFormsApp1
                 BackColor     = BG_PANEL,
                 ForeColor     = TEXT_WHITE,
                 FlatStyle     = FlatStyle.Flat,
-                Font          = new Font("Segoe UI", 11f)
+                Font          = new Font("Segoe UI", SF(13f))
             };
             _cboHeadset.SelectedIndexChanged += (s, e) => { AppSettings.Instance.HeadsetDevice = _cboHeadset.Text; AppSettings.Instance.Save(); };
             this.Controls.Add(_cboHeadset);
@@ -420,7 +434,7 @@ namespace WindowsFormsApp1
                 Text      = "The Geniusness Is In The Simplicity",
                 ForeColor = ONE_RED,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", 24f, FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(28f), FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleCenter,
                 Bounds    = new Rectangle(0, taglineY, W, 40)
@@ -438,7 +452,7 @@ namespace WindowsFormsApp1
                 Text      = sectionLabel,
                 ForeColor = ONE_RED,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", 14f, FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(16f), FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Bounds    = new Rectangle(x, top, w, 24)
@@ -449,7 +463,7 @@ namespace WindowsFormsApp1
                 Text      = subLabel,
                 ForeColor = Color.White,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", 12f, FontStyle.Regular),
+                Font      = new Font("Segoe UI", SF(14f), FontStyle.Regular),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Bounds    = new Rectangle(x, top + 26, w, 20)
@@ -475,7 +489,7 @@ namespace WindowsFormsApp1
                 ForeColor = Color.White,
                 BackColor = ONE_RED,
                 FlatStyle = FlatStyle.Flat,
-                Font      = new Font("Segoe UI", 11f, FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(13f), FontStyle.Bold),
                 Bounds    = new Rectangle(x, badgeTop, w, BADGE_H),
                 Cursor    = Cursors.Hand
             };
@@ -494,7 +508,7 @@ namespace WindowsFormsApp1
                 ForeColor = TEXT_WHITE,
                 BackColor = BG_PANEL,
                 FlatStyle = FlatStyle.Flat,
-                Font      = new Font("Segoe UI", 12f, FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(14f), FontStyle.Bold),
                 Bounds    = new Rectangle(x, btnTop, w, BTN_H),
                 Cursor    = Cursors.Hand
             };
@@ -651,7 +665,7 @@ namespace WindowsFormsApp1
                 Text      = "ONE United Global  2026  v5.0",
                 ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", 13f),
+                Font      = new Font("Segoe UI", SF(15f)),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Bounds    = new Rectangle(SIDE_PAD, footerY + 2, 300, FOOTER_H - 2)
@@ -663,7 +677,7 @@ namespace WindowsFormsApp1
                 Text      = "This Desktop App Can Be Minimized  •  Settings Are Auto Saved",
                 ForeColor = TEXT_GREY,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", 12f),
+                Font      = new Font("Segoe UI", SF(14f)),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleCenter,
                 Bounds    = new Rectangle(0, footerY + 2, W, FOOTER_H - 2)
@@ -764,24 +778,53 @@ namespace WindowsFormsApp1
         }
 
         // ── Audio capture ─────────────────────────────────────────────────────
-        private void StartAudioCapture()
+        private void StartAudioCapture(string deviceName = null)
         {
+            // Stop and dispose any existing capture first
+            try { _micCapture?.StopRecording(); } catch { }
+            try { _micCapture?.Dispose(); } catch { }
+            _micCapture = null;
+
             try
             {
                 var devices = _deviceEnum.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active);
-                if (!devices.Any()) return;
+                if (!devices.Any()) { Log.Warn("[Audio] No capture devices found."); return; }
 
-                var device = devices.First();
-                _micCapture = new WasapiCapture(device);
+                // Use the device name from the dropdown (or saved setting) — NOT devices.First()
+                string targetName = deviceName
+                    ?? (_cboMic?.Text)
+                    ?? AppSettings.Instance.MicDevice;
+
+                MMDevice device = null;
+                if (!string.IsNullOrWhiteSpace(targetName))
+                    device = devices.FirstOrDefault(d => d.FriendlyName == targetName);
+
+                // Fall back to default mic only if nothing matched
+                if (device == null)
+                    device = devices.FirstOrDefault(d =>
+                        !d.FriendlyName.Contains("CABLE") &&
+                        !d.FriendlyName.Contains("VB-Audio") &&
+                        !d.FriendlyName.Contains("Virtual")) ?? devices.First();
+
+                Log.Info($"[Audio] Starting capture on: {device.FriendlyName}");
+
+                // Use shared mode so other apps can also use the mic simultaneously
+                _micCapture = new WasapiCapture(device, false);
                 _micCapture.DataAvailable += (s, e) =>
                 {
+                    if (e.BytesRecorded < 4) return;
                     float max = 0f;
-                    for (int i = 0; i < e.BytesRecorded; i += 4)
+                    int stride = (_micCapture.WaveFormat.BitsPerSample == 16) ? 2 : 4;
+                    for (int i = 0; i + stride <= e.BytesRecorded; i += stride)
                     {
-                        float sample = Math.Abs(BitConverter.ToSingle(e.Buffer, i));
+                        float sample;
+                        if (stride == 2)
+                            sample = Math.Abs(BitConverter.ToInt16(e.Buffer, i) / 32768f);
+                        else
+                            sample = Math.Abs(BitConverter.ToSingle(e.Buffer, i));
                         if (sample > max) max = sample;
                     }
-                    _agentVoiceLevel = Math.Min(1f, max * _agentVoiceSlider * 2f);
+                    _agentVoiceLevel = Math.Min(1f, max * _agentVoiceSlider * 2.5f);
                 };
                 _micCapture.StartRecording();
             }
@@ -947,7 +990,7 @@ namespace WindowsFormsApp1
                 Text      = text,
                 ForeColor = color ?? TEXT_WHITE,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", Math.Max(8f, size - 2f), bold ? FontStyle.Bold : FontStyle.Regular),
+                Font      = new Font("Segoe UI", SF(size), bold ? FontStyle.Bold : FontStyle.Regular),
                 AutoSize  = true,
                 Location  = new Point(x, y)
             };
