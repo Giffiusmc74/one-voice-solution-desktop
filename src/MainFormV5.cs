@@ -43,6 +43,7 @@ using System.Drawing.Drawing2D;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using WindowsFormsApp1.src;
 
@@ -134,6 +135,18 @@ namespace WindowsFormsApp1
         private System.Windows.Forms.Timer _livePulseTimer;
         private bool _livePulseState = true;
 
+        // ── P/Invoke for borderless drag-to-move ────────────────────────────
+        [DllImport("user32.dll")]
+        private static extern int SendMessage(IntPtr hWnd, int Msg, int wParam, int lParam);
+        [DllImport("user32.dll")]
+        private static extern bool ReleaseCapture();
+        private const int WM_NCLBUTTONDOWN = 0xA1;
+        private const int HTCAPTION        = 0x2;
+
+        // ── Custom title-bar buttons ──────────────────────────────────────────
+        private Button _btnClose;
+        private Button _btnMinimize;
+
         // ── Dragging slider state ─────────────────────────────────────────────
         private Panel  _draggingMeter;
         private string _draggingKey;
@@ -164,9 +177,9 @@ namespace WindowsFormsApp1
             this.Text            = "ONE Voice Solution";
             this.BackColor       = BG_DARK;
             this.ForeColor       = TEXT_WHITE;
-            this.FormBorderStyle = FormBorderStyle.FixedSingle;
+            this.FormBorderStyle = FormBorderStyle.None;   // removes white title bar
             this.MaximizeBox     = false;
-            this.MinimizeBox     = true;
+            this.MinimizeBox     = false;
             this.StartPosition   = FormStartPosition.Manual;
             this.ShowInTaskbar   = true;
             this.DoubleBuffered  = true;
@@ -292,14 +305,66 @@ namespace WindowsFormsApp1
             };
             this.Controls.Add(_lblAgentName);
 
-            // LIVE pill (right side)
+            // LIVE pill — shifted left to make room for close/minimize buttons
             _livePill = new Panel
             {
-                Bounds    = new Rectangle(W - 200, (HEADER_H - 36) / 2, 168, 36),
+                Bounds    = new Rectangle(W - 380, (HEADER_H - 36) / 2, 168, 36),
                 BackColor = ONE_RED
             };
             _livePill.Paint += DrawLivePill;
             this.Controls.Add(_livePill);
+
+            // ── Custom window control buttons (top-right of header) ───────────
+            int btnSize = 36;
+            int btnTop  = (HEADER_H - btnSize) / 2;
+
+            // Minimize button  —
+            _btnMinimize = new Button
+            {
+                Text      = "—",
+                FlatStyle = FlatStyle.Flat,
+                ForeColor = Color.White,
+                BackColor = Color.FromArgb(50, 50, 50),
+                Font      = new Font("Segoe UI", SF(13f), FontStyle.Bold),
+                Bounds    = new Rectangle(W - btnSize * 2 - 12, btnTop, btnSize, btnSize),
+                Cursor    = Cursors.Hand,
+                TabStop   = false
+            };
+            _btnMinimize.FlatAppearance.BorderSize  = 0;
+            _btnMinimize.FlatAppearance.MouseOverBackColor = Color.FromArgb(80, 80, 80);
+            _btnMinimize.Click += (s, e) =>
+            {
+                this.WindowState = FormWindowState.Minimized;
+            };
+            this.Controls.Add(_btnMinimize);
+
+            // Close button  ×
+            _btnClose = new Button
+            {
+                Text      = "×",
+                FlatStyle = FlatStyle.Flat,
+                ForeColor = Color.White,
+                BackColor = ONE_RED,
+                Font      = new Font("Segoe UI", SF(15f), FontStyle.Bold),
+                Bounds    = new Rectangle(W - btnSize - 6, btnTop, btnSize, btnSize),
+                Cursor    = Cursors.Hand,
+                TabStop   = false
+            };
+            _btnClose.FlatAppearance.BorderSize  = 0;
+            _btnClose.FlatAppearance.MouseOverBackColor = Color.FromArgb(200, 0, 0);
+            _btnClose.Click += (s, e) => Application.Exit();
+            this.Controls.Add(_btnClose);
+
+            // ── Make the header area drag the window ─────────────────────────
+            // Any click on the dark header background (not on a child control) drags the form.
+            this.MouseDown += (s, e) =>
+            {
+                if (e.Button == MouseButtons.Left && e.Y < HEADER_H)
+                {
+                    ReleaseCapture();
+                    SendMessage(this.Handle, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+                }
+            };
         }
 
         private void DrawLivePill(object sender, PaintEventArgs e)
