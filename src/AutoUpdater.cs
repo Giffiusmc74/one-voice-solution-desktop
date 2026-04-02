@@ -1,11 +1,10 @@
 using System;
 using System.Diagnostics;
 using System.IO;
-using System.Net.Http;
-using System.Reflection;
-using System.Text.Json;
-using System.Threading.Tasks;
+using System.Net;
+using System.Threading;
 using System.Windows.Forms;
+using Newtonsoft.Json.Linq;
 
 namespace OneApplication
 {
@@ -13,122 +12,92 @@ namespace OneApplication
     /// Checks GitHub Releases for a newer version of ONE Voice Solution.
     /// If found, silently downloads the installer and runs it with /VERYSILENT,
     /// then exits the current process so the new version takes over.
+    /// Runs entirely on a background thread — never blocks the UI.
     /// </summary>
     internal static class AutoUpdater
     {
-        // ── Configuration ─────────────────────────────────────────────────────
-        private const string GITHUB_OWNER    = "Giffiusmc74";
-        private const string GITHUB_REPO     = "one-voice-solution-desktop";
-        private const string INSTALLER_ASSET = "ONEVoiceSolution_Setup.exe";
-
-        // GitHub API endpoint for the latest release
+        private const string GITHUB_OWNER = "Giffiusmc74";
+        private const string GITHUB_REPO  = "one-voice-solution-desktop";
         private static readonly string API_URL =
-            $"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/releases/latest";
+            "https://api.github.com/repos/" + GITHUB_OWNER + "/" + GITHUB_REPO + "/releases/latest";
 
-        // ── Public entry point ────────────────────────────────────────────────
         /// <summary>
-        /// Call this on startup (fire-and-forget).  Shows a brief status label
-        /// if an update is being downloaded, otherwise runs silently.
+        /// Fire-and-forget — safe to call from the UI thread.
+        /// All network I/O runs on a ThreadPool thread.
         /// </summary>
-        public static async Task CheckAndUpdateAsync(string currentVersion, Label statusLabel = null)
+        public static void CheckAndUpdate(string currentVersion)
         {
-            try
+            ThreadPool.QueueUserWorkItem(delegate
             {
-                SetStatus(statusLabel, "Checking for updates…");
-
-                using var http = new HttpClient();
-                http.Timeout = TimeSpan.FromSeconds(10);
-                http.DefaultRequestHeaders.Add("User-Agent", "ONEVoiceSolution-AutoUpdater");
-
-                var json = await http.GetStringAsync(API_URL);
-                using var doc  = JsonDocument.Parse(json);
-                var root        = doc.RootElement;
-
-                // Tag name is expected to be "v6.5" or "6.5" — strip leading 'v'
-                string tagName     = root.GetProperty("tag_name").GetString() ?? "";
-                string remoteVer   = tagName.TrimStart('v');
-
-                if (!IsNewer(remoteVer, currentVersion))
+                try
                 {
-                    SetStatus(statusLabel, null);   // up to date — hide label
-                    return;
-                }
-
-                // Find the installer asset in the release
-                string downloadUrl = null;
-                if (root.TryGetProperty("assets", out var assets))
-                {
-                    foreach (var asset in assets.EnumerateArray())
+                    using (var wc = new WebClient())
                     {
-                        string name = asset.GetProperty("name").GetString() ?? "";
-                        if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                        wc.Headers[HttpRequestHeader.UserAgent] = "ONEVoiceSolution-AutoUpdater/1.0";
+
+                        string json = wc.DownloadString(API_URL);
+                        var release = JObject.Parse(json);
+
+                        string tagName   = (string)release["tag_name"] ?? string.Empty;
+                        string remoteVer = tagName.TrimStart('v');
+
+                        if (!IsNewer(remoteVer, currentVersion))
+                            return;  // already up to date
+
+                        // Find the .exe installer asset
+                        string downloadUrl = null;
+                        var assets = release["assets"] as JArray;
+                        if (assets != null)
                         {
-                            downloadUrl = asset.GetProperty("browser_download_url").GetString();
-                            break;
+                            foreach (JObject asset in assets)
+                            {
+                                string name = (string)asset["name"] ?? string.Empty;
+                                if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    downloadUrl = (string)asset["browser_download_url"];
+                                    break;
+                                }
+                            }
                         }
+
+                        if (string.IsNullOrEmpty(downloadUrl))
+                            return;
+
+                        // Download installer to temp folder
+                        string tempPath = Path.Combine(
+                            Path.GetTempPath(), "ONEVoiceSolution_Update.exe");
+                        wc.DownloadFile(downloadUrl, tempPath);
+
+                        // Launch installer silently (InnoSetup /VERYSILENT flag)
+                        var psi = new ProcessStartInfo
+                        {
+                            FileName        = tempPath,
+                            Arguments       = "/VERYSILENT /NORESTART /CLOSEAPPLICATIONS",
+                            UseShellExecute = true,
+                            Verb            = "runas"   // request elevation if needed
+                        };
+                        Process.Start(psi);
+
+                        // Exit current instance from the UI thread
+                        var form = Application.OpenForms.Count > 0
+                            ? Application.OpenForms[0] : null;
+                        if (form != null && !form.IsDisposed)
+                            form.BeginInvoke(new Action(() => Application.Exit()));
                     }
                 }
-
-                if (string.IsNullOrEmpty(downloadUrl))
+                catch (Exception ex)
                 {
-                    SetStatus(statusLabel, null);
-                    return;
+                    Log.Warn("[AutoUpdater] " + ex.Message);
                 }
-
-                SetStatus(statusLabel, $"Downloading update v{remoteVer}…");
-
-                // Download to temp folder
-                string tempPath = Path.Combine(Path.GetTempPath(), INSTALLER_ASSET);
-                var bytes = await http.GetByteArrayAsync(downloadUrl);
-                await File.WriteAllBytesAsync(tempPath, bytes);
-
-                SetStatus(statusLabel, $"Installing v{remoteVer}…");
-
-                // Run installer silently — InnoSetup flags:
-                //   /VERYSILENT  = no UI at all
-                //   /NORESTART   = don't force reboot
-                //   /CLOSEAPPLICATIONS = close running instances
-                var psi = new ProcessStartInfo
-                {
-                    FileName        = tempPath,
-                    Arguments       = "/VERYSILENT /NORESTART /CLOSEAPPLICATIONS",
-                    UseShellExecute = true,
-                    Verb            = "runas"   // request elevation if needed
-                };
-                Process.Start(psi);
-
-                // Exit current instance — installer will relaunch the new version
-                Application.Exit();
-            }
-            catch (Exception ex)
-            {
-                // Never crash the app over an update failure — just log and continue
-                Log.Warn($"[AutoUpdater] {ex.Message}");
-                SetStatus(statusLabel, null);
-            }
+            });
         }
 
-        // ── Helpers ───────────────────────────────────────────────────────────
         private static bool IsNewer(string remote, string current)
         {
-            if (Version.TryParse(remote,  out var r) &&
-                Version.TryParse(current, out var c))
+            Version r, c;
+            if (Version.TryParse(remote, out r) && Version.TryParse(current, out c))
                 return r > c;
-
-            // Fallback: simple string compare
             return string.Compare(remote, current, StringComparison.OrdinalIgnoreCase) > 0;
-        }
-
-        private static void SetStatus(Label lbl, string text)
-        {
-            if (lbl == null) return;
-            if (lbl.InvokeRequired)
-                lbl.BeginInvoke(new Action(() => SetStatus(lbl, text)));
-            else
-            {
-                lbl.Text    = text ?? "";
-                lbl.Visible = !string.IsNullOrEmpty(text);
-            }
         }
     }
 }
