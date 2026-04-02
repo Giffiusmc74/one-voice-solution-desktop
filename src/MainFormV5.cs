@@ -57,7 +57,7 @@ namespace WindowsFormsApp1
         private static readonly Color TEXT_WHITE = Color.White;
         private static readonly Color TEXT_GREY  = Color.FromArgb(180, 180, 180);
 
-        private const int HEADER_H     = 90;
+        private const int HEADER_H     = 110;
         private const int REDLINE_H    = 3;
         private const int DEVICE_ROW_H = 50;
         private const int FOOTER_H     = 44;
@@ -236,39 +236,39 @@ namespace WindowsFormsApp1
 
         private void BuildHeader(int W)
         {
-            // Logo
+            // Logo — left side, tall enough to be prominent
             _logoBox = new PictureBox
             {
-                Bounds   = new Rectangle(SIDE_PAD, 12, 140, 66),
+                Bounds   = new Rectangle(SIDE_PAD, 8, 160, 76),
                 SizeMode = PictureBoxSizeMode.Zoom,
                 BackColor = Color.Transparent
             };
             LoadLogo();
             this.Controls.Add(_logoBox);
 
-            // "Voice Solution" sits beneath the ONE logo
+            // "Voice Solution" — white text directly under the ONE logo
             _lblVoiceSolution = new Label
             {
                 Text      = "Voice Solution",
                 ForeColor = Color.White,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", 13f, FontStyle.Regular),
-                AutoSize  = true,
+                Font      = new Font("Segoe UI", 13f, FontStyle.Bold),
+                AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleCenter,
-                Bounds    = new Rectangle(SIDE_PAD, 78, 140, 18)
+                Bounds    = new Rectangle(SIDE_PAD, 82, 160, 22)
             };
             this.Controls.Add(_lblVoiceSolution);
 
-            // "Audio Dashboard" — centered across the full header width, large
+            // "Audio Dashboard" — centered, large, vertically centered in header
             _lblAudioControlPanel = new Label
             {
                 Text      = "Audio Dashboard",
                 ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", 30f, FontStyle.Bold),
+                Font      = new Font("Segoe UI", 34f, FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleCenter,
-                Bounds    = new Rectangle(0, 10, W, 44)
+                Bounds    = new Rectangle(0, 8, W, 52)
             };
             this.Controls.Add(_lblAudioControlPanel);
 
@@ -281,7 +281,7 @@ namespace WindowsFormsApp1
                 Font      = new Font("Segoe UI", 16f, FontStyle.Regular),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleCenter,
-                Bounds    = new Rectangle(0, 52, W, 28)
+                Bounds    = new Rectangle(0, 62, W, 26)
             };
             this.Controls.Add(_lblAgentName);
 
@@ -375,6 +375,8 @@ namespace WindowsFormsApp1
                 };
                 _videoPanel.Controls.Add(_videoPlayer);
                 _videoPlayer.CreateControl();
+                // Hide the WMP control bar — video only, no UI chrome
+                _videoPlayer.uiMode = "none";
                 string videoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "1ONEDigitalVideo.mp4");
                 if (File.Exists(videoPath))
                 {
