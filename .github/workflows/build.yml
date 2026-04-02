@@ -10,9 +10,11 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      # 1. Check out the code
+      # 1. Check out the code (with LFS so MainForm.resx is the real file, not a pointer)
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          lfs: true
 
       # 2. Set up NuGet so packages can be restored
       - name: Setup NuGet
