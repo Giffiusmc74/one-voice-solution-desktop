@@ -204,6 +204,7 @@
     <Compile Include="src\MacroListChangeNotifier.cs" />
     <Compile Include="src\MacroManager.cs" />
     <Compile Include="src\MacrosInfo.cs" />
+    <Compile Include="src\PaypalService.cs" />
     <Compile Include="src\RegistryUtils.cs" />
     <Compile Include="src\ScriptManager.cs" />
     <Compile Include="src\Scripts.cs" />
