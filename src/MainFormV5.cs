@@ -129,6 +129,13 @@ namespace WindowsFormsApp1
         private Button _btnMinimize;
         private string _videoFilePath;
         private int    _wmpExtraH = 80;
+        // Volume control — hold references to the selected MMDevices for real-time volume
+        private MMDevice _activeMicDevice;
+        private MMDevice _activeSpeakerDevice;
+        private TrackBar _trkMicVol;
+        private TrackBar _trkSpeakerVol;
+        private Label    _lblMicVol;
+        private Label    _lblSpeakerVol;
 
         // ── Constructor ───────────────────────────────────────────────────────
         public MainFormV5() : this(null) { }
@@ -571,8 +578,66 @@ namespace WindowsFormsApp1
             };
             this.Controls.Add(lblHint);
 
+            // ── Volume slider ──────────────────────────────────────────────
+            int volLblY  = hintY + hintH + (int)(14 * _scale);
+            int volLblH  = (int)(22 * _scale);
+            int trkH     = (int)(28 * _scale);
+            int trkY     = volLblY + volLblH + (int)(4 * _scale);
+
+            string volLblText = isLeft ? "Mic Volume" : "Speaker Volume";
+            var lblVol = new Label
+            {
+                Text      = volLblText,
+                ForeColor = TEXT_WHITE,
+                BackColor = Color.Transparent,
+                Font      = new Font("Segoe UI", SF(14f), FontStyle.Bold),
+                AutoSize  = false,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Bounds    = new Rectangle(x, volLblY, w - (int)(60 * _scale), volLblH)
+            };
+            this.Controls.Add(lblVol);
+
+            // Percentage label (right-aligned next to slider label)
+            var lblPct = new Label
+            {
+                Text      = "100%",
+                ForeColor = ONE_RED,
+                BackColor = Color.Transparent,
+                Font      = new Font("Segoe UI", SF(14f), FontStyle.Bold),
+                AutoSize  = false,
+                TextAlign = ContentAlignment.MiddleRight,
+                Bounds    = new Rectangle(x + w - (int)(55 * _scale), volLblY, (int)(55 * _scale), volLblH)
+            };
+            this.Controls.Add(lblPct);
+
+            var trk = new TrackBar
+            {
+                Minimum   = 0,
+                Maximum   = 100,
+                Value     = 100,
+                TickStyle = TickStyle.None,
+                Bounds    = new Rectangle(x, trkY, w, trkH),
+                BackColor = BG_DARK
+            };
+            trk.ValueChanged += (s, e) =>
+            {
+                float vol = trk.Value / 100f;
+                lblPct.Text = $"{trk.Value}%";
+                try
+                {
+                    if (isLeft && _activeMicDevice != null)
+                        _activeMicDevice.AudioEndpointVolume.MasterVolumeLevelScalar = vol;
+                    else if (!isLeft && _activeSpeakerDevice != null)
+                        _activeSpeakerDevice.AudioEndpointVolume.MasterVolumeLevelScalar = vol;
+                }
+                catch { }
+            };
+            this.Controls.Add(trk);
+            if (isLeft) { _trkMicVol = trk; _lblMicVol = lblPct; }
+            else        { _trkSpeakerVol = trk; _lblSpeakerVol = lblPct; }
+
             // Fill remaining space to footer — no dead black space
-            int filledTop = hintY + (int)(18 * _scale) + (int)(4 * _scale);
+            int filledTop = trkY + trkH + (int)(4 * _scale);
             int filledH   = (top + panelH) - filledTop;
             if (filledH > 0)
             {
@@ -797,6 +862,20 @@ namespace WindowsFormsApp1
                         !d.FriendlyName.Contains("VB-Audio") &&
                         !d.FriendlyName.Contains("Virtual")) ?? devices.First();
                 Log.Info($"[Audio] Capturing: {device.FriendlyName}");
+                _activeMicDevice = device;  // store for volume slider
+                // Sync slider to current system volume
+                if (_trkMicVol != null)
+                {
+                    try
+                    {
+                        float cur = device.AudioEndpointVolume.MasterVolumeLevelScalar;
+                        int pct = (int)(cur * 100);
+                        if (_trkMicVol.InvokeRequired)
+                            _trkMicVol.BeginInvoke(new Action(() => { _trkMicVol.Value = pct; if (_lblMicVol != null) _lblMicVol.Text = $"{pct}%"; }));
+                        else { _trkMicVol.Value = pct; if (_lblMicVol != null) _lblMicVol.Text = $"{pct}%"; }
+                    }
+                    catch { }
+                }
                 _micCapture = new WasapiCapture(device, false);
                 _micCapture.DataAvailable += (s, e) =>
                 {
@@ -832,7 +911,7 @@ namespace WindowsFormsApp1
                     _cboMic.BackColor = ONE_BLUE_SEL;
                     _cboMic.ForeColor = Color.White;
                 }
-                var rends = _deviceEnum.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
+                var rends = _deviceEnum.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active).ToList();
                 foreach (var d in rends) _cboHeadset.Items.Add(d.FriendlyName);
                 if (_cboHeadset.Items.Count > 0)
                 {
@@ -841,7 +920,36 @@ namespace WindowsFormsApp1
                     // Blue bg immediately on load
                     _cboHeadset.BackColor = ONE_BLUE_SEL;
                     _cboHeadset.ForeColor = Color.White;
+                    // Store active speaker device for volume slider
+                    int selIdx = _cboHeadset.SelectedIndex;
+                    if (selIdx >= 0 && selIdx < rends.Count)
+                    {
+                        _activeSpeakerDevice = rends[selIdx];
+                        try
+                        {
+                            float cur = _activeSpeakerDevice.AudioEndpointVolume.MasterVolumeLevelScalar;
+                            int pct = (int)(cur * 100);
+                            if (_trkSpeakerVol != null) { _trkSpeakerVol.Value = pct; if (_lblSpeakerVol != null) _lblSpeakerVol.Text = $"{pct}%"; }
+                        }
+                        catch { }
+                    }
                 }
+                // Update speaker device when user changes selection
+                _cboHeadset.SelectedIndexChanged += (s2, e2) =>
+                {
+                    int si = _cboHeadset.SelectedIndex;
+                    if (si >= 0 && si < rends.Count)
+                    {
+                        _activeSpeakerDevice = rends[si];
+                        try
+                        {
+                            float cur = _activeSpeakerDevice.AudioEndpointVolume.MasterVolumeLevelScalar;
+                            int pct = (int)(cur * 100);
+                            if (_trkSpeakerVol != null) { _trkSpeakerVol.Value = pct; if (_lblSpeakerVol != null) _lblSpeakerVol.Text = $"{pct}%"; }
+                        }
+                        catch { }
+                    }
+                };
             }
             catch (Exception ex) { Log.Warn($"[Audio] Device enum: {ex.Message}"); }
         }
