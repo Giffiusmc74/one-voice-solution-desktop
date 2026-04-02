@@ -97,14 +97,13 @@ Name: "{userstartup}\{#AppName}";  Filename: "{app}\{#AppExeName}";  Tasks: star
 Filename: "{tmp}\vbcable\VBCABLE_Setup_x64.exe"; \
   Parameters: "/S /norestart"; \
   StatusMsg: "Installing audio components (VB-Audio Virtual Cable)..."; \
-  Flags: waitprogress runhidden; \
+  Flags: waituntilterminated runhidden; \
   Check: Is64BitInstallMode
-
 ; 32-bit Windows fallback
 Filename: "{tmp}\vbcable\VBCABLE_Setup.exe"; \
   Parameters: "/S /norestart"; \
   StatusMsg: "Installing audio components (VB-Audio Virtual Cable)..."; \
-  Flags: waitprogress runhidden; \
+  Flags: waituntilterminated runhidden; \
   Check: not Is64BitInstallMode
 
 ; ── Step 2: Launch ONE Voice Solution after install ───────────────────────────
