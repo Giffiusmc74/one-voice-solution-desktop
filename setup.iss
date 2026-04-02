@@ -46,6 +46,14 @@ Source: "d:\Projects\Fiverr\Scott\WindowsOneApplication\WindowsOneApplication\re
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
+[Registry]
+; ── Register one-voice:// URI scheme so the member portal can launch the app ──
+; This lets the browser call one-voice://open and Windows will launch OneApp2025.exe
+Root: HKCR; Subkey: "one-voice";                         ValueType: string;  ValueName: "";              ValueData: "URL:ONE Voice Solution"; Flags: uninsdeletekey
+Root: HKCR; Subkey: "one-voice";                         ValueType: string;  ValueName: "URL Protocol";  ValueData: ""
+Root: HKCR; Subkey: "one-voice\DefaultIcon";              ValueType: string;  ValueName: "";              ValueData: "{app}\{#MyAppExeName},0"
+Root: HKCR; Subkey: "one-voice\shell\open\command";       ValueType: string;  ValueName: "";              ValueData: """{app}\{#MyAppExeName}"" ""%1"""
+
 [Run]
 ; Run the Driver Installer - Removed runhidden so you can see if it prompts for permission
 Filename: "{app}\redist\VBCABLE_Setup_x64.exe"; StatusMsg: "Installing Virtual Audio Cable Driver (Please follow the prompts)..."; Flags: waituntilterminated
