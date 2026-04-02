@@ -1,5 +1,14 @@
 /*
- * MainFormV5.cs  —  ONE Voice Solution v5.3
+ * MainFormV5.cs  —  ONE Voice Solution v5.4
+ *
+ * v5.4 Fixes (Apr 2 2026 — fourth pass):
+ *   - Video narrowed to ~50% of form width; side panels wider accordingly
+ *   - All fonts below device row increased 2pts
+ *   - More vertical separation between meter labels and meter bars
+ *   - Meter + Auto Level-Match content vertically centered within each side panel
+ *   - LIVE pill removed entirely
+ *   - Close and minimize buttons moved down to vertical center of header, made bigger
+ *   - ONE logo made bigger
  *
  * v5.3 Fix (Apr 2 2026 — third pass):
  *   - Agent name moved to same line as "Voice Solution" (beside logo, bottom-left)
@@ -183,7 +192,7 @@ namespace WindowsFormsApp1
         // ── Header ────────────────────────────────────────────────────────────
         private void BuildHeader(int W)
         {
-            int logoSz = (int)(104 * _scale);
+            int logoSz = (int)(130 * _scale);  // bigger logo
             int logoY  = (int)(22 * _scale) + (HEADER_H - (int)(22 * _scale) - logoSz) / 2;
             int logoX  = SIDE_PAD;
 
@@ -244,17 +253,17 @@ namespace WindowsFormsApp1
             this.Controls.Add(_lblAudioDashboard);
             AttachDrag(_lblAudioDashboard);
 
-            // Window buttons — absolute top-right
-            int btnSz = (int)(32 * _scale);
-            int btnY  = (int)(8  * _scale);
+            // Window buttons — vertically centered in header, bigger
+            int btnSz = (int)(42 * _scale);
+            int btnY  = (HEADER_H - btnSz) / 2;
             _btnClose = new Button
             {
                 Text      = "X",
                 FlatStyle = FlatStyle.Flat,
                 ForeColor = Color.White,
                 BackColor = ONE_RED,
-                Font      = new Font("Segoe UI", SF(11f), FontStyle.Bold),
-                Bounds    = new Rectangle(W - btnSz - 6, btnY, btnSz, btnSz),
+                Font      = new Font("Segoe UI", SF(13f), FontStyle.Bold),
+                Bounds    = new Rectangle(W - btnSz - 8, btnY, btnSz, btnSz),
                 Cursor    = Cursors.Hand,
                 TabStop   = false
             };
@@ -265,12 +274,12 @@ namespace WindowsFormsApp1
 
             _btnMinimize = new Button
             {
-                Text      = "_",
+                Text      = "−",
                 FlatStyle = FlatStyle.Flat,
                 ForeColor = Color.White,
                 BackColor = Color.FromArgb(55, 55, 55),
-                Font      = new Font("Segoe UI", SF(11f), FontStyle.Bold),
-                Bounds    = new Rectangle(W - btnSz * 2 - 12, btnY, btnSz, btnSz),
+                Font      = new Font("Segoe UI", SF(13f), FontStyle.Bold),
+                Bounds    = new Rectangle(W - btnSz * 2 - 16, btnY, btnSz, btnSz),
                 Cursor    = Cursors.Hand,
                 TabStop   = false
             };
@@ -278,15 +287,7 @@ namespace WindowsFormsApp1
             _btnMinimize.FlatAppearance.MouseOverBackColor = Color.FromArgb(90, 90, 90);
             _btnMinimize.Click += (s, e) => { this.WindowState = FormWindowState.Minimized; };
             this.Controls.Add(_btnMinimize);
-
-            // LIVE pill — top-center of header, well clear of window buttons
-            int pillW = (int)(168 * _scale);
-            int pillH = (int)(32  * _scale);
-            int pillX = (W - pillW) / 2;
-            int pillY = (int)(8 * _scale);
-            _livePill = new Panel { Bounds = new Rectangle(pillX, pillY, pillW, pillH), BackColor = ONE_RED };
-            _livePill.Paint += DrawLivePill;
-            this.Controls.Add(_livePill);
+            // LIVE pill removed (v5.4)
 
             this.MouseDown += (s, e) =>
             {
@@ -385,12 +386,13 @@ namespace WindowsFormsApp1
             int taglineGap = (int)(8  * _scale);
             int availH     = H - top - taglineH - taglineGap - FOOTER_H;
 
-            // Side panels narrower so video is ~2/3 of full width
-            int sideW     = (int)(240 * _scale);
+            // Video ~50% of form width; side panels get the rest
+            int videoW    = (int)(W * 0.50f);
+            int sideW     = (W - SIDE_PAD * 2 - VIDEO_GAP * 2 - videoW) / 2;
+            if (sideW < 200) sideW = 200;
             int videoLeft = SIDE_PAD + sideW + VIDEO_GAP;
-            int videoW    = W - videoLeft - VIDEO_GAP - sideW - SIDE_PAD;
-            // Video height = 2/3 of available height, vertically centered
-            int videoH    = (int)(availH * 0.67f);
+            // Video height = 80% of available height, vertically centered
+            int videoH    = (int)(availH * 0.80f);
             if (videoH < 180) videoH = 180;
             int videoTop  = top + (availH - videoH) / 2;
 
@@ -491,53 +493,71 @@ namespace WindowsFormsApp1
             string m1Label = isLeft ? "My Mic Level"    : "Customer Voice";
             string m2Label = "Script Playback";
 
-            // Title — 2pts bigger (15 vs 13), full width
+            // ── Measure total content height to center it vertically in the panel ──
+            int titleH  = (int)(22 * _scale);
+            int subH    = (int)(20 * _scale);
+            int gap1    = (int)(18 * _scale);  // title/sub -> meter1 label
+            int lbl1H   = (int)(22 * _scale);
+            int lbl2gap = (int)(10 * _scale);  // label to bar
+            int barH    = METER_H;
+            int betweenH= (int)(18 * _scale);  // bar1 -> meter2 label
+            int lbl2H   = (int)(22 * _scale);
+            int bar2gapH= (int)(10 * _scale);
+            int badgeGap= (int)(18 * _scale);  // bar2 -> badge
+            int hintH   = (int)(22 * _scale);
+            int hintGap = (int)(6  * _scale);
+            int contentH = titleH + subH + gap1 + lbl1H + lbl2gap + barH + betweenH + lbl2H + bar2gapH + barH + badgeGap + BADGE_H + hintGap + hintH;
+            // Vertically center within panel
+            int cy = top + (panelH - contentH) / 2;
+            if (cy < top) cy = top;
+
+            // Title — bigger (17), full width
             var lblTitle = new Label
             {
                 Text      = title,
                 ForeColor = ONE_RED,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(15f), FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(17f), FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleLeft,
-                Bounds    = new Rectangle(x, top, w, (int)(20 * _scale))
+                Bounds    = new Rectangle(x, cy, w, titleH)
             };
             this.Controls.Add(lblTitle);
-            // Subtitle — own row below title, full width, left-aligned
-            int subY = top + (int)(20 * _scale);
+            // Subtitle — own row below title
+            int subY = cy + titleH;
             var lblSub = new Label
             {
                 Text      = sub,
                 ForeColor = TEXT_GREY,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(11f)),
+                Font      = new Font("Segoe UI", SF(13f)),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleLeft,
-                Bounds    = new Rectangle(x, subY, w, (int)(18 * _scale))
+                Bounds    = new Rectangle(x, subY, w, subH)
             };
             this.Controls.Add(lblSub);
 
-            // Meter 1 label + bar with extra separation
-            int m1LabelY = subY + (int)(22 * _scale);
-            MakeLabel(m1Label, x, m1LabelY, 11, color: TEXT_WHITE);
-            int m1BarY = m1LabelY + (int)(20 * _scale);
+            // Meter 1 label + bar — more separation (10px gap between label and bar)
+            int m1LabelY = subY + subH + gap1;
+            MakeLabel(m1Label, x, m1LabelY, 13, color: TEXT_WHITE);  // +2pts
+            int m1BarY = m1LabelY + lbl1H + lbl2gap;
             MakeMeterPanel(x, m1BarY, w, isLeft ? "myMicLevel" : "customerVoice");
 
-            // Meter 2 label + bar with extra separation
-            int m2LabelY = m1BarY + METER_H + (int)(14 * _scale);
-            MakeLabel(m2Label, x, m2LabelY, 11, color: TEXT_WHITE);
-            int m2BarY = m2LabelY + (int)(20 * _scale);
+            // Meter 2 label + bar
+            int m2LabelY = m1BarY + barH + betweenH;
+            MakeLabel(m2Label, x, m2LabelY, 13, color: TEXT_WHITE);  // +2pts
+            int m2BarY = m2LabelY + lbl2H + bar2gapH;
             MakeMeterPanel(x, m2BarY, w, isLeft ? "agentScript" : "customerScript");
 
-            // Auto Level-Match badge — 2pts bigger font (13 vs 11), taller button
-            int badgeTop = m2BarY + METER_H + (int)(16 * _scale);
+            // Auto Level-Match badge — bigger font (15), taller button
+            int badgeTop = m2BarY + barH + badgeGap;
             var btnBadge = new Button
             {
                 Text      = "\u25cf Auto Level-Match: ON",
                 ForeColor = Color.White,
                 BackColor = ONE_RED,
                 FlatStyle = FlatStyle.Flat,
-                Font      = new Font("Segoe UI", SF(13f), FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(15f), FontStyle.Bold),
                 Bounds    = new Rectangle(x, badgeTop, w, BADGE_H),
                 Cursor    = Cursors.Hand
             };
@@ -547,17 +567,17 @@ namespace WindowsFormsApp1
             this.Controls.Add(btnBadge);
             if (isLeft) _btnAgentAutoLevel = btnBadge; else _btnCustomerAutoLevel = btnBadge;
 
-            // Helper hint — 1pt bigger (10 vs 9), color white
-            int hintY = badgeTop + BADGE_H + (int)(4 * _scale);
+            // Helper hint — bigger (12), color white
+            int hintY = badgeTop + BADGE_H + hintGap;
             var lblHint = new Label
             {
                 Text      = "Tap to switch between manual & automatic level control",
                 ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(10f), FontStyle.Italic),
+                Font      = new Font("Segoe UI", SF(12f), FontStyle.Italic),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleLeft,
-                Bounds    = new Rectangle(x, hintY, w, (int)(18 * _scale))
+                Bounds    = new Rectangle(x, hintY, w, hintH)
             };
             this.Controls.Add(lblHint);
 
@@ -636,7 +656,7 @@ namespace WindowsFormsApp1
             int fy = H - FOOTER_H;
             _lblFooterLeft = new Label
             {
-                Text      = "ONE United Global  \u2022  2026  \u2022  v5.3",
+                Text      = "ONE United Global  \u2022  2026  \u2022  v5.4",
                 ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
                 Font      = new Font("Segoe UI", SF(12f)),
