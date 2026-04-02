@@ -150,6 +150,7 @@ namespace WindowsFormsApp1
             PopulateDevices();
             StartAudioCapture();
             StartHeartbeat();
+            StartBridgeServer();
             if (!string.IsNullOrEmpty(agentNameOverride) && _lblAgentName != null)
                 _lblAgentName.Text = "Agent: " + agentNameOverride;
             // Delay video play until form is fully shown — WMP needs handle created
@@ -972,6 +973,45 @@ namespace WindowsFormsApp1
             catch (Exception ex) { Log.Warn($"[Audio] Device enum: {ex.Message}"); }
         }
 
+        // ── Local Bridge Server ───────────────────────────────────────────────
+        private void StartBridgeServer()
+        {
+            var bridge = LocalBridgeServer.Instance;
+            // Wire playback level → script meter bars
+            bridge.OnPlaybackLevel += (level, channel) =>
+            {
+                if (this.IsDisposed) return;
+                Action update = () =>
+                {
+                    if (channel == "agent")
+                    {
+                        _agentScriptLevel = level;
+                        _agentScriptMeter?.Invalidate();
+                    }
+                    else
+                    {
+                        _customerScriptLevel = level;
+                        _customerScriptMeter?.Invalidate();
+                    }
+                };
+                if (this.InvokeRequired) this.BeginInvoke(update); else update();
+            };
+            // Wire stop → zero out meters
+            bridge.OnPlaybackStopped += () =>
+            {
+                if (this.IsDisposed) return;
+                Action reset = () =>
+                {
+                    _agentScriptLevel    = 0f;
+                    _customerScriptLevel = 0f;
+                    _agentScriptMeter?.Invalidate();
+                    _customerScriptMeter?.Invalidate();
+                };
+                if (this.InvokeRequired) this.BeginInvoke(reset); else reset();
+            };
+            bridge.Start();
+        }
+
         // ── Heartbeat / License ───────────────────────────────────────────────
         private const string OWNER_UUID = "4C4C4544-0058-3510-8043-B5C04F595733";
         private async void StartHeartbeat()
@@ -1091,6 +1131,7 @@ namespace WindowsFormsApp1
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             HeartbeatService.Instance.Stop();
+            LocalBridgeServer.Instance.Stop();
             _meterTimer?.Stop();
             _livePulseTimer?.Stop();
             _micCapture?.StopRecording();
