@@ -757,11 +757,23 @@ namespace WindowsFormsApp1
         }
 
         // ── Heartbeat ─────────────────────────────────────────────────────────
+        // Owner hardware UUID — this machine bypasses license validation entirely.
+        private const string OWNER_UUID = "4C4C4544-0058-3510-8043-B5C04F595733";
+
         private async void StartHeartbeat()
         {
-            string key       = AppSettings.Instance.LicenseKey;
             string machineId = MachineId.Get();
 
+            // Owner bypass: skip all license checks on the developer's machine.
+            if (string.Equals(machineId, OWNER_UUID, StringComparison.OrdinalIgnoreCase))
+            {
+                if (_lblAgentName != null)
+                    _lblAgentName.Text = "Agent: Owner";
+                Log.Info("[License] Owner machine detected — license validation bypassed.");
+                return;
+            }
+
+            string key = AppSettings.Instance.LicenseKey;
             if (string.IsNullOrEmpty(key)) return;
 
             bool ok = await HeartbeatService.Instance.DesktopLoginAsync(key, machineId);
