@@ -1,5 +1,8 @@
 /*
- * MainFormV5.cs  —  ONE Voice Solution v5.2
+ * MainFormV5.cs  —  ONE Voice Solution v5.3
+ *
+ * v5.3 Fix (Apr 2 2026 — third pass):
+ *   - Agent name moved to same line as "Voice Solution" (beside logo, bottom-left)
  *
  * v5.2 Fixes (Apr 2 2026 — second pass):
  *   - LIVE pill moved to top-CENTER of header (was overlapping window buttons)
@@ -194,8 +197,10 @@ namespace WindowsFormsApp1
             this.Controls.Add(_logoBox);
             AttachDrag(_logoBox);
 
-            // "Voice Solution" — beside logo, baseline aligned
+            // "Voice Solution" — beside logo, upper half of logo area
             int vsX = logoX + logoSz + (int)(10 * _scale);
+            int vsW = (int)(200 * _scale);
+            int vsH = (int)(logoSz / 2);
             _lblVoiceSolution = new Label
             {
                 Text      = "Voice Solution",
@@ -204,10 +209,25 @@ namespace WindowsFormsApp1
                 Font      = new Font("Segoe UI", SF(14f), FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.BottomLeft,
-                Bounds    = new Rectangle(vsX, logoY, (int)(160 * _scale), logoSz)
+                Bounds    = new Rectangle(vsX, logoY, vsW, vsH)
             };
             this.Controls.Add(_lblVoiceSolution);
             AttachDrag(_lblVoiceSolution);
+
+            // "Agent: Name" — same line as "Voice Solution", right-aligned beside it
+            int agentLabelX = vsX + vsW + (int)(8 * _scale);
+            _lblAgentName = new Label
+            {
+                Text      = "Agent: " + AppSettings.Instance.AgentName,
+                ForeColor = TEXT_GREY,
+                BackColor = Color.Transparent,
+                Font      = new Font("Segoe UI", SF(13f), FontStyle.Regular),
+                AutoSize  = false,
+                TextAlign = ContentAlignment.BottomLeft,
+                Bounds    = new Rectangle(agentLabelX, logoY, (int)(280 * _scale), vsH)
+            };
+            this.Controls.Add(_lblAgentName);
+            AttachDrag(_lblAgentName);
 
             // "Audio Dashboard" — centred, with top cushion
             int dashY = (int)(24 * _scale);
@@ -223,21 +243,6 @@ namespace WindowsFormsApp1
             };
             this.Controls.Add(_lblAudioDashboard);
             AttachDrag(_lblAudioDashboard);
-
-            // "Agent:" — clear separation below "Audio Dashboard"
-            int agentY = dashY + (int)(54 * _scale);
-            _lblAgentName = new Label
-            {
-                Text      = "Agent: " + AppSettings.Instance.AgentName,
-                ForeColor = TEXT_GREY,
-                BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(14f), FontStyle.Regular),
-                AutoSize  = false,
-                TextAlign = ContentAlignment.MiddleCenter,
-                Bounds    = new Rectangle(0, agentY, W, (int)(26 * _scale))
-            };
-            this.Controls.Add(_lblAgentName);
-            AttachDrag(_lblAgentName);
 
             // Window buttons — absolute top-right
             int btnSz = (int)(32 * _scale);
@@ -631,7 +636,7 @@ namespace WindowsFormsApp1
             int fy = H - FOOTER_H;
             _lblFooterLeft = new Label
             {
-                Text      = "ONE United Global  \u2022  2026  \u2022  v5.2",
+                Text      = "ONE United Global  \u2022  2026  \u2022  v5.3",
                 ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
                 Font      = new Font("Segoe UI", SF(12f)),
