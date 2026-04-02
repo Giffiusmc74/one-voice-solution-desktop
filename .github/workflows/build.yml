@@ -1,145 +1,41 @@
 name: Build ONE Voice Solution Installer
-
 on:
   push:
     branches: [ main, master ]
-    tags:
-      - 'v*'          # triggers on any tag like v5.9, v6.0, v6.1 etc.
-  workflow_dispatch:   # allows manual trigger from GitHub website
-
+  workflow_dispatch:
 jobs:
   build:
     runs-on: windows-latest
-
     steps:
-      # 1. Check out the code (with LFS so MainForm.resx is the real file, not a pointer)
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           lfs: true
-          fetch-depth: 0   # needed so git describe can find all tags
-
-      # 2. Determine version number — from pushed tag (v6.0) or latest tag on branch
-      - name: Determine Version
-        id: version
-        shell: powershell
-        run: |
-          $tag = ""
-          if ($env:GITHUB_REF -match "^refs/tags/v(.+)$") {
-            $tag = $matches[1]
-            Write-Host "Tagged release detected: $tag"
-          } else {
-            # Fall back to the most recent tag reachable from this commit
-            $raw = git describe --tags --abbrev=0 2>$null
-            if ($raw -match "^v(.+)$") { $tag = $matches[1] } else { $tag = $raw }
-            if (-not $tag) { $tag = "5.9" }
-            Write-Host "Using latest tag: $tag"
-          }
-          echo "VERSION=$tag" >> $env:GITHUB_OUTPUT
-
-      # 3. Patch APP_VERSION constant in MainFormV5.cs with the resolved version
-      - name: Patch APP_VERSION in source
-        shell: powershell
-        run: |
-          $ver = "${{ steps.version.outputs.VERSION }}"
-          $file = "src\MainFormV5.cs"
-          $content = Get-Content $file -Raw
-          $patched = $content -replace 'private const string APP_VERSION = "[^"]*";', "private const string APP_VERSION = `"$ver`";"
-          Set-Content $file $patched -NoNewline
-          Write-Host "APP_VERSION patched to: $ver"
-
-      # 4. Patch AssemblyInfo.cs version numbers
-      - name: Patch AssemblyInfo version
-        shell: powershell
-        run: |
-          $ver = "${{ steps.version.outputs.VERSION }}"
-          $parts = $ver.Split(".")
-          while ($parts.Count -lt 4) { $parts += "0" }
-          $asmVer = ($parts[0..3]) -join "."
-          $file = "Properties\AssemblyInfo.cs"
-          $content = Get-Content $file -Raw
-          $content = $content -replace '\[assembly: AssemblyVersion\("[^"]*"\)\]', "[assembly: AssemblyVersion(`"$asmVer`")]"
-          $content = $content -replace '\[assembly: AssemblyFileVersion\("[^"]*"\)\]', "[assembly: AssemblyFileVersion(`"$asmVer`")]"
-          Set-Content $file $content -NoNewline
-          Write-Host "AssemblyVersion patched to: $asmVer"
-
-      # 5. Set up NuGet
       - name: Setup NuGet
         uses: NuGet/setup-nuget@v2
-
-      # 6. Restore NuGet packages (NAudio, Newtonsoft.Json, etc.)
       - name: Restore NuGet packages
         run: nuget restore OneApplication.csproj -PackagesDirectory packages
-
-      # 7. Set up MSBuild
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
-
-      # 8. Build the project in Release mode
       - name: Build Release
         run: msbuild OneApplication.csproj /p:Configuration=Release /p:Platform=AnyCPU /p:OutputPath=bin\Release\
-
-      # 9. Download VB-Audio Cable driver (official package from vb-audio.com)
       - name: Download VB-Audio Cable
-        shell: powershell
         run: |
           New-Item -ItemType Directory -Force -Path installer\vbcable | Out-Null
           $url = "https://download.vb-audio.com/Download_CABLE/VBCABLE_Driver_Pack45.zip"
           $zip = "installer\vbcable\vbcable.zip"
-          Write-Host "Downloading VB-Audio Cable from $url"
           Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
           Expand-Archive -Path $zip -DestinationPath installer\vbcable -Force
           Remove-Item $zip
-          Write-Host "VB-Audio Cable files:"
-          Get-ChildItem installer\vbcable
-
-      # 10. Install Inno Setup
+        shell: powershell
       - name: Install Inno Setup
         run: choco install innosetup --yes --no-progress
-
-      # 11. Patch installer .iss file — output filename and AppVersion reflect the version
-      - name: Patch installer version
-        shell: powershell
-        run: |
-          $ver = "${{ steps.version.outputs.VERSION }}"
-          $file = "installer\ONEVoiceSolution_Setup.iss"
-          $content = Get-Content $file -Raw
-          $content = $content -replace 'OutputBaseFilename=.*', "OutputBaseFilename=ONEVoiceSolution_Setup_v$ver"
-          $content = $content -replace 'AppVersion=.*', "AppVersion=$ver"
-          Set-Content $file $content -NoNewline
-          Write-Host "Installer output filename: ONEVoiceSolution_Setup_v$ver.exe"
-
-      # 12. Compile the installer
       - name: Build Installer
         run: |
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\ONEVoiceSolution_Setup.iss
-
-      # 13. Upload installer artifact — named with version number
       - name: Upload Installer
         uses: actions/upload-artifact@v4
         with:
-          name: ONEVoiceSolution-v${{ steps.version.outputs.VERSION }}-Installer
-          path: installer\output\ONEVoiceSolution_Setup_v${{ steps.version.outputs.VERSION }}.exe
-          retention-days: 90
-
-      # 14. Create a GitHub Release when a tag is pushed (e.g. git tag v6.0 && git push --tags)
-      - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: installer\output\ONEVoiceSolution_Setup_v${{ steps.version.outputs.VERSION }}.exe
-          name: ONE Voice Solution v${{ steps.version.outputs.VERSION }}
-          body: |
-            ## ONE Voice Solution v${{ steps.version.outputs.VERSION }}
-
-            ### Installation
-            1. Download the `.exe` installer below
-            2. If Windows shows **"Windows Protected Your PC"** — click **More info**, then **Run anyway**
-            3. Follow the installer — VB-Audio Cable installs automatically (no manual steps)
-
-            ### What's included
-            - Audio Dashboard with mic + headset device selection
-            - Real-time VU meters (Agent Audio + Customer Output channels)
-            - Script Playback integration with the ONE Voice web portal
-            - Auto Level-Match for consistent audio levels
-            - Settings auto-saved between sessions
+          name: ONENEW20260401-Installer
+          path: installer\output\ONEVoiceSolution_Setup_v5.exe
+          retention-days: 30
