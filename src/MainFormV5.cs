@@ -421,14 +421,14 @@ namespace WindowsFormsApp1
             int sideW     = (W - SIDE_PAD * 2 - VIDEO_GAP * 2 - videoW) / 2;
             if (sideW < 200) sideW = 200;
             int videoLeft = SIDE_PAD + sideW + VIDEO_GAP;
-            // Video height = 80% of available height, vertically centered
-            int videoH    = (int)(availH * 0.80f);
-            if (videoH < 180) videoH = 180;
-            int videoTop  = top + (availH - videoH) / 2;
 
-            // Side panels fill ALL the way to footer (include tagline+gap area)
-            int panelTop = top;
-            int panelH   = availH + taglineGap + taglineH;
+            // Video fills most of the available height, starts at contentTop
+            int videoH   = availH;
+            int videoTop = top;
+
+            // Side panels are exactly aligned with the video top and bottom
+            int panelTop = videoTop;
+            int panelH   = videoH;
 
             // Video panel
             _videoPanel = new Panel
@@ -441,9 +441,8 @@ namespace WindowsFormsApp1
             // WMP — looping, muted, no chrome
             try
             {
-                // WMP chrome bar is ~48-80px tall — make the control taller than the panel
-                // so the control bar is clipped below the visible area
-                // Panel clips children automatically when AutoScroll=false and AutoSize=false
+                // WMP chrome bar is ~80px tall — make the control taller than the panel
+                // so the chrome bar is clipped below the visible area
                 int wmpExtraH = 80;
                 _videoPlayer = new AxWMPLib.AxWindowsMediaPlayer
                 {
@@ -452,7 +451,6 @@ namespace WindowsFormsApp1
                 _videoPanel.Controls.Add(_videoPlayer);
                 _videoPanel.AutoScroll = false;
                 _videoPanel.AutoSize   = false;
-                // Force panel to clip children (hides WMP chrome bar)
                 _videoPanel.GetType().GetProperty("DoubleBuffered",
                     System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
                     ?.SetValue(_videoPanel, true);
@@ -464,7 +462,6 @@ namespace WindowsFormsApp1
                     AppDomain.CurrentDomain.BaseDirectory, "Resources", "1ONEDigitalVideo.mp4");
                 if (File.Exists(videoPath))
                 {
-                    // Store path for deferred play in StartVideoPlayback()
                     _videoFilePath = videoPath;
                     _wmpExtraH     = wmpExtraH;
                     _videoPlayer.PlayStateChange += (s2, e2) =>
@@ -478,10 +475,14 @@ namespace WindowsFormsApp1
                         if (this.InvokeRequired) this.BeginInvoke(fix); else fix();
                     };
                 }
+                else
+                {
+                    Log.Warn($"[Video] File not found: {videoPath}");
+                }
             }
             catch (Exception ex) { Log.Warn($"[Video] WMP failed: {ex.Message}"); }
 
-            // Side panels
+            // Side panels — aligned exactly with video top/bottom
             BuildMeterPanel(SIDE_PAD, panelTop, sideW, panelH, isLeft: true);
             int rightX = videoLeft + videoW + VIDEO_GAP;
             BuildMeterPanel(rightX, panelTop, sideW, panelH, isLeft: false);
