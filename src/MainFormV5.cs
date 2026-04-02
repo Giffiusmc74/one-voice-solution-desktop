@@ -67,7 +67,7 @@ namespace WindowsFormsApp1
         private float _scale = 1.0f;
         private int HEADER_H     => (int)(148 * _scale);  // taller: ~half-inch extra cushion
         private int REDLINE_H    => 3;
-        private int DEVICE_ROW_H => (int)(58  * _scale);
+        private int DEVICE_ROW_H => (int)(72  * _scale);
         private int FOOTER_H     => (int)(48  * _scale);  // taller: half-inch cushion
         private int SIDE_PAD     => (int)(40  * _scale);  // more cushion from edges
         private int VIDEO_GAP    => (int)(12  * _scale);
@@ -357,7 +357,7 @@ namespace WindowsFormsApp1
         // ── Device row ────────────────────────────────────────────────────────
         private void BuildDeviceRow(int W)
         {
-            int top   = HEADER_H + REDLINE_H + (int)(8 * _scale);
+            int top   = HEADER_H + REDLINE_H + (int)(20 * _scale);
             int dropW = (W - SIDE_PAD * 2 - (int)(50 * _scale)) / 2;
 
             // Microphone label — bold, 16pt
