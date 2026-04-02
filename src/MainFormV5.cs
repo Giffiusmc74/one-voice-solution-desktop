@@ -252,7 +252,7 @@ namespace WindowsFormsApp1
                 Text      = "Voice Solution",
                 ForeColor = Color.White,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", 13f, FontStyle.Bold),
+                Font      = new Font("Segoe UI", 11f, FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleCenter,
                 Bounds    = new Rectangle(SIDE_PAD, 82, 160, 22)
@@ -265,7 +265,7 @@ namespace WindowsFormsApp1
                 Text      = "Audio Dashboard",
                 ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", 34f, FontStyle.Bold),
+                Font      = new Font("Segoe UI", 30f, FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleCenter,
                 Bounds    = new Rectangle(0, 8, W, 52)
@@ -278,7 +278,7 @@ namespace WindowsFormsApp1
                 Text      = "Agent: " + AppSettings.Instance.AgentName,
                 ForeColor = TEXT_GREY,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", 16f, FontStyle.Regular),
+                Font      = new Font("Segoe UI", 14f, FontStyle.Regular),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleCenter,
                 Bounds    = new Rectangle(0, 62, W, 26)
@@ -311,7 +311,7 @@ namespace WindowsFormsApp1
             using (var dot = new SolidBrush(pulse ? Color.White : Color.FromArgb(180, 255, 255, 255)))
                 g.FillEllipse(dot, 12, (p.Height - 10) / 2, 10, 10);
             // Text
-            using (var font = new Font("Segoe UI", 14f, FontStyle.Bold))
+            using (var font = new Font("Segoe UI", 12f, FontStyle.Bold))
             using (var brush = new SolidBrush(Color.White))
             {
                 var sf = new StringFormat { Alignment = StringAlignment.Near, LineAlignment = StringAlignment.Center };
@@ -332,7 +332,7 @@ namespace WindowsFormsApp1
                 BackColor     = BG_PANEL,
                 ForeColor     = TEXT_WHITE,
                 FlatStyle     = FlatStyle.Flat,
-                Font          = new Font("Segoe UI", 13f)
+                Font          = new Font("Segoe UI", 11f)
             };
             _cboMic.SelectedIndexChanged += (s, e) => { AppSettings.Instance.MicDevice = _cboMic.Text; AppSettings.Instance.Save(); };
             this.Controls.Add(_cboMic);
@@ -346,7 +346,7 @@ namespace WindowsFormsApp1
                 BackColor     = BG_PANEL,
                 ForeColor     = TEXT_WHITE,
                 FlatStyle     = FlatStyle.Flat,
-                Font          = new Font("Segoe UI", 13f)
+                Font          = new Font("Segoe UI", 11f)
             };
             _cboHeadset.SelectedIndexChanged += (s, e) => { AppSettings.Instance.HeadsetDevice = _cboHeadset.Text; AppSettings.Instance.Save(); };
             this.Controls.Add(_cboHeadset);
@@ -377,12 +377,25 @@ namespace WindowsFormsApp1
                 _videoPlayer.CreateControl();
                 // Hide the WMP control bar — video only, no UI chrome
                 _videoPlayer.uiMode = "none";
+                _videoPlayer.stretchToFit = true;
                 string videoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "1ONEDigitalVideo.mp4");
                 if (File.Exists(videoPath))
                 {
                     _videoPlayer.settings.setMode("loop", true);
                     _videoPlayer.settings.volume = 0; // muted — visual only
                     _videoPlayer.URL = videoPath;
+                    // Force auto-play: re-apply uiMode after URL is set
+                    _videoPlayer.uiMode = "none";
+                    _videoPlayer.Ctlcontrols.play();
+                    // Keep controls hidden if WMP resets uiMode
+                    _videoPlayer.PlayStateChange += (s2, e2) =>
+                    {
+                        if (_videoPlayer.uiMode != "none")
+                            _videoPlayer.uiMode = "none";
+                        // Loop: when stopped/ended, replay
+                        if (e2.newState == 1) // MediaEnded
+                            _videoPlayer.Ctlcontrols.play();
+                    };
                 }
             }
             catch (Exception ex)
@@ -407,7 +420,7 @@ namespace WindowsFormsApp1
                 Text      = "The Geniusness Is In The Simplicity",
                 ForeColor = ONE_RED,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", 28f, FontStyle.Bold),
+                Font      = new Font("Segoe UI", 24f, FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleCenter,
                 Bounds    = new Rectangle(0, taglineY, W, 40)
@@ -425,7 +438,7 @@ namespace WindowsFormsApp1
                 Text      = sectionLabel,
                 ForeColor = ONE_RED,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", 16f, FontStyle.Bold),
+                Font      = new Font("Segoe UI", 14f, FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Bounds    = new Rectangle(x, top, w, 24)
@@ -436,7 +449,7 @@ namespace WindowsFormsApp1
                 Text      = subLabel,
                 ForeColor = Color.White,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", 14f, FontStyle.Regular),
+                Font      = new Font("Segoe UI", 12f, FontStyle.Regular),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Bounds    = new Rectangle(x, top + 26, w, 20)
@@ -462,7 +475,7 @@ namespace WindowsFormsApp1
                 ForeColor = Color.White,
                 BackColor = ONE_RED,
                 FlatStyle = FlatStyle.Flat,
-                Font      = new Font("Segoe UI", 13f, FontStyle.Bold),
+                Font      = new Font("Segoe UI", 11f, FontStyle.Bold),
                 Bounds    = new Rectangle(x, badgeTop, w, BADGE_H),
                 Cursor    = Cursors.Hand
             };
@@ -481,7 +494,7 @@ namespace WindowsFormsApp1
                 ForeColor = TEXT_WHITE,
                 BackColor = BG_PANEL,
                 FlatStyle = FlatStyle.Flat,
-                Font      = new Font("Segoe UI", 14f, FontStyle.Bold),
+                Font      = new Font("Segoe UI", 12f, FontStyle.Bold),
                 Bounds    = new Rectangle(x, btnTop, w, BTN_H),
                 Cursor    = Cursors.Hand
             };
@@ -528,8 +541,8 @@ namespace WindowsFormsApp1
             int w = panel.Width;
             int h = panel.Height;
 
-            // Background track
-            using (var bg = new SolidBrush(Color.FromArgb(40, 40, 40)))
+            // Background track — soft steel blue
+            using (var bg = new SolidBrush(Color.FromArgb(30, 80, 140)))
             using (var path = RoundedRect(new Rectangle(0, 0, w - 1, h - 1), 4))
                 g.FillPath(bg, path);
 
@@ -638,7 +651,7 @@ namespace WindowsFormsApp1
                 Text      = "ONE United Global  2026  v5.0",
                 ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", 15f),
+                Font      = new Font("Segoe UI", 13f),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Bounds    = new Rectangle(SIDE_PAD, footerY + 2, 300, FOOTER_H - 2)
@@ -650,7 +663,7 @@ namespace WindowsFormsApp1
                 Text      = "This Desktop App Can Be Minimized  •  Settings Are Auto Saved",
                 ForeColor = TEXT_GREY,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", 14f),
+                Font      = new Font("Segoe UI", 12f),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleCenter,
                 Bounds    = new Rectangle(0, footerY + 2, W, FOOTER_H - 2)
@@ -934,7 +947,7 @@ namespace WindowsFormsApp1
                 Text      = text,
                 ForeColor = color ?? TEXT_WHITE,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", size, bold ? FontStyle.Bold : FontStyle.Regular),
+                Font      = new Font("Segoe UI", Math.Max(8f, size - 2f), bold ? FontStyle.Bold : FontStyle.Regular),
                 AutoSize  = true,
                 Location  = new Point(x, y)
             };
