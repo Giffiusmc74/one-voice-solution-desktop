@@ -107,7 +107,7 @@ namespace WindowsFormsApp1
         private Label            _lblMicLabel;
         private Label            _lblHeadsetLabel;
         private Panel            _videoPanel;
-        private AxWMPLib.AxWindowsMediaPlayer _videoPlayer;
+        private PictureBox       _videoPictureBox;
         private Panel            _leftPanel;
         private Panel            _rightPanel;
         private Label            _lblAgentAudio;
@@ -328,27 +328,24 @@ namespace WindowsFormsApp1
             _videoPanel.Paint += DrawVideoRedBorder;
             this.Controls.Add(_videoPanel);
 
-            // Windows Media Player for looping video
+            // Branded logo panel (replaces WMP video — no COM dependency)
+            _videoPictureBox = new PictureBox
+            {
+                Bounds    = new Rectangle(2, 2, VIDEO_W - 4, VIDEO_H - 4),
+                SizeMode  = PictureBoxSizeMode.Zoom,
+                BackColor = Color.Black
+            };
             try
             {
-                _videoPlayer = new AxWMPLib.AxWindowsMediaPlayer
-                {
-                    Bounds = new Rectangle(2, 2, VIDEO_W - 4, VIDEO_H - 4)
-                };
-                _videoPanel.Controls.Add(_videoPlayer);
-                _videoPlayer.CreateControl();
-                string videoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "1ONEDigitalVideo.mp4");
-                if (File.Exists(videoPath))
-                {
-                    _videoPlayer.settings.setMode("loop", true);
-                    _videoPlayer.settings.volume = 0; // muted — visual only
-                    _videoPlayer.URL = videoPath;
-                }
+                string logoPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "one_logo_256.png");
+                if (File.Exists(logoPath))
+                    _videoPictureBox.Image = Image.FromFile(logoPath);
             }
             catch (Exception ex)
             {
-                Log.Warn($"[Video] Could not load WMP: {ex.Message}");
+                Log.Warn($"[Video] Could not load logo image: {ex.Message}");
             }
+            _videoPanel.Controls.Add(_videoPictureBox);
 
             // ── Left panel (AGENT AUDIO) ───────────────────────────────────────
             int lx = SIDE_PAD;
