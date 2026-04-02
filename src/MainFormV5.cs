@@ -70,7 +70,7 @@ namespace WindowsFormsApp1
         private float _scale = 1.0f;
         private int HEADER_H     => (int)(148 * _scale);  // taller: ~half-inch extra cushion
         private int REDLINE_H    => 3;
-        private int DEVICE_ROW_H => (int)(72  * _scale);
+        private int DEVICE_ROW_H => (int)(96  * _scale);
         private int FOOTER_H     => (int)(48  * _scale);  // taller: half-inch cushion
         private int SIDE_PAD     => (int)(40  * _scale);  // more cushion from edges
         private int VIDEO_GAP    => (int)(12  * _scale);
@@ -135,10 +135,15 @@ namespace WindowsFormsApp1
         // Volume control — hold references to the selected MMDevices for real-time volume
         private MMDevice _activeMicDevice;
         private MMDevice _activeSpeakerDevice;
+        private MMDevice _activeVBCableDevice;   // VB-Audio Cable output (customer channel)
         private TrackBar _trkMicVol;
         private TrackBar _trkSpeakerVol;
+        private TrackBar _trkAgentScriptVol;     // Left panel Script Playback Volume
+        private TrackBar _trkCustomerScriptVol;  // Right panel Script Playback Volume
         private Label    _lblMicVol;
         private Label    _lblSpeakerVol;
+        private Label    _lblAgentScriptVol;
+        private Label    _lblCustomerScriptVol;
 
         // ── Constructor ───────────────────────────────────────────────────────
         public MainFormV5() : this(null) { }
@@ -217,7 +222,7 @@ namespace WindowsFormsApp1
             _redLine = new Panel { BackColor = ONE_RED, Bounds = new Rectangle(0, HEADER_H, W, REDLINE_H) };
             this.Controls.Add(_redLine);
             BuildDeviceRow(W);
-            int contentTop = HEADER_H + REDLINE_H + DEVICE_ROW_H + (int)(14 * _scale);
+            int contentTop = HEADER_H + REDLINE_H + DEVICE_ROW_H + (int)(10 * _scale);
             BuildContentArea(W, H, contentTop);
             BuildFooter(W, H);
         }
@@ -371,12 +376,12 @@ namespace WindowsFormsApp1
         // ── Device row ────────────────────────────────────────────────────────
         private void BuildDeviceRow(int W)
         {
-            int top   = HEADER_H + REDLINE_H + (int)(20 * _scale);
+            int top   = HEADER_H + REDLINE_H + (int)(18 * _scale);
             // Widen dropdowns — each takes ~45% of form width so they feel substantial
             int dropW = (int)(W * 0.44f);
-            int labelH = (int)(28 * _scale);
-            int cboH   = (int)(42 * _scale);
-            int cboGap = (int)(8  * _scale);  // gap between label and dropdown
+            int labelH = (int)(32 * _scale);
+            int cboH   = (int)(44 * _scale);
+            int cboGap = (int)(12 * _scale);  // gap between label and dropdown
 
             // Microphone label — bold, 20pt (3pts bigger than before)
             _lblMicLabel = MakeLabel("Microphone", SIDE_PAD, top, 20, bold: true, color: TEXT_WHITE);
@@ -630,19 +635,36 @@ namespace WindowsFormsApp1
                 Bounds = new Rectangle(x + w - (int)(65 * _scale), v2LblY, (int)(65 * _scale), volLblH) };
             this.Controls.Add(lp2);
             int t2Y = v2LblY + volLblH;
-            var trk2 = new TrackBar { Minimum = 0, Maximum = 100, Value = 100,
+            int trk2Default = isLeft
+                ? (int)(AppSettings.Instance.GetVolume("agentScript",    0.48f) * 100)
+                : (int)(AppSettings.Instance.GetVolume("customerScript", 0.55f) * 100);
+            var trk2 = new TrackBar { Minimum = 0, Maximum = 100, Value = Math.Max(0, Math.Min(100, trk2Default)),
                 TickStyle = TickStyle.None, Bounds = new Rectangle(x, t2Y, w, trkH), BackColor = BG_DARK };
+            lp2.Text = $"{trk2.Value}%";
             trk2.ValueChanged += (s, e) =>
             {
                 lp2.Text = $"{trk2.Value}%";
-                try {
-                    if (!isLeft && _activeSpeakerDevice != null)
-                        _activeSpeakerDevice.AudioEndpointVolume.MasterVolumeLevelScalar = trk2.Value / 100f;
-                } catch { }
-                if (!isLeft) { AppSettings.Instance.SpeakerSystemVolume = trk2.Value; AppSettings.Instance.Save(); }
+                float vol = trk2.Value / 100f;
+                if (isLeft)
+                {
+                    // Left panel = AGENT AUDIO: Script Playback heard by agent
+                    // Route to the agent's headset/speaker device
+                    try { if (_activeSpeakerDevice != null) _activeSpeakerDevice.AudioEndpointVolume.MasterVolumeLevelScalar = vol; } catch { }
+                    AppSettings.Instance.SetVolume("agentScript", vol);
+                    AppSettings.Instance.Save();
+                }
+                else
+                {
+                    // Right panel = CUSTOMER OUTPUT: Script Playback heard by customer
+                    // Route to the VB-Audio virtual cable (customer channel)
+                    try { if (_activeVBCableDevice != null) _activeVBCableDevice.AudioEndpointVolume.MasterVolumeLevelScalar = vol; } catch { }
+                    AppSettings.Instance.SetVolume("customerScript", vol);
+                    AppSettings.Instance.Save();
+                }
             };
             this.Controls.Add(trk2);
-            if (!isLeft) { _trkSpeakerVol = trk2; _lblSpeakerVol = lp2; }
+            if (isLeft)  { _trkAgentScriptVol    = trk2; _lblAgentScriptVol    = lp2; }
+            if (!isLeft) { _trkCustomerScriptVol = trk2; _lblCustomerScriptVol = lp2; }
 
             // ── Auto Level-Match badge ─────────────────────────────────────────
             int badgeTop = t2Y + trkH + badgeGap;
@@ -978,6 +1000,12 @@ namespace WindowsFormsApp1
                         catch { }
                     }
                 }
+                // Detect VB-Audio Cable output device for customer script channel
+                _activeVBCableDevice = rends.FirstOrDefault(d =>
+                    d.FriendlyName.Contains("CABLE") || d.FriendlyName.Contains("VB-Audio"));
+                if (_activeVBCableDevice != null)
+                    Log.Info($"[Audio] VB-Cable output: {_activeVBCableDevice.FriendlyName}");
+
                 // Update speaker device when user changes selection
                 _cboHeadset.SelectedIndexChanged += (s2, e2) =>
                 {
