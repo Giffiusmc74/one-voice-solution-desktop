@@ -124,8 +124,7 @@ namespace WindowsFormsApp1
         private Panel            _customerScriptMeterPanel;
         private Button           _btnAgentAutoLevel;
         private Button           _btnCustomerAutoLevel;
-        private Button           _btnAudioSettings;
-        private Button           _btnTestMic;
+
         private Label            _lblTagline;
         private Label            _lblFooterLeft;
         private Label            _lblFooterCenter;
@@ -499,25 +498,7 @@ namespace WindowsFormsApp1
             if (isLeft) _btnAgentAutoLevel = btnBadge;
             else        _btnCustomerAutoLevel = btnBadge;
 
-            // Action button
-            int btnTop = badgeTop + BADGE_H + 10;
-            string btnText = isLeft ? "⚙  Audio Settings" : "🎙  Test Microphone";
-            var btn = new Button
-            {
-                Text      = btnText,
-                ForeColor = TEXT_WHITE,
-                BackColor = BG_PANEL,
-                FlatStyle = FlatStyle.Flat,
-                Font      = new Font("Segoe UI", SF(14f), FontStyle.Bold),
-                Bounds    = new Rectangle(x, btnTop, w, BTN_H),
-                Cursor    = Cursors.Hand
-            };
-            btn.FlatAppearance.BorderColor = ONE_RED;
-            btn.FlatAppearance.BorderSize  = 1;
-            btn.Click += isLeft ? (EventHandler)OnAudioSettingsClick : OnTestMicClick;
-            this.Controls.Add(btn);
-            if (isLeft) _btnAudioSettings = btn;
-            else        _btnTestMic = btn;
+            // Action buttons removed — the meter itself shows mic status
         }
 
         private Panel BuildMeterControl(int x, int y, int w, string key)
@@ -968,19 +949,7 @@ namespace WindowsFormsApp1
             }
             AppSettings.Instance.Save();
         }
-
-        // ── Button handlers ───────────────────────────────────────────────────
-        private void OnAudioSettingsClick(object sender, EventArgs e)
-        {
-            MessageBox.Show("Audio Settings dialog coming soon.", "Audio Settings",
-                MessageBoxButtons.OK, MessageBoxIcon.Information);
-        }
-
-        private void OnTestMicClick(object sender, EventArgs e)
-        {
-            MessageBox.Show("Microphone test will play back your mic for 5 seconds.",
-                "Test Microphone", MessageBoxButtons.OK, MessageBoxIcon.Information);
-        }
+        // Audio Settings and Test Mic buttons removed — meter shows mic status directly
 
         // ── Helpers ───────────────────────────────────────────────────────────
         private Label MakeLabel(string text, int x, int y, float size, bool bold = false, Color? color = null)
