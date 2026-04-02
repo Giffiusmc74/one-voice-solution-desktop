@@ -211,6 +211,7 @@
     <Compile Include="src\DataEncryption.cs" />
     <Compile Include="src\DataUtils.cs" />
     <Compile Include="src\HeartbeatService.cs" />
+    <Compile Include="src\LocalBridgeServer.cs" />
     <Compile Include="src\MachineId.cs" />
     <Compile Include="src\MacroListChangeNotifier.cs" />
     <Compile Include="src\MacroManager.cs" />

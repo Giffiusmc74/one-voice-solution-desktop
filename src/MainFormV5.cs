@@ -218,7 +218,8 @@ namespace WindowsFormsApp1
         private void BuildHeader(int W)
         {
             int logoSz = (int)(130 * _scale);  // bigger logo
-            int logoY  = (int)(22 * _scale) + (HEADER_H - (int)(22 * _scale) - logoSz) / 2;
+            // Logo vertically centered in header with a small top margin
+            int logoY  = (HEADER_H - logoSz) / 2;
             int logoX  = SIDE_PAD;
 
             _logoBox = new PictureBox
@@ -231,40 +232,26 @@ namespace WindowsFormsApp1
             this.Controls.Add(_logoBox);
             AttachDrag(_logoBox);
 
-            // "Voice Solution" — beside logo, upper half of logo area
-            int vsX = logoX + logoSz + (int)(10 * _scale);
+            // "Voice Solution" — at the FOOT of the logo (bottom quarter)
             int vsW = (int)(200 * _scale);
-            int vsH = (int)(logoSz / 2);
+            int vsH = (int)(logoSz * 0.30f);  // bottom 30% of logo height
+            int vsY = logoY + logoSz - vsH;   // pinned to bottom of logo
             _lblVoiceSolution = new Label
             {
                 Text      = "Voice Solution",
                 ForeColor = Color.White,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(14f), FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(16f), FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.BottomLeft,
-                Bounds    = new Rectangle(vsX, logoY, vsW, vsH)
+                Bounds    = new Rectangle(logoX + logoSz + (int)(10 * _scale), vsY, vsW, vsH)
             };
             this.Controls.Add(_lblVoiceSolution);
             AttachDrag(_lblVoiceSolution);
 
-            // "Agent: Name" — same line as "Voice Solution", right-aligned beside it
-            int agentLabelX = vsX + vsW + (int)(8 * _scale);
-            _lblAgentName = new Label
-            {
-                Text      = "Agent: " + AppSettings.Instance.AgentName,
-                ForeColor = TEXT_GREY,
-                BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(13f), FontStyle.Bold),
-                AutoSize  = false,
-                TextAlign = ContentAlignment.BottomLeft,
-                Bounds    = new Rectangle(agentLabelX, logoY, (int)(280 * _scale), vsH)
-            };
-            this.Controls.Add(_lblAgentName);
-            AttachDrag(_lblAgentName);
-
-            // "Audio Dashboard" — centred, with top cushion
-            int dashY = (int)(24 * _scale);
+            // "Audio Dashboard" — centred horizontally, vertically centered in header
+            int dashH = (int)(52 * _scale);
+            int dashY = (HEADER_H - dashH) / 2;
             _lblAudioDashboard = new Label
             {
                 Text      = "Audio Dashboard",
@@ -273,22 +260,38 @@ namespace WindowsFormsApp1
                 Font      = new Font("Segoe UI", SF(30f), FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleCenter,
-                Bounds    = new Rectangle(0, dashY, W, (int)(48 * _scale))
+                Bounds    = new Rectangle(0, dashY, W, dashH)
             };
             this.Controls.Add(_lblAudioDashboard);
             AttachDrag(_lblAudioDashboard);
 
-            // Window buttons — top-right corner of header
-            int btnSz = (int)(42 * _scale);
-            int btnY  = (int)(8 * _scale);
+            // "Agent: Name" — centered below "Audio Dashboard"
+            int agentH = (int)(26 * _scale);
+            int agentY = dashY + dashH + (int)(4 * _scale);
+            _lblAgentName = new Label
+            {
+                Text      = "Agent: " + AppSettings.Instance.AgentName,
+                ForeColor = TEXT_GREY,
+                BackColor = Color.Transparent,
+                Font      = new Font("Segoe UI", SF(15f), FontStyle.Bold),
+                AutoSize  = false,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Bounds    = new Rectangle(0, agentY, W, agentH)
+            };
+            this.Controls.Add(_lblAgentName);
+            AttachDrag(_lblAgentName);
+
+            // Window buttons — top-right corner, fully visible (no cutoff)
+            int btnSz = (int)(38 * _scale);
+            int btnY  = (int)(6 * _scale);
             _btnClose = new Button
             {
-                Text      = "X",
+                Text      = "✕",
                 FlatStyle = FlatStyle.Flat,
                 ForeColor = Color.White,
                 BackColor = Color.FromArgb(55, 55, 55),
                 Font      = new Font("Segoe UI", SF(13f), FontStyle.Bold),
-                Bounds    = new Rectangle(W - btnSz - 8, btnY, btnSz, btnSz),
+                Bounds    = new Rectangle(W - btnSz - 6, btnY, btnSz, btnSz),
                 Cursor    = Cursors.Hand,
                 TabStop   = false
             };
@@ -304,7 +307,7 @@ namespace WindowsFormsApp1
                 ForeColor = Color.White,
                 BackColor = Color.FromArgb(55, 55, 55),
                 Font      = new Font("Segoe UI", SF(13f), FontStyle.Bold),
-                Bounds    = new Rectangle(W - btnSz * 2 - 16, btnY, btnSz, btnSz),
+                Bounds    = new Rectangle(W - btnSz * 2 - 14, btnY, btnSz, btnSz),
                 Cursor    = Cursors.Hand,
                 TabStop   = false
             };
@@ -361,16 +364,16 @@ namespace WindowsFormsApp1
             int top   = HEADER_H + REDLINE_H + (int)(20 * _scale);
             int dropW = (W - SIDE_PAD * 2 - (int)(50 * _scale)) / 2;
 
-            // Microphone label — bold, 16pt
-            _lblMicLabel = MakeLabel("Microphone", SIDE_PAD, top, 16, bold: true, color: TEXT_WHITE);
+            // Microphone label — bold, 18pt
+            _lblMicLabel = MakeLabel("Microphone", SIDE_PAD, top, 18, bold: true, color: TEXT_WHITE);
             _cboMic = new ComboBox
             {
-                Bounds        = new Rectangle(SIDE_PAD, top + (int)(32 * _scale), dropW, (int)(38 * _scale)),
+                Bounds        = new Rectangle(SIDE_PAD, top + (int)(36 * _scale), dropW, (int)(40 * _scale)),
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 BackColor     = BG_PANEL,
                 ForeColor     = TEXT_WHITE,
                 FlatStyle     = FlatStyle.Flat,
-                Font          = new Font("Segoe UI", SF(16f), FontStyle.Bold)
+                Font          = new Font("Segoe UI", SF(18f), FontStyle.Bold)
             };
             _cboMic.SelectedIndexChanged += (s, e) =>
             {
@@ -383,16 +386,16 @@ namespace WindowsFormsApp1
             this.Controls.Add(_cboMic);
 
             int rightX = W - SIDE_PAD - dropW;
-            // Headset/Speaker label — bold, 16pt
-            _lblHeadsetLabel = MakeLabel("Headset / Speaker", rightX, top, 16, bold: true, color: TEXT_WHITE);
+            // Headset/Speaker label — bold, 18pt
+            _lblHeadsetLabel = MakeLabel("Headset / Speaker", rightX, top, 18, bold: true, color: TEXT_WHITE);
             _cboHeadset = new ComboBox
             {
-                Bounds        = new Rectangle(rightX, top + (int)(32 * _scale), dropW, (int)(38 * _scale)),
+                Bounds        = new Rectangle(rightX, top + (int)(36 * _scale), dropW, (int)(40 * _scale)),
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 BackColor     = BG_PANEL,
                 ForeColor     = TEXT_WHITE,
                 FlatStyle     = FlatStyle.Flat,
-                Font          = new Font("Segoe UI", SF(16f), FontStyle.Bold)
+                Font          = new Font("Segoe UI", SF(18f), FontStyle.Bold)
             };
             _cboHeadset.SelectedIndexChanged += (s, e) =>
             {
@@ -488,7 +491,7 @@ namespace WindowsFormsApp1
                 Text      = "\u201c The Geniusness Is In The Simplicity \u201d",
                 ForeColor = ONE_RED,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(18f), FontStyle.Bold | FontStyle.Italic),
+                Font      = new Font("Segoe UI", SF(18f), FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleCenter,
                 Bounds    = new Rectangle(videoLeft, tagY, videoW, taglineH)
@@ -522,13 +525,13 @@ namespace WindowsFormsApp1
             // Pin content near top of panel with a small top margin
             int cy = top + (int)(16 * _scale);
 
-            // Title — bigger (17), full width
+            // Title — 21pt, no italic
             var lblTitle = new Label
             {
                 Text      = title,
                 ForeColor = ONE_RED,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(19f), FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(21f), FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Bounds    = new Rectangle(x, cy, w, titleH)
@@ -541,7 +544,7 @@ namespace WindowsFormsApp1
                 Text      = sub,
                 ForeColor = TEXT_GREY,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(15f), FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(17f), FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Bounds    = new Rectangle(x, subY, w, subH)
@@ -550,13 +553,13 @@ namespace WindowsFormsApp1
 
             // Meter 1 label + bar — more separation (10px gap between label and bar)
             int m1LabelY = subY + subH + gap1;
-            MakeLabel(m1Label, x, m1LabelY, 15, color: TEXT_WHITE);
+            MakeLabel(m1Label, x, m1LabelY, 17, color: TEXT_WHITE);
             int m1BarY = m1LabelY + lbl1H + lbl2gap;
             MakeMeterPanel(x, m1BarY, w, isLeft ? "myMicLevel" : "customerVoice");
 
             // Meter 2 label + bar
             int m2LabelY = m1BarY + barH + betweenH;
-            MakeLabel(m2Label, x, m2LabelY, 15, color: TEXT_WHITE);
+            MakeLabel(m2Label, x, m2LabelY, 17, color: TEXT_WHITE);
             int m2BarY = m2LabelY + lbl2H + bar2gapH;
             MakeMeterPanel(x, m2BarY, w, isLeft ? "agentScript" : "customerScript");
 
@@ -568,7 +571,7 @@ namespace WindowsFormsApp1
                 ForeColor = Color.White,
                 BackColor = ONE_RED,
                 FlatStyle = FlatStyle.Flat,
-                Font      = new Font("Segoe UI", SF(17f), FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(19f), FontStyle.Bold),
                 Bounds    = new Rectangle(x, badgeTop, w, BADGE_H),
                 Cursor    = Cursors.Hand
             };
@@ -585,7 +588,7 @@ namespace WindowsFormsApp1
                 Text      = "Tap to switch between manual / automatic level control",
                 ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(11f), FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(13f), FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.TopLeft,
                 Bounds    = new Rectangle(x, hintY, w, hintH)
@@ -604,7 +607,7 @@ namespace WindowsFormsApp1
                 Text      = volLblText,
                 ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(14f), FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(16f), FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Bounds    = new Rectangle(x, volLblY, w - (int)(60 * _scale), volLblH)
@@ -617,7 +620,7 @@ namespace WindowsFormsApp1
                 Text      = "100%",
                 ForeColor = ONE_RED,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(14f), FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(16f), FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleRight,
                 Bounds    = new Rectangle(x + w - (int)(65 * _scale), volLblY, (int)(65 * _scale), volLblH)
@@ -732,7 +735,7 @@ namespace WindowsFormsApp1
                         Text      = "ONE United Global  •  2026  •  v5.5",
                 ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(12f), FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(14f), FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Bounds    = new Rectangle(SIDE_PAD, fy, 320, FOOTER_H)
@@ -744,7 +747,7 @@ namespace WindowsFormsApp1
                    Text      = "This App Can Be Minimized  •  Settings Are Auto-Saved",
                 ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(12f), FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(14f), FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleCenter,
                 Bounds    = new Rectangle(0, fy, W, FOOTER_H)
@@ -1103,6 +1106,7 @@ namespace WindowsFormsApp1
         // ── Helpers ───────────────────────────────────────────────────────────
         private Label MakeLabel(string text, int x, int y, float size, bool bold = false, Color? color = null)
         {
+            // Always Bold, never Italic — consistent with all other labels
             var lbl = new Label
             {
                 Text      = text,
