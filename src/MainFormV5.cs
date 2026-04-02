@@ -60,7 +60,7 @@ namespace WindowsFormsApp1
         private static readonly Color ONE_BLUE_SEL = Color.FromArgb(0, 102, 204);
 
         // ── Version — update this single constant for every release ──────────
-        private const string APP_VERSION = "6.2";
+        private const string APP_VERSION = "6.3";
         // Meter segment colours — inactive = same blue as dropdown, active = ONE red
         private static readonly Color SEG_OFF      = Color.FromArgb(0, 102, 204);   // same as dropdown blue
         private static readonly Color SEG_ON       = Color.FromArgb(254, 1, 1);     // ONE red
@@ -209,6 +209,11 @@ namespace WindowsFormsApp1
             int H = this.ClientSize.Height;
             this.Paint += (s, e) => DrawRedBorder(e.Graphics);
             BuildHeader(W);
+            // Top red border line — sits at y=0, always on top
+            var topLine = new Panel { BackColor = ONE_RED, Bounds = new Rectangle(0, 0, W, REDLINE_H) };
+            this.Controls.Add(topLine);
+            topLine.BringToFront();
+            // Separator red line below header
             _redLine = new Panel { BackColor = ONE_RED, Bounds = new Rectangle(0, HEADER_H, W, REDLINE_H) };
             this.Controls.Add(_redLine);
             BuildDeviceRow(W);
@@ -423,15 +428,15 @@ namespace WindowsFormsApp1
             int taglineGap = (int)(8  * _scale);
             int availH     = H - top - taglineH - taglineGap - FOOTER_H;
 
-            // Video ~50% of form width; side panels get the rest
-            int videoW    = (int)(W * 0.50f);
+            // Video ~35% of form width (narrower); side panels get more room
+            int videoW    = (int)(W * 0.35f);
             int sideW     = (W - SIDE_PAD * 2 - VIDEO_GAP * 2 - videoW) / 2;
             if (sideW < 200) sideW = 200;
             int videoLeft = SIDE_PAD + sideW + VIDEO_GAP;
 
             // Video is ~2/3 of available height, vertically centered
-            int videoH   = (int)(availH * 0.50f);
-            if (videoH < 140) videoH = 140;
+            int videoH   = (int)(availH * 0.62f);
+            if (videoH < 160) videoH = 160;
             int videoTop = top + (availH - videoH) / 2;
 
             // Side panels are exactly aligned with the video top and bottom
