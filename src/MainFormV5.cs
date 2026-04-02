@@ -165,6 +165,8 @@ namespace WindowsFormsApp1
             this.Shown += (s, e) =>
             {
                 StartVideoPlayback();
+                // Check for updates silently in the background
+                _ = AutoUpdater.CheckAndUpdateAsync(APP_VERSION);
                 // Auto-open ScriptBuilder in default browser so agent is ready to call
                 try
                 {
