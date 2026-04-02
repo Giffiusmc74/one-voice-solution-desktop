@@ -153,9 +153,17 @@ end;
 procedure InitializeWizard;
 begin
   WizardForm.WelcomeLabel2.Caption :=
-    'This will install ONE Voice Solution v5.0 on your computer.' + #13#10 + #13#10 +
-    'The installer will automatically set up all required audio components.' + #13#10 +
-    'No additional downloads or manual steps are needed.' + #13#10 + #13#10 +
+    'Welcome to ONE Voice Solution!' + #13#10 + #13#10 +
+
+    '*** IMPORTANT — IF WINDOWS SHOWS A WARNING SCREEN ***' + #13#10 +
+    'Windows may show a blue screen saying "Windows protected your PC".' + #13#10 +
+    'This is normal for new software. Here is exactly what to do:' + #13#10 +
+    '  1. Click "More info" (small link in the middle of the screen)' + #13#10 +
+    '  2. Click "Run anyway" (button that appears at the bottom)' + #13#10 +
+    '  DO NOT click "Don''t run" — that will cancel the install.' + #13#10 + #13#10 +
+
+    'The installer will automatically set up all required audio' + #13#10 +
+    'components. No additional downloads or manual steps are needed.' + #13#10 + #13#10 +
     'Click Next to continue.';
 end;
 
