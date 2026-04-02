@@ -36,7 +36,7 @@ jobs:
         run: choco install innosetup --yes --no-progress
       - name: Build Installer
         run: |
-          & "C:\Program Files (x86 )\Inno Setup 6\ISCC.exe" installer\ONEVoiceSolution_Setup.iss
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\ONEVoiceSolution_Setup.iss
       - name: Extract app version
         id: get_version
         shell: powershell
