@@ -360,16 +360,16 @@ namespace WindowsFormsApp1
             int top   = HEADER_H + REDLINE_H + (int)(8 * _scale);
             int dropW = (W - SIDE_PAD * 2 - (int)(50 * _scale)) / 2;
 
-            // Microphone label — bold, 3pts bigger (14 vs 11)
-            _lblMicLabel = MakeLabel("Microphone", SIDE_PAD, top, 14, bold: true, color: TEXT_WHITE);
+            // Microphone label — bold, 16pt
+            _lblMicLabel = MakeLabel("Microphone", SIDE_PAD, top, 16, bold: true, color: TEXT_WHITE);
             _cboMic = new ComboBox
             {
-                Bounds        = new Rectangle(SIDE_PAD, top + (int)(22 * _scale), dropW, (int)(36 * _scale)),
+                Bounds        = new Rectangle(SIDE_PAD, top + (int)(32 * _scale), dropW, (int)(38 * _scale)),
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 BackColor     = BG_PANEL,
                 ForeColor     = TEXT_WHITE,
                 FlatStyle     = FlatStyle.Flat,
-                Font          = new Font("Segoe UI", SF(14f), FontStyle.Bold)
+                Font          = new Font("Segoe UI", SF(16f), FontStyle.Bold)
             };
             _cboMic.SelectedIndexChanged += (s, e) =>
             {
@@ -382,16 +382,16 @@ namespace WindowsFormsApp1
             this.Controls.Add(_cboMic);
 
             int rightX = W - SIDE_PAD - dropW;
-            // Headset/Speaker label — bold, 3pts bigger
-            _lblHeadsetLabel = MakeLabel("Headset / Speaker", rightX, top, 14, bold: true, color: TEXT_WHITE);
+            // Headset/Speaker label — bold, 16pt
+            _lblHeadsetLabel = MakeLabel("Headset / Speaker", rightX, top, 16, bold: true, color: TEXT_WHITE);
             _cboHeadset = new ComboBox
             {
-                Bounds        = new Rectangle(rightX, top + (int)(22 * _scale), dropW, (int)(36 * _scale)),
+                Bounds        = new Rectangle(rightX, top + (int)(32 * _scale), dropW, (int)(38 * _scale)),
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 BackColor     = BG_PANEL,
                 ForeColor     = TEXT_WHITE,
                 FlatStyle     = FlatStyle.Flat,
-                Font          = new Font("Segoe UI", SF(14f), FontStyle.Bold)
+                Font          = new Font("Segoe UI", SF(16f), FontStyle.Bold)
             };
             _cboHeadset.SelectedIndexChanged += (s, e) =>
             {
