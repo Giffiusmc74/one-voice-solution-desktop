@@ -220,6 +220,7 @@
     <Compile Include="src\RegistryUtils.cs" />
     <Compile Include="src\ScriptManager.cs" />
     <Compile Include="src\Scripts.cs" />
+    <Compile Include="src\AutoUpdater.cs" />
     <Compile Include="src\MainFormV5.cs">
       <SubType>Form</SubType>
     </Compile>
