@@ -153,7 +153,20 @@ namespace WindowsFormsApp1
             if (!string.IsNullOrEmpty(agentNameOverride) && _lblAgentName != null)
                 _lblAgentName.Text = "Agent: " + agentNameOverride;
             // Delay video play until form is fully shown — WMP needs handle created
-            this.Load += (s, e) => StartVideoPlayback();
+            this.Load += (s, e) =>
+            {
+                StartVideoPlayback();
+                // Auto-open ScriptBuilder in default browser so agent is ready to call
+                try
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = "https://onevoiceapp-wpzvhh8c.manus.space/member/script-builder",
+                        UseShellExecute = true
+                    });
+                }
+                catch (Exception ex) { Log.Warn($"[Startup] Could not open ScriptBuilder: {ex.Message}"); }
+            };
         }
 
         private void InitializeComponent()
