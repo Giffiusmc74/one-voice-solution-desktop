@@ -277,9 +277,9 @@ namespace WindowsFormsApp1
             this.Controls.Add(_lblAudioDashboard);
             AttachDrag(_lblAudioDashboard);
 
-            // Window buttons — vertically centered in header, bigger
+            // Window buttons — top-right corner of header
             int btnSz = (int)(42 * _scale);
-            int btnY  = (HEADER_H - btnSz) / 2;
+            int btnY  = (int)(8 * _scale);
             _btnClose = new Button
             {
                 Text      = "X",
