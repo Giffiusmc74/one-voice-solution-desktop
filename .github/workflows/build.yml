@@ -1,50 +1,25 @@
-
-
-Collaborate
-
-Share
-if this doesn't wor - just forget the update on changing the version - this is ridiculous
-Understood — if the build fails again, we drop the auto-version workflow and keep it simple (manually update APP_VERSION in the code when needed). Not worth the back and forth.
-Moving on to the BookDemo form now.
-I confirmed the BookDemo form includes validation and submit logic. Next, I’ll inspect the tRPC router to connect form submission with backend database and email sending.
-
-update build - red x
-15:01
-Dropping the auto-version workflow — it's not worth the trouble. I'm reverting the workflow back to the simple working version (the one that was green on v5.9). Go back to the file editor one more time:
-https://github.com/Giffiusmc74/one-voice-solution-desktop
-→ .github → workflows → build.yml → pencil icon → Ctrl+A → Delete → paste this → Commit:
-YAML
 name: Build ONE Voice Solution Installer
-
 on:
   push:
     branches: [ main, master ]
   workflow_dispatch:
-
 jobs:
   build:
     runs-on: windows-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           lfs: true
-
       - name: Setup NuGet
         uses: NuGet/setup-nuget@v2
-
       - name: Restore NuGet packages
         run: nuget restore OneApplication.csproj -PackagesDirectory packages
-
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
-
       - name: Build Release
         run: msbuild OneApplication.csproj /p:Configuration=Release /p:Platform=AnyCPU /p:OutputPath=bin\Release\
-
       - name: Download VB-Audio Cable
-        shell: powershell
         run: |
           New-Item -ItemType Directory -Force -Path installer\vbcable | Out-Null
           $url = "https://download.vb-audio.com/Download_CABLE/VBCABLE_Driver_Pack45.zip"
@@ -52,27 +27,15 @@ jobs:
           Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
           Expand-Archive -Path $zip -DestinationPath installer\vbcable -Force
           Remove-Item $zip
-
+        shell: powershell
       - name: Install Inno Setup
         run: choco install innosetup --yes --no-progress
-
       - name: Build Installer
         run: |
           & "C:\Program Files (x86 )\Inno Setup 6\ISCC.exe" installer\ONEVoiceSolution_Setup.iss
-
       - name: Upload Installer
         uses: actions/upload-artifact@v4
         with:
-          name: ONEVoiceSolution-Installer
-          path: installer\output\*.exe
-          retention-days: 90
-This is the exact version that was building green. Version number stays as APP_VERSION in the code — just update that one line manually when needed.
-Task completed
-How was this result?
-Suggested follow-ups
-
-
-GitHub
-
-
-How to Organize Files and Folders on My Computer - Manus
+          name: ONENEW20260401-Installer
+          path: installer\output\ONEVoiceSolution_Setup_v5.exe
+          retention-days: 30
