@@ -60,7 +60,7 @@ namespace WindowsFormsApp1
         private static readonly Color ONE_BLUE_SEL = Color.FromArgb(0, 102, 204);
 
         // ── Version — update this single constant for every release ──────────
-        private const string APP_VERSION = "6.4";
+        private const string APP_VERSION = "6.5";
         // Meter segment colours — inactive = same blue as dropdown, active = ONE red
         private static readonly Color SEG_OFF      = Color.FromArgb(0, 102, 204);   // same as dropdown blue
         private static readonly Color SEG_ON       = Color.FromArgb(254, 1, 1);     // ONE red
@@ -204,7 +204,12 @@ namespace WindowsFormsApp1
             int h = Math.Max((int)(wa.Height * 0.88), 560);
             _scale = Math.Max(0.60f, Math.Min(Math.Min((float)w / 1280f, (float)h / 900f), 1.20f));
             this.ClientSize = new Size(w, h);
-            this.Location   = new Point(wa.Left + (wa.Width - w) / 2, wa.Top + (wa.Height - h) / 2);
+            int cx = wa.Left + (wa.Width - w) / 2;
+            int cy2 = wa.Top + (wa.Height - h) / 2;
+            // Ensure form is never off-screen
+            if (cx < wa.Left) cx = wa.Left;
+            if (cy2 < wa.Top) cy2 = wa.Top;
+            this.Location   = new Point(cx, cy2);
         }
 
         // ── Build UI ──────────────────────────────────────────────────────────
@@ -222,7 +227,7 @@ namespace WindowsFormsApp1
             _redLine = new Panel { BackColor = ONE_RED, Bounds = new Rectangle(0, HEADER_H, W, REDLINE_H) };
             this.Controls.Add(_redLine);
             BuildDeviceRow(W);
-            int contentTop = HEADER_H + REDLINE_H + DEVICE_ROW_H + (int)(10 * _scale);
+            int contentTop = HEADER_H + REDLINE_H + DEVICE_ROW_H + (int)(4 * _scale);
             BuildContentArea(W, H, contentTop);
             BuildFooter(W, H);
         }
@@ -444,9 +449,9 @@ namespace WindowsFormsApp1
             if (videoH < 200) videoH = 200;
             int videoTop = top + (int)(8 * _scale);  // pin near top, no dead space
 
-            // Side panels use full available height for maximum spacing
+            // Side panels match video height exactly to prevent badge overlap
             int panelTop = top + (int)(8 * _scale);
-            int panelH   = availH - (int)(16 * _scale);
+            int panelH   = videoH;  // match video height so badges align
 
             // Video panel
             _videoPanel = new Panel
@@ -840,11 +845,13 @@ namespace WindowsFormsApp1
             if (_videoPlayer == null || string.IsNullOrEmpty(_videoFilePath)) return;
             try
             {
-                // Step 1: mute and assign URL — do NOT set uiMode yet, WMP resets it on URL change
-                _videoPlayer.settings.volume = 0;
+                // Step 1: configure settings before assigning URL
+                _videoPlayer.settings.volume    = 0;
+                _videoPlayer.settings.autoStart = true;
                 _videoPlayer.settings.setMode("loop", true);
-                _videoPlayer.stretchToFit    = true;
-                _videoPlayer.URL             = new Uri(_videoFilePath).AbsoluteUri;
+                _videoPlayer.stretchToFit       = true;
+                _videoPlayer.uiMode             = "none";
+                _videoPlayer.URL                = _videoFilePath;  // direct path for local files
 
                 // Step 2: after a short delay (WMP needs ~300ms to initialise the media),
                 //         force uiMode=none, correct bounds, then press play
