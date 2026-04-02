@@ -5,6 +5,7 @@ using System.Net;
 using System.Threading;
 using System.Windows.Forms;
 using Newtonsoft.Json.Linq;
+using NLog;
 
 namespace WindowsFormsApp1
 {
@@ -16,6 +17,8 @@ namespace WindowsFormsApp1
     /// </summary>
     internal static class AutoUpdater
     {
+        private static readonly Logger Log = LogManager.GetCurrentClassLogger();
+
         private const string GITHUB_OWNER = "Giffiusmc74";
         private const string GITHUB_REPO  = "one-voice-solution-desktop";
         private static readonly string API_URL =
