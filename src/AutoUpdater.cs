@@ -6,7 +6,7 @@ using System.Threading;
 using System.Windows.Forms;
 using Newtonsoft.Json.Linq;
 
-namespace OneApplication
+namespace WindowsFormsApp1
 {
     /// <summary>
     /// Checks GitHub Releases for a newer version of ONE Voice Solution.
