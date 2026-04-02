@@ -438,8 +438,8 @@ namespace WindowsFormsApp1
             int taglineGap = (int)(8  * _scale);
             int availH     = H - top - taglineH - taglineGap - FOOTER_H;
 
-            // Video ~30% of form width (narrower); side panels get more room
-            int videoW    = (int)(W * 0.30f);
+            // Video ~38% of form width; side panels get the rest
+            int videoW    = (int)(W * 0.38f);
             int sideW     = (W - SIDE_PAD * 2 - VIDEO_GAP * 2 - videoW) / 2;
             if (sideW < 200) sideW = 200;
             int videoLeft = SIDE_PAD + sideW + VIDEO_GAP;
@@ -694,11 +694,11 @@ namespace WindowsFormsApp1
             var lblHint = new Label
             {
                 Text      = "Tap to switch between manual / automatic",
-                ForeColor = TEXT_GREY,
+                ForeColor = Color.White,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(12f), FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(13f), FontStyle.Regular),
                 AutoSize  = false,
-                TextAlign = ContentAlignment.MiddleLeft,
+                TextAlign = ContentAlignment.MiddleCenter,
                 Bounds    = new Rectangle(x, hintY, w, hintH)
             };
             this.Controls.Add(lblHint);
