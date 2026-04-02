@@ -1,0 +1,62 @@
+name: Build ONE Voice Solution Installer
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:   # allows manual trigger from GitHub website
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      # 1. Check out the code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Set up NuGet so packages can be restored
+      - name: Setup NuGet
+        uses: NuGet/setup-nuget@v2
+
+      # 3. Restore NuGet packages (NAudio, Newtonsoft.Json, etc.)
+      - name: Restore NuGet packages
+        run: nuget restore OneApplication.csproj -PackagesDirectory packages
+
+      # 4. Set up MSBuild (comes with Visual Studio on windows-latest)
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      # 5. Build the project in Release mode
+      - name: Build Release
+        run: msbuild OneApplication.csproj /p:Configuration=Release /p:Platform=AnyCPU /p:OutputPath=bin\Release\
+
+      # 6. Install Inno Setup (free, used to build the .exe installer)
+      - name: Install Inno Setup
+        run: choco install innosetup --yes --no-progress
+
+      # 7. Compile the installer using our .iss script
+      - name: Build Installer
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\ONEVoiceSolution_Setup.iss
+
+      # 8. Upload the finished installer as a downloadable artifact
+      - name: Upload Installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: ONENEW20260401-Installer
+          path: Output\ONEVoiceSolution_Setup_v5.exe
+          retention-days: 30
+
+      # 9. Also create a GitHub Release if this is a tagged push (e.g. v5.0)
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Output\ONEVoiceSolution_Setup_v5.exe
+          name: ONE Voice Solution ${{ github.ref_name }}
+          body: |
+            ONE Voice Solution Desktop App
+            - Auto-migrates scripts and recordings from previous versions
+            - VB-Audio Cable installs silently (no manual steps)
+            - Heartbeat reporting to admin dashboard
+            - Settings auto-saved
