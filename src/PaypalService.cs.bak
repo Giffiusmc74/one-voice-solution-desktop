@@ -1,0 +1,120 @@
+﻿using PayPal.Api;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+
+namespace WindowsFormsApp1.src
+{
+    public class PaypalService
+    {
+        string clientId;
+        string clientSecret;
+        string mode;
+        APIContext apiContext;
+        Dictionary<string, string> config = new Dictionary<string, string>();
+        public Payment createdPayment;
+
+        public PaypalService(string clientId, string clientSecret, string mode)
+        {
+            this.clientId = clientId;
+            this.clientSecret = clientSecret;
+            this.mode = mode;
+
+            config.Add("mode", mode);
+            config.Add("clientId", clientId);
+            config.Add("clientSecret", clientSecret);
+
+        }
+
+        public Payment CreatePayment(decimal amount, string currency)
+        {
+            apiContext = GetAPIContext();
+
+            var itemList = new ItemList { items = new List<Item>() };
+            itemList.items.Add(new Item
+            {
+                name = "Item Name",
+                currency = currency,
+                price = amount.ToString("F2"),
+                quantity = "1",
+                sku = "sku"
+            });
+
+            var payer = new Payer { payment_method = "paypal" };
+
+            var details = new Details { subtotal = amount.ToString("F2"), tax = "0.00", shipping = "0.00" };
+
+            var amountDetails = new Amount
+            {
+                currency = currency,
+                total = amount.ToString("F2"),
+                details = details
+            };
+
+            var transactionList = new List<Transaction>();
+            transactionList.Add(new Transaction
+            {
+                description = "Transaction description",
+                invoice_number = Guid.NewGuid().ToString(), // Replace with your invoice number
+                amount = amountDetails,
+                item_list = itemList
+            });
+
+            var redirectURL = new RedirectUrls
+            {
+                cancel_url = "http://localhost:8080/cancel/",
+                return_url = "http://localhost:8080/return/"
+            };
+
+            var payment = new Payment
+            {
+                intent = "sale",
+                payer = payer,
+                transactions = transactionList,
+                redirect_urls = redirectURL
+            };
+
+            createdPayment = payment.Create(apiContext);
+
+            return createdPayment;
+        }
+
+        private APIContext GetAPIContext()
+        {
+            if (apiContext == null)
+            {
+                // Use OAuthTokenCredential to request an access token from PayPal
+                var accessToken = new OAuthTokenCredential(config).GetAccessToken();
+
+                apiContext = new APIContext(accessToken);
+            }
+
+            return apiContext;
+        }
+
+
+        public bool ExecutePayment(string payerId)
+        {
+            bool result = false;
+            var apiContext = GetAPIContext();
+
+            var exec = new PaymentExecution()
+            {
+                payer_id = payerId
+            };
+
+            var pay = createdPayment.Execute(apiContext, exec);
+            if (pay != null)
+            {
+                if (pay.state.ToLower() == "approved")
+                {
+                    result = true;
+                }
+            }
+
+            return result;
+        }
+    }
+}

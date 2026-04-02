@@ -1,0 +1,271 @@
+﻿namespace WindowsFormsApp1
+{
+    partial class ScriptsForm
+    {
+        /// <summary>
+        /// Required designer variable.
+        /// </summary>
+        private System.ComponentModel.IContainer components = null;
+
+        /// <summary>
+        /// Clean up any resources being used.
+        /// </summary>
+        /// <param name="disposing">true if managed resources should be disposed; otherwise, false.</param>
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && (components != null))
+            {
+                components.Dispose();
+            }
+            base.Dispose(disposing);
+        }
+
+        #region Windows Form Designer generated code
+
+        /// <summary>
+        /// Required method for Designer support - do not modify
+        /// the contents of this method with the code editor.
+        /// </summary>
+        private void InitializeComponent()
+        {
+            this.components = new System.ComponentModel.Container();
+            this.cmbBoxScripts = new System.Windows.Forms.ComboBox();
+            this.label1 = new System.Windows.Forms.Label();
+            this.btnBold = new System.Windows.Forms.Button();
+            this.btnItalic = new System.Windows.Forms.Button();
+            this.cmbBoxFonts = new System.Windows.Forms.ComboBox();
+            this.label2 = new System.Windows.Forms.Label();
+            this.label3 = new System.Windows.Forms.Label();
+            this.cmbBoxSize = new System.Windows.Forms.ComboBox();
+            this.txtScriptName = new System.Windows.Forms.TextBox();
+            this.button1 = new System.Windows.Forms.Button();
+            this.label4 = new System.Windows.Forms.Label();
+            this.lblTimeRemaining = new System.Windows.Forms.Label();
+            this.timer1 = new System.Windows.Forms.Timer(this.components);
+            this.label5 = new System.Windows.Forms.Label();
+            this.cmbBoxColor = new System.Windows.Forms.ComboBox();
+            this.richTextBox1 = new System.Windows.Forms.RichTextBoxEx();
+            this.SuspendLayout();
+            // 
+            // cmbBoxScripts
+            // 
+            this.cmbBoxScripts.Font = new System.Drawing.Font("Montserrat SemiBold", 7.8F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.cmbBoxScripts.FormattingEnabled = true;
+            this.cmbBoxScripts.Location = new System.Drawing.Point(145, 24);
+            this.cmbBoxScripts.Name = "cmbBoxScripts";
+            this.cmbBoxScripts.Size = new System.Drawing.Size(247, 26);
+            this.cmbBoxScripts.TabIndex = 5;
+            this.cmbBoxScripts.SelectedIndexChanged += new System.EventHandler(this.cmbBoxScripts_SelectedIndexChanged);
+            // 
+            // label1
+            // 
+            this.label1.AutoSize = true;
+            this.label1.Font = new System.Drawing.Font("Montserrat SemiBold", 9F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.label1.Location = new System.Drawing.Point(19, 25);
+            this.label1.Name = "label1";
+            this.label1.Size = new System.Drawing.Size(116, 21);
+            this.label1.TabIndex = 6;
+            this.label1.Text = "Select Scripts:";
+            // 
+            // btnBold
+            // 
+            this.btnBold.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right)));
+            this.btnBold.Font = new System.Drawing.Font("Microsoft Sans Serif", 12F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.btnBold.ForeColor = System.Drawing.SystemColors.ActiveCaptionText;
+            this.btnBold.Location = new System.Drawing.Point(551, 498);
+            this.btnBold.Name = "btnBold";
+            this.btnBold.Size = new System.Drawing.Size(44, 42);
+            this.btnBold.TabIndex = 7;
+            this.btnBold.Text = "B";
+            this.btnBold.UseVisualStyleBackColor = true;
+            this.btnBold.Click += new System.EventHandler(this.btnBold_Click);
+            // 
+            // btnItalic
+            // 
+            this.btnItalic.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right)));
+            this.btnItalic.Font = new System.Drawing.Font("Rockwell", 10.8F, System.Drawing.FontStyle.Italic, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.btnItalic.Location = new System.Drawing.Point(598, 498);
+            this.btnItalic.Name = "btnItalic";
+            this.btnItalic.Size = new System.Drawing.Size(44, 42);
+            this.btnItalic.TabIndex = 8;
+            this.btnItalic.Text = "I";
+            this.btnItalic.UseVisualStyleBackColor = true;
+            this.btnItalic.Click += new System.EventHandler(this.btnItalic_Click);
+            // 
+            // cmbBoxFonts
+            // 
+            this.cmbBoxFonts.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Left)));
+            this.cmbBoxFonts.Font = new System.Drawing.Font("Montserrat SemiBold", 7.8F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.cmbBoxFonts.FormattingEnabled = true;
+            this.cmbBoxFonts.Location = new System.Drawing.Point(82, 506);
+            this.cmbBoxFonts.Name = "cmbBoxFonts";
+            this.cmbBoxFonts.Size = new System.Drawing.Size(313, 26);
+            this.cmbBoxFonts.TabIndex = 9;
+            this.cmbBoxFonts.SelectedIndexChanged += new System.EventHandler(this.cmbBoxFonts_SelectedIndexChanged);
+            // 
+            // label2
+            // 
+            this.label2.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Left)));
+            this.label2.AutoSize = true;
+            this.label2.Font = new System.Drawing.Font("Montserrat SemiBold", 10.2F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.label2.Location = new System.Drawing.Point(18, 505);
+            this.label2.Name = "label2";
+            this.label2.Size = new System.Drawing.Size(55, 24);
+            this.label2.TabIndex = 10;
+            this.label2.Text = "Font:";
+            // 
+            // label3
+            // 
+            this.label3.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right)));
+            this.label3.AutoSize = true;
+            this.label3.Font = new System.Drawing.Font("Montserrat SemiBold", 10.2F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.label3.Location = new System.Drawing.Point(405, 505);
+            this.label3.Name = "label3";
+            this.label3.Size = new System.Drawing.Size(50, 24);
+            this.label3.TabIndex = 11;
+            this.label3.Text = "Size:";
+            this.label3.Click += new System.EventHandler(this.label3_Click);
+            // 
+            // cmbBoxSize
+            // 
+            this.cmbBoxSize.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right)));
+            this.cmbBoxSize.Font = new System.Drawing.Font("Montserrat SemiBold", 7.8F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.cmbBoxSize.FormattingEnabled = true;
+            this.cmbBoxSize.Location = new System.Drawing.Point(458, 506);
+            this.cmbBoxSize.Name = "cmbBoxSize";
+            this.cmbBoxSize.Size = new System.Drawing.Size(85, 26);
+            this.cmbBoxSize.TabIndex = 12;
+            this.cmbBoxSize.SelectedIndexChanged += new System.EventHandler(this.cmbBoxSize_SelectedIndexChanged);
+            // 
+            // txtScriptName
+            // 
+            this.txtScriptName.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.txtScriptName.Font = new System.Drawing.Font("Montserrat SemiBold", 7.8F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.txtScriptName.Location = new System.Drawing.Point(497, 26);
+            this.txtScriptName.Name = "txtScriptName";
+            this.txtScriptName.Size = new System.Drawing.Size(318, 23);
+            this.txtScriptName.TabIndex = 13;
+            // 
+            // button1
+            // 
+            this.button1.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.button1.Font = new System.Drawing.Font("Montserrat SemiBold", 7.8F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.button1.Location = new System.Drawing.Point(834, 20);
+            this.button1.Name = "button1";
+            this.button1.Size = new System.Drawing.Size(105, 32);
+            this.button1.TabIndex = 14;
+            this.button1.Text = "Update";
+            this.button1.UseVisualStyleBackColor = true;
+            this.button1.Click += new System.EventHandler(this.button1_Click);
+            // 
+            // label4
+            // 
+            this.label4.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.label4.AutoSize = true;
+            this.label4.Font = new System.Drawing.Font("Montserrat SemiBold", 9F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.label4.Location = new System.Drawing.Point(433, 26);
+            this.label4.Name = "label4";
+            this.label4.Size = new System.Drawing.Size(60, 21);
+            this.label4.TabIndex = 15;
+            this.label4.Text = "Name:";
+            // 
+            // lblTimeRemaining
+            // 
+            this.lblTimeRemaining.AutoSize = true;
+            this.lblTimeRemaining.BackColor = System.Drawing.Color.Transparent;
+            this.lblTimeRemaining.Font = new System.Drawing.Font("Microsoft Sans Serif", 10.2F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.lblTimeRemaining.ForeColor = System.Drawing.Color.Red;
+            this.lblTimeRemaining.Location = new System.Drawing.Point(744, 469);
+            this.lblTimeRemaining.Name = "lblTimeRemaining";
+            this.lblTimeRemaining.Size = new System.Drawing.Size(152, 20);
+            this.lblTimeRemaining.TabIndex = 16;
+            this.lblTimeRemaining.Text = "Rec. Time: 00:00";
+            this.lblTimeRemaining.Visible = false;
+            // 
+            // label5
+            // 
+            this.label5.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right)));
+            this.label5.AutoSize = true;
+            this.label5.Font = new System.Drawing.Font("Montserrat SemiBold", 10.2F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.label5.Location = new System.Drawing.Point(666, 504);
+            this.label5.Name = "label5";
+            this.label5.Size = new System.Drawing.Size(60, 24);
+            this.label5.TabIndex = 18;
+            this.label5.Text = "Color:";
+            // 
+            // cmbBoxColor
+            // 
+            this.cmbBoxColor.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Bottom | System.Windows.Forms.AnchorStyles.Right)));
+            this.cmbBoxColor.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.cmbBoxColor.Font = new System.Drawing.Font("Montserrat SemiBold", 7.8F, System.Drawing.FontStyle.Bold, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.cmbBoxColor.FormattingEnabled = true;
+            this.cmbBoxColor.Location = new System.Drawing.Point(733, 505);
+            this.cmbBoxColor.Name = "cmbBoxColor";
+            this.cmbBoxColor.Size = new System.Drawing.Size(175, 26);
+            this.cmbBoxColor.TabIndex = 17;
+            this.cmbBoxColor.SelectedIndexChanged += new System.EventHandler(this.cmbBoxColor_SelectedIndexChanged);
+            // 
+            // richTextBox1
+            // 
+            this.richTextBox1.Anchor = ((System.Windows.Forms.AnchorStyles)((((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom) 
+            | System.Windows.Forms.AnchorStyles.Left) 
+            | System.Windows.Forms.AnchorStyles.Right)));
+            this.richTextBox1.Font = new System.Drawing.Font("Microsoft Sans Serif", 10.8F, System.Drawing.FontStyle.Regular, System.Drawing.GraphicsUnit.Point, ((byte)(0)));
+            this.richTextBox1.Links = null;
+            this.richTextBox1.Location = new System.Drawing.Point(21, 60);
+            this.richTextBox1.Name = "richTextBox1";
+            this.richTextBox1.Size = new System.Drawing.Size(918, 399);
+            this.richTextBox1.TabIndex = 0;
+            this.richTextBox1.Text = "";
+            // 
+            // ScriptsForm
+            // 
+            this.AutoScaleDimensions = new System.Drawing.SizeF(8F, 16F);
+            this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
+            this.ClientSize = new System.Drawing.Size(971, 554);
+            this.Controls.Add(this.label5);
+            this.Controls.Add(this.cmbBoxColor);
+            this.Controls.Add(this.lblTimeRemaining);
+            this.Controls.Add(this.label4);
+            this.Controls.Add(this.button1);
+            this.Controls.Add(this.txtScriptName);
+            this.Controls.Add(this.cmbBoxSize);
+            this.Controls.Add(this.label3);
+            this.Controls.Add(this.label2);
+            this.Controls.Add(this.cmbBoxFonts);
+            this.Controls.Add(this.btnItalic);
+            this.Controls.Add(this.btnBold);
+            this.Controls.Add(this.label1);
+            this.Controls.Add(this.cmbBoxScripts);
+            this.Controls.Add(this.richTextBox1);
+            this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedDialog;
+            this.Name = "ScriptsForm";
+            this.StartPosition = System.Windows.Forms.FormStartPosition.CenterScreen;
+            this.Text = "Scripts";
+            this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.ScriptsForm_FormClosing);
+            this.Load += new System.EventHandler(this.ScriptsForm_Load);
+            this.ResumeLayout(false);
+            this.PerformLayout();
+
+        }
+
+        #endregion
+
+        private System.Windows.Forms.RichTextBoxEx richTextBox1;
+        private System.Windows.Forms.ComboBox cmbBoxScripts;
+        private System.Windows.Forms.Label label1;
+        private System.Windows.Forms.Button btnBold;
+        private System.Windows.Forms.Button btnItalic;
+        private System.Windows.Forms.ComboBox cmbBoxFonts;
+        private System.Windows.Forms.Label label2;
+        private System.Windows.Forms.Label label3;
+        private System.Windows.Forms.ComboBox cmbBoxSize;
+        private System.Windows.Forms.TextBox txtScriptName;
+        private System.Windows.Forms.Button button1;
+        private System.Windows.Forms.Label label4;
+        private System.Windows.Forms.Label lblTimeRemaining;
+        private System.Windows.Forms.Timer timer1;
+        private System.Windows.Forms.Label label5;
+        private System.Windows.Forms.ComboBox cmbBoxColor;
+    }
+}
