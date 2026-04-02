@@ -515,7 +515,7 @@ namespace WindowsFormsApp1
             int lbl2H   = (int)(24 * _scale);  // +2pts
             int bar2gapH= (int)(10 * _scale);
             int badgeGap= (int)(14 * _scale);  // bar2 -> badge
-            int hintH   = (int)(24 * _scale);  // +2pts
+            int hintH   = (int)(36 * _scale);  // tall enough for wrapped hint text
             int hintGap = (int)(6  * _scale);
             int contentH = titleH + subH + gap1 + lbl1H + lbl2gap + barH + betweenH + lbl2H + bar2gapH + barH + badgeGap + BADGE_H + hintGap + hintH;
             // Pin content near top of panel with a small top margin
@@ -584,9 +584,9 @@ namespace WindowsFormsApp1
                 Text      = "Tap to switch between manual / automatic level control",
                 ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(14f), FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(11f), FontStyle.Bold),
                 AutoSize  = false,
-                TextAlign = ContentAlignment.MiddleLeft,
+                TextAlign = ContentAlignment.TopLeft,
                 Bounds    = new Rectangle(x, hintY, w, hintH)
             };
             this.Controls.Add(lblHint);
@@ -619,7 +619,7 @@ namespace WindowsFormsApp1
                 Font      = new Font("Segoe UI", SF(14f), FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleRight,
-                Bounds    = new Rectangle(x + w - (int)(55 * _scale), volLblY, (int)(55 * _scale), volLblH)
+                Bounds    = new Rectangle(x + w - (int)(65 * _scale), volLblY, (int)(65 * _scale), volLblH)
             };
             this.Controls.Add(lblPct);
 
