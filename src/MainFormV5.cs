@@ -587,7 +587,7 @@ namespace WindowsFormsApp1
                 Text      = "ONE United Global  2026  v5.0",
                 ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
-                Font      = new Font("DM Sans", 11f),
+                Font      = new Font("DM Sans", 13f),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Bounds    = new Rectangle(SIDE_PAD, footerY + 2, 300, FOOTER_H - 2)
@@ -599,7 +599,7 @@ namespace WindowsFormsApp1
                 Text      = "This Desktop App Can Be Minimized  •  Settings Are Auto Saved",
                 ForeColor = TEXT_GREY,
                 BackColor = Color.Transparent,
-                Font      = new Font("DM Sans", 10f),
+                Font      = new Font("DM Sans", 12f),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleCenter,
                 Bounds    = new Rectangle(0, footerY + 2, W, FOOTER_H - 2)
