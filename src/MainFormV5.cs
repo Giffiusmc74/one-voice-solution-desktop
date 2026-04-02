@@ -1,5 +1,5 @@
 /*
- * MainFormV5.cs  —  ONE Voice Solution v5.5
+ * MainFormV5.cs  —  ONE Voice Solution v5.9
  *
  * v5.4 Fixes (Apr 2 2026 — fourth pass):
  *   - Video narrowed to ~50% of form width; side panels wider accordingly
@@ -58,6 +58,9 @@ namespace WindowsFormsApp1
         private static readonly Color TEXT_GREY    = Color.FromArgb(155, 155, 155);
         // Sky blue from ONE logo — used for dropdown selected background
         private static readonly Color ONE_BLUE_SEL = Color.FromArgb(0, 102, 204);
+
+        // ── Version — update this single constant for every release ──────────
+        private const string APP_VERSION = "5.9";
         // Meter segment colours — inactive = same blue as dropdown, active = ONE red
         private static readonly Color SEG_OFF      = Color.FromArgb(0, 102, 204);   // same as dropdown blue
         private static readonly Color SEG_ON       = Color.FromArgb(254, 1, 1);     // ONE red
@@ -728,7 +731,7 @@ namespace WindowsFormsApp1
             int fy = H - FOOTER_H;
             _lblFooterLeft = new Label
             {
-                        Text      = "ONE United Global  •  2026  •  v5.9",
+                        Text      = $"ONE United Global  \u2022  2026  \u2022  v{APP_VERSION}",
                 ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
                 Font      = new Font("Segoe UI", SF(14f), FontStyle.Bold),
