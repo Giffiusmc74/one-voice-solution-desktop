@@ -3,19 +3,16 @@
 Collaborate
 
 Share
-The CLI token doesn't have Actions read permission — I need you to check it in your browser and tell me what the failing step says.
-In your browser, go to:
-https://github.com/Giffiusmc74/one-voice-solution-desktop/actions
-Click the red X run → click the "build" job → scroll through the steps and tell me which step has the red X and what the error message says.
-That will tell me exactly what to fix.
-I confirmed the build error is due to insufficient GitHub Actions permissions. Next, I will review the failed step in the Actions tab to identify the specific issue.
+if this doesn't wor - just forget the update on changing the version - this is ridiculous
+Understood — if the build fails again, we drop the auto-version workflow and keep it simple (manually update APP_VERSION in the code when needed). Not worth the back and forth.
+Moving on to the BookDemo form now.
+I confirmed the BookDemo form includes validation and submit logic. Next, I’ll inspect the tRPC router to connect form submission with backend database and email sending.
 
-i dont see build job
-When you click the red X run, you should see a page with the job listed. Can you take a screenshot of what you see after clicking the red X? Or tell me what text/steps are visible on the page — even just the first few lines of the error output would help me pinpoint it.
-14:57
-I can see it — the job box is loading (the two squares icon in the center). The "All jobs" section on the left is empty, which means the workflow itself failed to parse before any job could even start. This is a YAML syntax error in the workflow file you pasted.
-The most likely culprit is the ${{ }} expressions — when pasted through the chat, some characters may have gotten mangled. Let me give you a clean, simpler version that avoids the complex expressions.
-Go back to the file editor in GitHub (same steps as before — .github/workflows/build.yml → pencil icon) and replace everything with this simpler version:
+update build - red x
+15:01
+Dropping the auto-version workflow — it's not worth the trouble. I'm reverting the workflow back to the simple working version (the one that was green on v5.9). Go back to the file editor one more time:
+https://github.com/Giffiusmc74/one-voice-solution-desktop
+→ .github → workflows → build.yml → pencil icon → Ctrl+A → Delete → paste this → Commit:
 YAML
 name: Build ONE Voice Solution Installer
 
@@ -33,25 +30,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           lfs: true
-          fetch-depth: 0
-
-      - name: Get version from latest tag
-        id: version
-        shell: powershell
-        run: |
-          $raw = git describe --tags --abbrev=0 2>$null
-          if ($raw -match "^v(.+)$") { $ver = $matches[1] } else { $ver = "5.9" }
-          echo "VERSION=$ver" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          Write-Host "Version: $ver"
-
-      - name: Patch APP_VERSION in source
-        shell: powershell
-        run: |
-          $ver = (Get-Content $env:GITHUB_OUTPUT | Select-String "VERSION=").ToString().Split("=")[1]
-          $file = "src\MainFormV5.cs"
-          $c = Get-Content $file -Raw
-          $c = $c -replace 'private const string APP_VERSION = "[^"]*";', "private const string APP_VERSION = `"$ver`";"
-          Set-Content $file $c -NoNewline
 
       - name: Setup NuGet
         uses: NuGet/setup-nuget@v2
@@ -88,7 +66,7 @@ jobs:
           name: ONEVoiceSolution-Installer
           path: installer\output\*.exe
           retention-days: 90
-This version is simpler and avoids the complex ${{ steps.version.outputs.VERSION }} expressions that were likely causing the YAML parse failure. Copy that, paste it in, commit.
+This is the exact version that was building green. Version number stays as APP_VERSION in the code — just update that one line manually when needed.
 Task completed
 How was this result?
 Suggested follow-ups
