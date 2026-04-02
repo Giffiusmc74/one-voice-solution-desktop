@@ -1,78 +1,51 @@
+
+
+Collaborate
+
+Share
+I discovered the GitHub repo is private, explaining the 404 error in the sandbox. Updating the workflow is easiest via your browser by editing `.github/workflows/build.yml` directly.
+
+what is go to your repo?
+Sorry — here's the exact URL to paste in your browser:
+https://github.com/Giffiusmc74/one-voice-solution-desktop
+Once you're there:
+Click the .github folder
+Click the workflows folder
+Click build.yml
+Click the pencil icon (top right of the file )
+Select all (Ctrl+A), delete, paste the new content
+Click "Commit changes" at the bottom
+commit changes is at the top right and it won't allow me to click it - I have everytghiung selected
+The "Commit changes" button is greyed out until you actually make a change to the file content. Here's what's happening — when you select all and try to paste, GitHub's editor may not be registering the change yet.
+Try this instead:
+Click somewhere inside the file editor first (so the cursor is in the text)
+Press Ctrl+A to select all
+Press Delete to clear it
+Now paste (Ctrl+V) the new content
+The "Commit changes" button in the top right should turn green — then click it
+If the button is still grey after pasting, try clicking somewhere else in the editor first, then click the button. GitHub needs to detect that the content actually changed before it enables the commit button.
+ctrl v - there was nothing that pasted - you did'nt tell me to copy anyhting
+14:53
+You're right, my mistake. Here's the full content — select all of it below and copy it (Ctrl+C), then paste it into the GitHub editor:
+YAML
 name: Build ONE Voice Solution Installer
 
 on:
   push:
     branches: [ main, master ]
-  workflow_dispatch:   # allows manual trigger from GitHub website
+    tags:
+      - 'v*'
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: windows-latest
 
     steps:
-      # 1. Check out the code (with LFS so MainForm.resx is the real file, not a pointer)
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          lfs: true
+      - name: Checkout repo
 
-      # 2. Set up NuGet so packages can be restored
-      - name: Setup NuGet
-        uses: NuGet/setup-nuget@v2
 
-      # 3. Restore NuGet packages (NAudio, Newtonsoft.Json, etc.)
-      - name: Restore NuGet packages
-        run: nuget restore OneApplication.csproj -PackagesDirectory packages
+GitHub
 
-      # 4. Set up MSBuild (comes with Visual Studio on windows-latest)
-      - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@v2
 
-      # 5. Build the project in Release mode
-      - name: Build Release
-        run: msbuild OneApplication.csproj /p:Configuration=Release /p:Platform=AnyCPU /p:OutputPath=bin\Release\
-
-      # 6. Download VB-Audio Cable driver (official package from vb-audio.com)
-      - name: Download VB-Audio Cable
-        run: |
-          New-Item -ItemType Directory -Force -Path installer\vbcable | Out-Null
-          $url = "https://download.vb-audio.com/Download_CABLE/VBCABLE_Driver_Pack45.zip"
-          $zip = "installer\vbcable\vbcable.zip"
-          Write-Host "Downloading VB-Audio Cable from $url"
-          Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
-          Expand-Archive -Path $zip -DestinationPath installer\vbcable -Force
-          Remove-Item $zip
-          Write-Host "VB-Audio Cable files:"
-          Get-ChildItem installer\vbcable
-        shell: powershell
-
-      # 7. Install Inno Setup (free, used to build the .exe installer)
-      - name: Install Inno Setup
-        run: choco install innosetup --yes --no-progress
-
-      # 8. Compile the installer using our .iss script
-      - name: Build Installer
-        run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\ONEVoiceSolution_Setup.iss
-
-      # 9. Upload the finished installer as a downloadable artifact
-      - name: Upload Installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: ONENEW20260401-Installer
-          path: installer\output\ONEVoiceSolution_Setup_v5.exe
-          retention-days: 30
-
-      # 9. Also create a GitHub Release if this is a tagged push (e.g. v5.0)
-      - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: installer\output\ONEVoiceSolution_Setup_v5.exe
-          name: ONE Voice Solution ${{ github.ref_name }}
-          body: |
-            ONE Voice Solution Desktop App
-            - Auto-migrates scripts and recordings from previous versions
-            - VB-Audio Cable installs silently (no manual steps)
-            - Heartbeat reporting to admin dashboard
-            - Settings auto-saved
+How to Organize Files and Folders on My Computer - Manus
