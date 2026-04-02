@@ -631,6 +631,10 @@ namespace WindowsFormsApp1
                         _activeSpeakerDevice.AudioEndpointVolume.MasterVolumeLevelScalar = vol;
                 }
                 catch { }
+                // Persist volume setting immediately on change
+                if (isLeft) AppSettings.Instance.MicSystemVolume     = trk.Value;
+                else        AppSettings.Instance.SpeakerSystemVolume = trk.Value;
+                AppSettings.Instance.Save();
             };
             this.Controls.Add(trk);
             if (isLeft) { _trkMicVol = trk; _lblMicVol = lblPct; }
@@ -863,16 +867,17 @@ namespace WindowsFormsApp1
                         !d.FriendlyName.Contains("Virtual")) ?? devices.First();
                 Log.Info($"[Audio] Capturing: {device.FriendlyName}");
                 _activeMicDevice = device;  // store for volume slider
-                // Sync slider to current system volume
+                // Restore saved volume, or fall back to current system volume
                 if (_trkMicVol != null)
                 {
                     try
                     {
-                        float cur = device.AudioEndpointVolume.MasterVolumeLevelScalar;
-                        int pct = (int)(cur * 100);
+                        int savedPct = AppSettings.Instance.MicSystemVolume;
+                        // Apply saved volume to device
+                        device.AudioEndpointVolume.MasterVolumeLevelScalar = savedPct / 100f;
                         if (_trkMicVol.InvokeRequired)
-                            _trkMicVol.BeginInvoke(new Action(() => { _trkMicVol.Value = pct; if (_lblMicVol != null) _lblMicVol.Text = $"{pct}%"; }));
-                        else { _trkMicVol.Value = pct; if (_lblMicVol != null) _lblMicVol.Text = $"{pct}%"; }
+                            _trkMicVol.BeginInvoke(new Action(() => { _trkMicVol.Value = savedPct; if (_lblMicVol != null) _lblMicVol.Text = $"{savedPct}%"; }));
+                        else { _trkMicVol.Value = savedPct; if (_lblMicVol != null) _lblMicVol.Text = $"{savedPct}%"; }
                     }
                     catch { }
                 }
@@ -920,16 +925,16 @@ namespace WindowsFormsApp1
                     // Blue bg immediately on load
                     _cboHeadset.BackColor = ONE_BLUE_SEL;
                     _cboHeadset.ForeColor = Color.White;
-                    // Store active speaker device for volume slider
+                    // Store active speaker device and restore saved volume
                     int selIdx = _cboHeadset.SelectedIndex;
                     if (selIdx >= 0 && selIdx < rends.Count)
                     {
                         _activeSpeakerDevice = rends[selIdx];
                         try
                         {
-                            float cur = _activeSpeakerDevice.AudioEndpointVolume.MasterVolumeLevelScalar;
-                            int pct = (int)(cur * 100);
-                            if (_trkSpeakerVol != null) { _trkSpeakerVol.Value = pct; if (_lblSpeakerVol != null) _lblSpeakerVol.Text = $"{pct}%"; }
+                            int savedPct = AppSettings.Instance.SpeakerSystemVolume;
+                            _activeSpeakerDevice.AudioEndpointVolume.MasterVolumeLevelScalar = savedPct / 100f;
+                            if (_trkSpeakerVol != null) { _trkSpeakerVol.Value = savedPct; if (_lblSpeakerVol != null) _lblSpeakerVol.Text = $"{savedPct}%"; }
                         }
                         catch { }
                     }
