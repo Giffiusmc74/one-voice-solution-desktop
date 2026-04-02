@@ -1,33 +1,20 @@
 /*
- * MainFormV5.cs  —  ONE Voice Solution v5.0
+ * MainFormV5.cs  —  ONE Voice Solution v5.1
  *
- * Layout:
- *   [ONE Logo]  Voice Solution   |  Audio Dashboard   Agent: {name}  | [─][×]
- *   ──────────────────────────────────────────────────── RED LINE
- *   Microphone [▾]                          Headset / Speaker [▾]
- *
- *   AGENT AUDIO    ┌──────── VIDEO (large) ──────┐   CUSTOMER OUTPUT
- *   Customer Voice │                             │   My Mic Level
- *   [▓▓▓▓░░░░░░]  │                             │   [▓▓▓▓░░░░░░]
- *   Script Playback│                             │   Script Playback
- *   [░░░░░░░░░░]  └─────────────────────────────┘   [░░░░░░░░░░]
- *   [● Auto Level-Match: ON]         [● Auto Level-Match: ON]
- *   Tap to toggle manual / automatic  Tap to toggle manual / automatic
- *
- *        " The Geniusness Is In The Simplicity "
- *   ──────────────────────────────────────────────────── RED LINE
- *   ONE United Global 2026 v5.0        This App Can Be Minimized
- *
- * Changes in this version:
- *   - ONE logo bigger; "Voice Solution" beside it (same row, not under)
- *   - Video panel much larger (~72% of available height)
- *   - Segmented VU bars — no slider thumb, no gradient, no jitter
- *   - Only mic meter moves; script/customer meters stay flat until audio plays
- *   - WMP uiMode forced via BeginInvoke delay + PlayStateChange handler
- *   - Minimize/Close buttons at absolute top-right corner, always visible
- *   - Window drag attached to all header child controls
- *   - No dead space — tagline sits tight below video
- *   - Helper hint text under each Auto Level-Match badge
+ * v5.1 Fixes (Apr 2 2026):
+ *   - Header: extra top cushion (~half inch), clear space between "Audio Dashboard" and "Agent:" label
+ *   - LIVE pill: repositioned left — no overlap with minimize/close buttons
+ *   - Device labels: bold, 3pts bigger, wider containers
+ *   - Dropdown selected state: bright ONE sky blue background, persists after selection
+ *   - Panel titles: 2pts bigger, subtitle on SAME LINE as title (right-aligned)
+ *   - More vertical gap between meter label and bar
+ *   - Meter bars: sky blue (ONE logo blue) active segments; dark navy inactive; ALL start at 0
+ *   - Only "My Mic Level" meter moves; all others stay at 0
+ *   - Auto Level-Match badge: font 2pts bigger, button taller
+ *   - Helper text: 1pt bigger, color white
+ *   - Side panels fill all the way down to footer — no empty black space
+ *   - Video: reduced to ~2/3 of previous size, WMP controls hidden, fills panel edge-to-edge
+ *   - Footer: half-inch bottom cushion, text vertically centered within taller footer
  */
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
@@ -46,46 +33,43 @@ namespace WindowsFormsApp1
     public partial class MainFormV5 : Form
     {
         // ── Brand colours ─────────────────────────────────────────────────────
-        private static readonly Color ONE_RED   = Color.FromArgb(254, 1, 1);
-        private static readonly Color BG_DARK   = Color.FromArgb(18, 18, 18);
-        private static readonly Color BG_PANEL  = Color.FromArgb(28, 28, 28);
-        private static readonly Color TEXT_WHITE = Color.White;
-        private static readonly Color TEXT_GREY  = Color.FromArgb(155, 155, 155);
-        private static readonly Color SEG_OFF    = Color.FromArgb(0, 60, 120);   // ocean blue background
-        private static readonly Color SEG_ON     = Color.FromArgb(254, 1, 1);    // ONE red when active
-        private static readonly Color SEG_PEAK   = Color.FromArgb(255, 145, 0);  // orange at peak
+        private static readonly Color ONE_RED      = Color.FromArgb(254, 1, 1);
+        private static readonly Color BG_DARK      = Color.FromArgb(18, 18, 18);
+        private static readonly Color BG_PANEL     = Color.FromArgb(28, 28, 28);
+        private static readonly Color TEXT_WHITE   = Color.White;
+        private static readonly Color TEXT_GREY    = Color.FromArgb(155, 155, 155);
+        // Sky blue from ONE logo
+        private static readonly Color ONE_BLUE_SEL = Color.FromArgb(0, 102, 204);
+        // Meter segment colours — sky blue active, dark navy inactive
+        private static readonly Color SEG_OFF      = Color.FromArgb(0, 40, 90);
+        private static readonly Color SEG_ON       = Color.FromArgb(30, 144, 255);
+        private static readonly Color SEG_PEAK     = Color.FromArgb(0, 200, 255);
 
-        // ── Scale — set from screen dimensions at startup ─────────────────────
+        // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
-        private int HEADER_H     => (int)(124 * _scale);  // taller header with cushion
+        private int HEADER_H     => (int)(148 * _scale);  // taller: ~half-inch extra cushion
         private int REDLINE_H    => 3;
-        private int DEVICE_ROW_H => (int)(52  * _scale);
-        private int FOOTER_H     => (int)(32  * _scale);  // tighter footer
+        private int DEVICE_ROW_H => (int)(58  * _scale);
+        private int FOOTER_H     => (int)(48  * _scale);  // taller: half-inch cushion
         private int SIDE_PAD     => (int)(26  * _scale);
         private int VIDEO_GAP    => (int)(12  * _scale);
-        private int METER_H      => (int)(30  * _scale);  // taller meter bars
-        private int BADGE_H      => (int)(30  * _scale);
+        private int METER_H      => (int)(28  * _scale);
+        private int BADGE_H      => (int)(36  * _scale);  // 2pts taller badge
         private const int METER_SEGS = 24;
         private float SF(float pt) => Math.Max(7f, (float)Math.Round(pt * _scale, 1));
 
-        // ── Logger ────────────────────────────────────────────────────────────
         private static readonly Logger Log = LogManager.GetCurrentClassLogger();
 
         // ── Audio ─────────────────────────────────────────────────────────────
         private WasapiCapture      _micCapture;
         private MMDeviceEnumerator _deviceEnum = new MMDeviceEnumerator();
-
-        // Only _micLevel is driven by live capture.
-        // Script meters stay at 0 unless audio is actually routed to them.
         private float _micLevel            = 0f;
         private float _agentScriptLevel    = 0f;
         private float _customerScriptLevel = 0f;
-
         private float _agentVoiceSlider     = 0.62f;
         private float _agentScriptSlider    = 0.48f;
         private float _customerVoiceSlider  = 0.55f;
         private float _customerScriptSlider = 0.55f;
-
         private bool _agentAutoLevel    = true;
         private bool _customerAutoLevel = true;
 
@@ -102,9 +86,9 @@ namespace WindowsFormsApp1
         private Label       _lblHeadsetLabel;
         private Panel       _videoPanel;
         private AxWMPLib.AxWindowsMediaPlayer _videoPlayer;
-        private Panel       _micMeterLeft;        // left panel meter 1 (shows mic)
-        private Panel       _micMeterRight;       // right panel meter 1 (shows mic)
+        private Panel       _myMicMeterLeft;
         private Panel       _agentScriptMeter;
+        private Panel       _customerVoiceMeter;
         private Panel       _customerScriptMeter;
         private Button      _btnAgentAutoLevel;
         private Button      _btnCustomerAutoLevel;
@@ -117,14 +101,12 @@ namespace WindowsFormsApp1
         private System.Windows.Forms.Timer _livePulseTimer;
         private bool _livePulseState = true;
 
-        // ── P/Invoke — borderless drag ────────────────────────────────────────
         [DllImport("user32.dll")]
         private static extern int SendMessage(IntPtr hWnd, int Msg, int wParam, int lParam);
         [DllImport("user32.dll")]
         private static extern bool ReleaseCapture();
         private const int WM_NCLBUTTONDOWN = 0xA1;
         private const int HTCAPTION        = 0x2;
-
         private Button _btnClose;
         private Button _btnMinimize;
 
@@ -145,7 +127,6 @@ namespace WindowsFormsApp1
                 _lblAgentName.Text = "Agent: " + agentNameOverride;
         }
 
-        // ── Form init ─────────────────────────────────────────────────────────
         private void InitializeComponent()
         {
             this.SuspendLayout();
@@ -185,7 +166,7 @@ namespace WindowsFormsApp1
             _redLine = new Panel { BackColor = ONE_RED, Bounds = new Rectangle(0, HEADER_H, W, REDLINE_H) };
             this.Controls.Add(_redLine);
             BuildDeviceRow(W);
-            int contentTop = HEADER_H + REDLINE_H + DEVICE_ROW_H + (int)(28 * _scale);  // extra top cushion
+            int contentTop = HEADER_H + REDLINE_H + DEVICE_ROW_H + (int)(14 * _scale);
             BuildContentArea(W, H, contentTop);
             BuildFooter(W, H);
         }
@@ -193,11 +174,10 @@ namespace WindowsFormsApp1
         // ── Header ────────────────────────────────────────────────────────────
         private void BuildHeader(int W)
         {
-            int logoSz = (int)(104 * _scale);  // bigger ONE logo
-            int logoY  = (HEADER_H - logoSz) / 2;
+            int logoSz = (int)(104 * _scale);
+            int logoY  = (int)(22 * _scale) + (HEADER_H - (int)(22 * _scale) - logoSz) / 2;
             int logoX  = SIDE_PAD;
 
-            // ONE logo — large square on the left
             _logoBox = new PictureBox
             {
                 Bounds    = new Rectangle(logoX, logoY, logoSz, logoSz),
@@ -208,7 +188,7 @@ namespace WindowsFormsApp1
             this.Controls.Add(_logoBox);
             AttachDrag(_logoBox);
 
-            // "Voice Solution" — beside the logo, vertically centred to logo height
+            // "Voice Solution" — beside logo, baseline aligned
             int vsX = logoX + logoSz + (int)(10 * _scale);
             _lblVoiceSolution = new Label
             {
@@ -217,13 +197,14 @@ namespace WindowsFormsApp1
                 BackColor = Color.Transparent,
                 Font      = new Font("Segoe UI", SF(14f), FontStyle.Bold),
                 AutoSize  = false,
-                TextAlign = ContentAlignment.MiddleLeft,
+                TextAlign = ContentAlignment.BottomLeft,
                 Bounds    = new Rectangle(vsX, logoY, (int)(160 * _scale), logoSz)
             };
             this.Controls.Add(_lblVoiceSolution);
             AttachDrag(_lblVoiceSolution);
 
-            // "Audio Dashboard" — centred across full width
+            // "Audio Dashboard" — centred, with top cushion
+            int dashY = (int)(24 * _scale);
             _lblAudioDashboard = new Label
             {
                 Text      = "Audio Dashboard",
@@ -232,12 +213,13 @@ namespace WindowsFormsApp1
                 Font      = new Font("Segoe UI", SF(30f), FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleCenter,
-                Bounds    = new Rectangle(0, (int)(8 * _scale), W, (int)(48 * _scale))
+                Bounds    = new Rectangle(0, dashY, W, (int)(48 * _scale))
             };
             this.Controls.Add(_lblAudioDashboard);
             AttachDrag(_lblAudioDashboard);
 
-            // Agent name — centred below Audio Dashboard
+            // "Agent:" — clear separation below "Audio Dashboard"
+            int agentY = dashY + (int)(54 * _scale);
             _lblAgentName = new Label
             {
                 Text      = "Agent: " + AppSettings.Instance.AgentName,
@@ -246,24 +228,14 @@ namespace WindowsFormsApp1
                 Font      = new Font("Segoe UI", SF(14f), FontStyle.Regular),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleCenter,
-                Bounds    = new Rectangle(0, (int)(56 * _scale), W, (int)(26 * _scale))
+                Bounds    = new Rectangle(0, agentY, W, (int)(26 * _scale))
             };
             this.Controls.Add(_lblAgentName);
             AttachDrag(_lblAgentName);
 
-            // LIVE pill — right side, clear of window buttons
-            int pillW = (int)(168 * _scale);
-            int pillH = (int)(32  * _scale);
-            int pillX = W - pillW - (int)(88 * _scale);
-            int pillY = (HEADER_H - pillH) / 2;
-            _livePill = new Panel { Bounds = new Rectangle(pillX, pillY, pillW, pillH), BackColor = ONE_RED };
-            _livePill.Paint += DrawLivePill;
-            this.Controls.Add(_livePill);
-
-            // Window buttons — absolute top-right, always visible
+            // Window buttons — absolute top-right
             int btnSz = (int)(32 * _scale);
-            int btnY  = (int)(7  * _scale);
-
+            int btnY  = (int)(8  * _scale);
             _btnClose = new Button
             {
                 Text      = "X",
@@ -296,7 +268,15 @@ namespace WindowsFormsApp1
             _btnMinimize.Click += (s, e) => { this.WindowState = FormWindowState.Minimized; };
             this.Controls.Add(_btnMinimize);
 
-            // Form-level drag on the header background
+            // LIVE pill — well left of window buttons, no overlap
+            int pillW = (int)(168 * _scale);
+            int pillH = (int)(32  * _scale);
+            int pillX = W - btnSz * 2 - 12 - pillW - (int)(20 * _scale);
+            int pillY = btnY + (btnSz - pillH) / 2;
+            _livePill = new Panel { Bounds = new Rectangle(pillX, pillY, pillW, pillH), BackColor = ONE_RED };
+            _livePill.Paint += DrawLivePill;
+            this.Controls.Add(_livePill);
+
             this.MouseDown += (s, e) =>
             {
                 if (e.Button == MouseButtons.Left && e.Y < HEADER_H)
@@ -330,10 +310,10 @@ namespace WindowsFormsApp1
             using (var dot = new SolidBrush(_livePulseState ? Color.White : Color.FromArgb(150, 255, 255, 255)))
                 g.FillEllipse(dot, 10, (p.Height - 10) / 2, 10, 10);
             using (var font  = new Font("Segoe UI", SF(12f), FontStyle.Bold))
-            using (var brush = new SolidBrush(Color.White))
+            using (var brush2 = new SolidBrush(Color.White))
             {
                 var sf = new StringFormat { Alignment = StringAlignment.Near, LineAlignment = StringAlignment.Center };
-                g.DrawString("  LIVE  \u2022  Connected", font, brush,
+                g.DrawString("  LIVE  \u2022  Connected", font, brush2,
                     new RectangleF(20, 0, p.Width - 20, p.Height), sf);
             }
         }
@@ -341,13 +321,14 @@ namespace WindowsFormsApp1
         // ── Device row ────────────────────────────────────────────────────────
         private void BuildDeviceRow(int W)
         {
-            int top   = HEADER_H + REDLINE_H + 6;
-            int dropW = (W - SIDE_PAD * 2 - 40) / 2;
+            int top   = HEADER_H + REDLINE_H + (int)(8 * _scale);
+            int dropW = (W - SIDE_PAD * 2 - (int)(50 * _scale)) / 2;
 
-            _lblMicLabel = MakeLabel("Microphone", SIDE_PAD, top, 11, color: TEXT_GREY);
+            // Microphone label — bold, 3pts bigger (14 vs 11)
+            _lblMicLabel = MakeLabel("Microphone", SIDE_PAD, top, 14, bold: true, color: TEXT_WHITE);
             _cboMic = new ComboBox
             {
-                Bounds        = new Rectangle(SIDE_PAD, top + 15, dropW, 26),
+                Bounds        = new Rectangle(SIDE_PAD, top + (int)(22 * _scale), dropW, (int)(30 * _scale)),
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 BackColor     = BG_PANEL,
                 ForeColor     = TEXT_WHITE,
@@ -356,6 +337,8 @@ namespace WindowsFormsApp1
             };
             _cboMic.SelectedIndexChanged += (s, e) =>
             {
+                _cboMic.BackColor = ONE_BLUE_SEL;
+                _cboMic.ForeColor = Color.White;
                 AppSettings.Instance.MicDevice = _cboMic.Text;
                 AppSettings.Instance.Save();
                 StartAudioCapture(_cboMic.Text);
@@ -363,10 +346,11 @@ namespace WindowsFormsApp1
             this.Controls.Add(_cboMic);
 
             int rightX = W - SIDE_PAD - dropW;
-            _lblHeadsetLabel = MakeLabel("Headset / Speaker", rightX, top, 11, color: TEXT_GREY);
+            // Headset/Speaker label — bold, 3pts bigger
+            _lblHeadsetLabel = MakeLabel("Headset / Speaker", rightX, top, 14, bold: true, color: TEXT_WHITE);
             _cboHeadset = new ComboBox
             {
-                Bounds        = new Rectangle(rightX, top + 15, dropW, 26),
+                Bounds        = new Rectangle(rightX, top + (int)(22 * _scale), dropW, (int)(30 * _scale)),
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 BackColor     = BG_PANEL,
                 ForeColor     = TEXT_WHITE,
@@ -375,6 +359,8 @@ namespace WindowsFormsApp1
             };
             _cboHeadset.SelectedIndexChanged += (s, e) =>
             {
+                _cboHeadset.BackColor = ONE_BLUE_SEL;
+                _cboHeadset.ForeColor = Color.White;
                 AppSettings.Instance.HeadsetDevice = _cboHeadset.Text;
                 AppSettings.Instance.Save();
             };
@@ -384,20 +370,22 @@ namespace WindowsFormsApp1
         // ── Content area ──────────────────────────────────────────────────────
         private void BuildContentArea(int W, int H, int top)
         {
-            // Reserve space: 8px top gap + tagline (28px) + 6px gap + footer
-            int taglineH = (int)(28 * _scale);
-            int availH   = H - top - taglineH - (int)(10 * _scale) - FOOTER_H;  // tight bottom
+            int taglineH   = (int)(28 * _scale);
+            int taglineGap = (int)(8  * _scale);
+            int availH     = H - top - taglineH - taglineGap - FOOTER_H;
 
-            // Side panels: fixed width, video gets the rest
-            int sideW    = (int)(300 * _scale);  // wider panels = video only slightly bigger than original
+            // Side panels narrower so video is ~2/3 of full width
+            int sideW     = (int)(240 * _scale);
             int videoLeft = SIDE_PAD + sideW + VIDEO_GAP;
             int videoW    = W - videoLeft - VIDEO_GAP - sideW - SIDE_PAD;
-            int videoH    = availH;   // video fills ALL available height
-            int videoTop  = top + (int)(8 * _scale);
+            // Video height = 2/3 of available height, vertically centered
+            int videoH    = (int)(availH * 0.67f);
+            if (videoH < 180) videoH = 180;
+            int videoTop  = top + (availH - videoH) / 2;
 
-            // Enforce minimum reasonable video size
-            if (videoW < 300) { videoW = 300; }
-            if (videoH < 200) { videoH = 200; }
+            // Side panels fill FULL available height
+            int panelTop = top;
+            int panelH   = availH;
 
             // Video panel
             _videoPanel = new Panel
@@ -405,15 +393,14 @@ namespace WindowsFormsApp1
                 Bounds    = new Rectangle(videoLeft, videoTop, videoW, videoH),
                 BackColor = Color.Black
             };
-            // No border on video panel
             this.Controls.Add(_videoPanel);
 
-            // WMP — looping, muted, no UI chrome
+            // WMP — looping, muted, no chrome
             try
             {
                 _videoPlayer = new AxWMPLib.AxWindowsMediaPlayer
                 {
-                    Bounds = new Rectangle(2, 2, videoW - 4, videoH - 4)
+                    Bounds = new Rectangle(0, 0, videoW, videoH)
                 };
                 _videoPanel.Controls.Add(_videoPlayer);
                 _videoPlayer.CreateControl();
@@ -426,12 +413,11 @@ namespace WindowsFormsApp1
                 {
                     _videoPlayer.settings.setMode("loop", true);
                     _videoPlayer.settings.volume = 0;
-                    // WMP requires a URI (file:///) not a raw Windows path
-                    _videoPlayer.URL = new Uri(videoPath).AbsoluteUri;
+                    _videoPlayer.URL    = new Uri(videoPath).AbsoluteUri;
                     _videoPlayer.uiMode = "none";
                     _videoPlayer.Ctlcontrols.play();
 
-                    // Repeatedly enforce uiMode="none" until WMP fully settles (timer fires 20x over 4s)
+                    // Enforce uiMode="none" for 5 seconds (25 x 200ms)
                     var uiFixTimer = new System.Windows.Forms.Timer { Interval = 200 };
                     int uiFixCount = 0;
                     uiFixTimer.Tick += (ts, te) =>
@@ -439,11 +425,10 @@ namespace WindowsFormsApp1
                         try
                         {
                             if (_videoPlayer.uiMode != "none") _videoPlayer.uiMode = "none";
-                            // Ensure WMP fills the panel with no chrome gap
-                            _videoPlayer.Bounds = new Rectangle(2, 2, _videoPanel.Width - 4, _videoPanel.Height - 4);
+                            _videoPlayer.Bounds = new Rectangle(0, 0, _videoPanel.Width, _videoPanel.Height);
                         }
                         catch { }
-                        if (++uiFixCount >= 20) uiFixTimer.Stop();
+                        if (++uiFixCount >= 25) uiFixTimer.Stop();
                     };
                     uiFixTimer.Start();
 
@@ -460,14 +445,13 @@ namespace WindowsFormsApp1
             }
             catch (Exception ex) { Log.Warn($"[Video] WMP failed: {ex.Message}"); }
 
-            // Side panels — same height as video, flush left and right
-            BuildMeterPanel(SIDE_PAD, videoTop, sideW, videoH, isLeft: true);
-
+            // Side panels
+            BuildMeterPanel(SIDE_PAD, panelTop, sideW, panelH, isLeft: true);
             int rightX = videoLeft + videoW + VIDEO_GAP;
-            BuildMeterPanel(rightX, videoTop, sideW, videoH, isLeft: false);
+            BuildMeterPanel(rightX, panelTop, sideW, panelH, isLeft: false);
 
-            // Tagline — snug below video, no dead space
-            int tagY = videoTop + videoH + (int)(6 * _scale);
+            // Tagline below content area
+            int tagY = top + availH + taglineGap;
             _lblTagline = new Label
             {
                 Text      = "\u201c The Geniusness Is In The Simplicity \u201d",
@@ -476,7 +460,7 @@ namespace WindowsFormsApp1
                 Font      = new Font("Segoe UI", SF(18f), FontStyle.Bold | FontStyle.Italic),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleCenter,
-                Bounds    = new Rectangle(videoLeft, tagY, videoW, (int)(30 * _scale))  // centered under video
+                Bounds    = new Rectangle(videoLeft, tagY, videoW, taglineH)
             };
             this.Controls.Add(_lblTagline);
         }
@@ -484,53 +468,59 @@ namespace WindowsFormsApp1
         // ── Meter panel ───────────────────────────────────────────────────────
         private void BuildMeterPanel(int x, int top, int w, int panelH, bool isLeft)
         {
-            string title = isLeft ? "AGENT AUDIO"     : "CUSTOMER OUTPUT";
-            string sub   = isLeft ? "(What You Hear)" : "(What They Hear)";
+            string title   = isLeft ? "AGENT AUDIO"     : "CUSTOMER OUTPUT";
+            string sub     = isLeft ? "(What You Hear)"  : "(What They Hear)";
+            // Left: "My Mic Level" moves; Right: "Customer Voice" stays at 0
+            string m1Label = isLeft ? "My Mic Level"    : "Customer Voice";
+            string m2Label = "Script Playback";
 
+            // Title — 2pts bigger (15 vs 13), left portion of row
             var lblTitle = new Label
             {
                 Text      = title,
                 ForeColor = ONE_RED,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(13f), FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(15f), FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleLeft,
-                Bounds    = new Rectangle(x, top, w, (int)(20 * _scale))
+                Bounds    = new Rectangle(x, top, (int)(w * 0.58f), (int)(22 * _scale))
             };
             this.Controls.Add(lblTitle);
 
+            // Subtitle — same line, right portion, 2pts bigger (12 vs 10)
             var lblSub = new Label
             {
                 Text      = sub,
                 ForeColor = TEXT_GREY,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(10f)),
+                Font      = new Font("Segoe UI", SF(12f)),
                 AutoSize  = false,
-                TextAlign = ContentAlignment.MiddleLeft,
-                Bounds    = new Rectangle(x, top + (int)(20 * _scale), w, (int)(16 * _scale))
+                TextAlign = ContentAlignment.MiddleRight,
+                Bounds    = new Rectangle(x + (int)(w * 0.58f), top, (int)(w * 0.42f), (int)(22 * _scale))
             };
             this.Controls.Add(lblSub);
 
-            // Meter 1
-            string m1Label = isLeft ? "Customer Voice" : "My Mic Level";
-            int    m1Top   = top + (int)(44 * _scale);
-            MakeLabel(m1Label, x, m1Top, 11, color: TEXT_WHITE);
-            var meter1 = MakeMeterPanel(x, m1Top + (int)(16 * _scale), w, isLeft ? "agentVoice" : "customerVoice");
+            // Meter 1 label + bar with extra separation
+            int m1LabelY = top + (int)(28 * _scale);
+            MakeLabel(m1Label, x, m1LabelY, 11, color: TEXT_WHITE);
+            int m1BarY = m1LabelY + (int)(20 * _scale);
+            MakeMeterPanel(x, m1BarY, w, isLeft ? "myMicLevel" : "customerVoice");
 
-            // Meter 2
-            int m2Top = m1Top + (int)(16 * _scale) + METER_H + (int)(12 * _scale);
-            MakeLabel("Script Playback", x, m2Top, 11, color: TEXT_WHITE);
-            var meter2 = MakeMeterPanel(x, m2Top + (int)(16 * _scale), w, isLeft ? "agentScript" : "customerScript");
+            // Meter 2 label + bar with extra separation
+            int m2LabelY = m1BarY + METER_H + (int)(14 * _scale);
+            MakeLabel(m2Label, x, m2LabelY, 11, color: TEXT_WHITE);
+            int m2BarY = m2LabelY + (int)(20 * _scale);
+            MakeMeterPanel(x, m2BarY, w, isLeft ? "agentScript" : "customerScript");
 
-            // Auto Level-Match badge
-            int badgeTop = m2Top + (int)(16 * _scale) + METER_H + (int)(12 * _scale);
+            // Auto Level-Match badge — 2pts bigger font (13 vs 11), taller button
+            int badgeTop = m2BarY + METER_H + (int)(16 * _scale);
             var btnBadge = new Button
             {
                 Text      = "\u25cf Auto Level-Match: ON",
                 ForeColor = Color.White,
                 BackColor = ONE_RED,
                 FlatStyle = FlatStyle.Flat,
-                Font      = new Font("Segoe UI", SF(11f), FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(13f), FontStyle.Bold),
                 Bounds    = new Rectangle(x, badgeTop, w, BADGE_H),
                 Cursor    = Cursors.Hand
             };
@@ -540,18 +530,32 @@ namespace WindowsFormsApp1
             this.Controls.Add(btnBadge);
             if (isLeft) _btnAgentAutoLevel = btnBadge; else _btnCustomerAutoLevel = btnBadge;
 
-            // Helper hint under badge
+            // Helper hint — 1pt bigger (10 vs 9), color white
+            int hintY = badgeTop + BADGE_H + (int)(4 * _scale);
             var lblHint = new Label
             {
                 Text      = "Tap to switch between manual & automatic level control",
-                ForeColor = Color.FromArgb(100, 100, 100),
+                ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(9f), FontStyle.Italic),
+                Font      = new Font("Segoe UI", SF(10f), FontStyle.Italic),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleLeft,
-                Bounds    = new Rectangle(x, badgeTop + BADGE_H + 2, w, (int)(16 * _scale))
+                Bounds    = new Rectangle(x, hintY, w, (int)(18 * _scale))
             };
             this.Controls.Add(lblHint);
+
+            // Fill remaining space to footer — no dead black space
+            int filledTop = hintY + (int)(18 * _scale) + (int)(4 * _scale);
+            int filledH   = (top + panelH) - filledTop;
+            if (filledH > 0)
+            {
+                var filler = new Panel
+                {
+                    Bounds    = new Rectangle(x, filledTop, w, filledH),
+                    BackColor = BG_DARK
+                };
+                this.Controls.Add(filler);
+            }
         }
 
         private Panel MakeMeterPanel(int x, int y, int w, string key)
@@ -564,13 +568,12 @@ namespace WindowsFormsApp1
             };
             panel.Paint += (s, e) => DrawVUMeter(e.Graphics, (Panel)s, key);
             this.Controls.Add(panel);
-
             switch (key)
             {
-                case "agentVoice":    _micMeterLeft         = panel; break;
-                case "customerVoice": _micMeterRight        = panel; break;
-                case "agentScript":   _agentScriptMeter     = panel; break;
-                case "customerScript":_customerScriptMeter  = panel; break;
+                case "myMicLevel":    _myMicMeterLeft     = panel; break;
+                case "customerVoice": _customerVoiceMeter  = panel; break;
+                case "agentScript":   _agentScriptMeter    = panel; break;
+                case "customerScript":_customerScriptMeter = panel; break;
             }
             return panel;
         }
@@ -583,10 +586,8 @@ namespace WindowsFormsApp1
             int segs = METER_SEGS;
             int gap  = 2;
             int segW = Math.Max(2, (w - gap * (segs - 1)) / segs);
-
             float level  = GetLevel(key);
             int   litCnt = (int)(level * segs);
-
             for (int i = 0; i < segs; i++)
             {
                 int   sx   = i * (segW + gap);
@@ -596,7 +597,7 @@ namespace WindowsFormsApp1
                 using (var b = new SolidBrush(fill))
                     g.FillRectangle(b, sx, 0, segW, h);
             }
-            using (var pen = new Pen(Color.FromArgb(50, 50, 50), 1f))
+            using (var pen = new Pen(Color.FromArgb(20, 20, 40), 1f))
                 g.DrawRectangle(pen, 0, 0, w - 1, h - 1);
         }
 
@@ -604,8 +605,8 @@ namespace WindowsFormsApp1
         {
             switch (key)
             {
-                case "agentVoice":    return _micLevel;
-                case "customerVoice": return 0f;  // stays flat until real customer audio is routed in
+                case "myMicLevel":    return _micLevel;            // only this moves
+                case "customerVoice": return 0f;
                 case "agentScript":   return _agentScriptLevel;
                 case "customerScript":return _customerScriptLevel;
                 default: return 0f;
@@ -613,27 +614,27 @@ namespace WindowsFormsApp1
         }
 
         // ── Footer ────────────────────────────────────────────────────────────
-         private void BuildFooter(int W, int H)
+        private void BuildFooter(int W, int H)
         {
             int fy = H - FOOTER_H;
-            // No red line — clean footer
             _lblFooterLeft = new Label
             {
-                Text      = "ONE United Global  2026  v5.0",
+                Text      = "ONE United Global  \u2022  2026  \u2022  v5.1",
                 ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
                 Font      = new Font("Segoe UI", SF(12f)),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleLeft,
-                Bounds    = new Rectangle(SIDE_PAD, fy, 300, FOOTER_H)
+                Bounds    = new Rectangle(SIDE_PAD, fy, 320, FOOTER_H)
             };
             this.Controls.Add(_lblFooterLeft);
+
             _lblFooterCenter = new Label
             {
                 Text      = "This App Can Be Minimized  \u2022  Settings Are Auto-Saved",
-                ForeColor = TEXT_WHITE,   // same color as left label
+                ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(12f)),  // same font and size
+                Font      = new Font("Segoe UI", SF(12f)),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleCenter,
                 Bounds    = new Rectangle(0, fy, W, FOOTER_H)
@@ -648,13 +649,6 @@ namespace WindowsFormsApp1
             int W = this.ClientSize.Width, H = this.ClientSize.Height;
             using (var pen = new Pen(ONE_RED, 3f))
                 g.DrawRectangle(pen, 1, 1, W - 3, H - 3);
-        }
-
-        private void DrawVideoRedBorder(object sender, PaintEventArgs e)
-        {
-            var p = (Panel)sender;
-            using (var pen = new Pen(ONE_RED, 2f))
-                e.Graphics.DrawRectangle(pen, 0, 0, p.Width - 1, p.Height - 1);
         }
 
         // ── Tray icon ─────────────────────────────────────────────────────────
@@ -692,16 +686,14 @@ namespace WindowsFormsApp1
             this.Activate();
         }
 
-        // ── Meter timer — only mic level decays ───────────────────────────────
+        // ── Meter timer ───────────────────────────────────────────────────────
         private void SetupMeterTimer()
         {
             _meterTimer = new System.Windows.Forms.Timer { Interval = 50 };
             _meterTimer.Tick += (s, e) =>
             {
                 _micLevel = Math.Max(0f, _micLevel - 0.05f);
-                _micMeterLeft?.Invalidate();
-                _micMeterRight?.Invalidate();
-
+                _myMicMeterLeft?.Invalidate();
                 if (_agentScriptLevel > 0)
                 {
                     _agentScriptLevel = Math.Max(0f, _agentScriptLevel - 0.05f);
@@ -737,7 +729,6 @@ namespace WindowsFormsApp1
             {
                 var devices = _deviceEnum.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active);
                 if (!devices.Any()) { Log.Warn("[Audio] No capture devices."); return; }
-
                 string targetName = deviceName ?? (_cboMic?.Text) ?? AppSettings.Instance.MicDevice;
                 MMDevice device   = null;
                 if (!string.IsNullOrWhiteSpace(targetName))
@@ -747,7 +738,6 @@ namespace WindowsFormsApp1
                         !d.FriendlyName.Contains("CABLE") &&
                         !d.FriendlyName.Contains("VB-Audio") &&
                         !d.FriendlyName.Contains("Virtual")) ?? devices.First();
-
                 Log.Info($"[Audio] Capturing: {device.FriendlyName}");
                 _micCapture = new WasapiCapture(device, false);
                 _micCapture.DataAvailable += (s, e) =>
@@ -780,6 +770,9 @@ namespace WindowsFormsApp1
                 {
                     int idx = _cboMic.Items.IndexOf(AppSettings.Instance.MicDevice);
                     _cboMic.SelectedIndex = idx >= 0 ? idx : 0;
+                    // Blue bg immediately on load
+                    _cboMic.BackColor = ONE_BLUE_SEL;
+                    _cboMic.ForeColor = Color.White;
                 }
                 var rends = _deviceEnum.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
                 foreach (var d in rends) _cboHeadset.Items.Add(d.FriendlyName);
@@ -787,6 +780,9 @@ namespace WindowsFormsApp1
                 {
                     int idx = _cboHeadset.Items.IndexOf(AppSettings.Instance.HeadsetDevice);
                     _cboHeadset.SelectedIndex = idx >= 0 ? idx : 0;
+                    // Blue bg immediately on load
+                    _cboHeadset.BackColor = ONE_BLUE_SEL;
+                    _cboHeadset.ForeColor = Color.White;
                 }
             }
             catch (Exception ex) { Log.Warn($"[Audio] Device enum: {ex.Message}"); }
