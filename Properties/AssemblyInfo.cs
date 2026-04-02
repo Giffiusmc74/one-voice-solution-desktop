@@ -5,12 +5,12 @@ using System.Runtime.InteropServices;
 // General Information about an assembly is controlled through the following
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
-[assembly: AssemblyTitle("One App 2025")]
+[assembly: AssemblyTitle("ONE Voice Solution")]
 [assembly: AssemblyDescription("One United Global Audio Management System")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("One United Global")]
-[assembly: AssemblyProduct("One App 2025")]
-[assembly: AssemblyCopyright("Copyright ©  2025")]
+[assembly: AssemblyProduct("ONE Voice Solution")]
+[assembly: AssemblyCopyright("Copyright © 2026 ONE United Global")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 
@@ -32,5 +32,5 @@ using System.Runtime.InteropServices;
 // You can specify all the values or you can default the Build and Revision Numbers
 // by using the '*' as shown below:
 // [assembly: AssemblyVersion("1.0.*")]
-[assembly: AssemblyVersion("2.0.0.0")]
-[assembly: AssemblyFileVersion("2.0.0.0")]
+[assembly: AssemblyVersion("5.9.0.0")]
+[assembly: AssemblyFileVersion("5.9.0.0")]
