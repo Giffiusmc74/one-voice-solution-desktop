@@ -134,7 +134,9 @@ namespace WindowsFormsApp1
         private string _draggingKey;
 
         // ── Constructor ───────────────────────────────────────────────────────
-        public MainFormV5()
+        public MainFormV5() : this(null) { }
+
+        public MainFormV5(string agentNameOverride)
         {
             InitializeComponent();
             BuildUI();
@@ -145,6 +147,9 @@ namespace WindowsFormsApp1
             PopulateDevices();
             StartAudioCapture();
             StartHeartbeat();
+            // Override agent name label if provided (e.g. "Owner" for master key bypass)
+            if (!string.IsNullOrEmpty(agentNameOverride) && _lblAgentName != null)
+                _lblAgentName.Text = agentNameOverride;
         }
 
         // ── Form initialization ───────────────────────────────────────────────
