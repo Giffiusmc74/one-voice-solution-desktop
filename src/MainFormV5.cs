@@ -251,9 +251,9 @@ namespace WindowsFormsApp1
             this.Controls.Add(_lblVoiceSolution);
             AttachDrag(_lblVoiceSolution);
 
-            // "Audio Dashboard" — centred horizontally, vertically centered in header
+            // "Audio Dashboard" — centred horizontally, shifted up from center
             int dashH = (int)(52 * _scale);
-            int dashY = (HEADER_H - dashH) / 2;
+            int dashY = (HEADER_H - dashH) / 2 - (int)(14 * _scale);  // 14px above true center
             _lblAudioDashboard = new Label
             {
                 Text      = "Audio Dashboard",
