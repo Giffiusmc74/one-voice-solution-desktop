@@ -344,12 +344,12 @@ namespace WindowsFormsApp1
             _lblMicLabel = MakeLabel("Microphone", SIDE_PAD, top, 14, bold: true, color: TEXT_WHITE);
             _cboMic = new ComboBox
             {
-                Bounds        = new Rectangle(SIDE_PAD, top + (int)(22 * _scale), dropW, (int)(30 * _scale)),
+                Bounds        = new Rectangle(SIDE_PAD, top + (int)(22 * _scale), dropW, (int)(36 * _scale)),
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 BackColor     = BG_PANEL,
                 ForeColor     = TEXT_WHITE,
                 FlatStyle     = FlatStyle.Flat,
-                Font          = new Font("Segoe UI", SF(12f), FontStyle.Bold)
+                Font          = new Font("Segoe UI", SF(14f), FontStyle.Bold)
             };
             _cboMic.SelectedIndexChanged += (s, e) =>
             {
@@ -366,12 +366,12 @@ namespace WindowsFormsApp1
             _lblHeadsetLabel = MakeLabel("Headset / Speaker", rightX, top, 14, bold: true, color: TEXT_WHITE);
             _cboHeadset = new ComboBox
             {
-                Bounds        = new Rectangle(rightX, top + (int)(22 * _scale), dropW, (int)(30 * _scale)),
+                Bounds        = new Rectangle(rightX, top + (int)(22 * _scale), dropW, (int)(36 * _scale)),
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 BackColor     = BG_PANEL,
                 ForeColor     = TEXT_WHITE,
                 FlatStyle     = FlatStyle.Flat,
-                Font          = new Font("Segoe UI", SF(12f), FontStyle.Bold)
+                Font          = new Font("Segoe UI", SF(14f), FontStyle.Bold)
             };
             _cboHeadset.SelectedIndexChanged += (s, e) =>
             {
