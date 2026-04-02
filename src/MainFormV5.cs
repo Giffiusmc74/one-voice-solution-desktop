@@ -241,11 +241,44 @@ namespace WindowsFormsApp1
             LoadLogo();
             this.Controls.Add(_logoBox);
 
-            // Text block (right of logo)
-            int textX = SIDE_PAD + 150;
-            _lblVoiceSolution = MakeLabel("Voice Solution", textX, 14, 14, bold: false, color: TEXT_WHITE);
-            _lblAudioControlPanel = MakeLabel("Audio Control Panel", textX, 34, 12, bold: false, color: TEXT_GREY);
-            _lblAgentName = MakeLabel("Agent: " + AppSettings.Instance.AgentName, textX, 54, 12, bold: false, color: TEXT_GREY);
+            // "Voice Solution" sits beneath the ONE logo
+            _lblVoiceSolution = new Label
+            {
+                Text      = "Voice Solution",
+                ForeColor = TEXT_GREY,
+                BackColor = Color.Transparent,
+                Font      = new Font("DM Sans", 10f, FontStyle.Regular),
+                AutoSize  = true,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Bounds    = new Rectangle(SIDE_PAD, 78, 140, 18)
+            };
+            this.Controls.Add(_lblVoiceSolution);
+
+            // "Audio Dashboard" — centered across the full header width, large
+            _lblAudioControlPanel = new Label
+            {
+                Text      = "Audio Dashboard",
+                ForeColor = TEXT_WHITE,
+                BackColor = Color.Transparent,
+                Font      = new Font("Barlow Condensed", 28f, FontStyle.Bold),
+                AutoSize  = false,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Bounds    = new Rectangle(0, 10, W, 44)
+            };
+            this.Controls.Add(_lblAudioControlPanel);
+
+            // Agent name — centered below Audio Dashboard
+            _lblAgentName = new Label
+            {
+                Text      = "Agent: " + AppSettings.Instance.AgentName,
+                ForeColor = TEXT_GREY,
+                BackColor = Color.Transparent,
+                Font      = new Font("DM Sans", 14f, FontStyle.Regular),
+                AutoSize  = false,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Bounds    = new Rectangle(0, 52, W, 26)
+            };
+            this.Controls.Add(_lblAgentName);
 
             // LIVE pill (right side)
             _livePill = new Panel
