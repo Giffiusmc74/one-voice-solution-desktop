@@ -59,3 +59,4 @@
 #*.RTF   diff=astextplain
 MainForm.resx filter=lfs diff=lfs merge=lfs -text
 *.resx filter=lfs diff=lfs merge=lfs -text
+*.mp4 filter=lfs diff=lfs merge=lfs -text
