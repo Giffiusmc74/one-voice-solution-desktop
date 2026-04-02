@@ -364,22 +364,26 @@ namespace WindowsFormsApp1
         private void BuildDeviceRow(int W)
         {
             int top   = HEADER_H + REDLINE_H + (int)(20 * _scale);
-            int dropW = (W - SIDE_PAD * 2 - (int)(50 * _scale)) / 2;
+            // Widen dropdowns — each takes ~45% of form width so they feel substantial
+            int dropW = (int)(W * 0.44f);
+            int labelH = (int)(28 * _scale);
+            int cboH   = (int)(42 * _scale);
+            int cboGap = (int)(8  * _scale);  // gap between label and dropdown
 
-            // Microphone label — bold, 18pt
-            _lblMicLabel = MakeLabel("Microphone", SIDE_PAD, top, 18, bold: true, color: TEXT_WHITE);
+            // Microphone label — bold, 20pt (3pts bigger than before)
+            _lblMicLabel = MakeLabel("Microphone", SIDE_PAD, top, 20, bold: true, color: TEXT_WHITE);
             _cboMic = new ComboBox
             {
-                Bounds        = new Rectangle(SIDE_PAD, top + (int)(36 * _scale), dropW, (int)(40 * _scale)),
+                Bounds        = new Rectangle(SIDE_PAD, top + labelH + cboGap, dropW, cboH),
                 DropDownStyle = ComboBoxStyle.DropDownList,
-                BackColor     = BG_PANEL,
-                ForeColor     = TEXT_WHITE,
+                BackColor     = ONE_BLUE_SEL,   // starts blue (no device selected yet)
+                ForeColor     = Color.White,
                 FlatStyle     = FlatStyle.Flat,
                 Font          = new Font("Segoe UI", SF(18f), FontStyle.Bold)
             };
             _cboMic.SelectedIndexChanged += (s, e) =>
             {
-                _cboMic.BackColor = ONE_BLUE_SEL;
+                _cboMic.BackColor = ONE_BLUE_SEL;  // stays blue permanently
                 _cboMic.ForeColor = Color.White;
                 AppSettings.Instance.MicDevice = _cboMic.Text;
                 AppSettings.Instance.Save();
@@ -388,20 +392,20 @@ namespace WindowsFormsApp1
             this.Controls.Add(_cboMic);
 
             int rightX = W - SIDE_PAD - dropW;
-            // Headset/Speaker label — bold, 18pt
-            _lblHeadsetLabel = MakeLabel("Headset / Speaker", rightX, top, 18, bold: true, color: TEXT_WHITE);
+            // Headset/Speaker label — bold, 20pt
+            _lblHeadsetLabel = MakeLabel("Headset / Speaker", rightX, top, 20, bold: true, color: TEXT_WHITE);
             _cboHeadset = new ComboBox
             {
-                Bounds        = new Rectangle(rightX, top + (int)(36 * _scale), dropW, (int)(40 * _scale)),
+                Bounds        = new Rectangle(rightX, top + labelH + cboGap, dropW, cboH),
                 DropDownStyle = ComboBoxStyle.DropDownList,
-                BackColor     = BG_PANEL,
-                ForeColor     = TEXT_WHITE,
+                BackColor     = ONE_BLUE_SEL,   // starts blue
+                ForeColor     = Color.White,
                 FlatStyle     = FlatStyle.Flat,
                 Font          = new Font("Segoe UI", SF(18f), FontStyle.Bold)
             };
             _cboHeadset.SelectedIndexChanged += (s, e) =>
             {
-                _cboHeadset.BackColor = ONE_BLUE_SEL;
+                _cboHeadset.BackColor = ONE_BLUE_SEL;  // stays blue permanently
                 _cboHeadset.ForeColor = Color.White;
                 AppSettings.Instance.HeadsetDevice = _cboHeadset.Text;
                 AppSettings.Instance.Save();
@@ -422,9 +426,10 @@ namespace WindowsFormsApp1
             if (sideW < 200) sideW = 200;
             int videoLeft = SIDE_PAD + sideW + VIDEO_GAP;
 
-            // Video fills most of the available height, starts at contentTop
-            int videoH   = availH;
-            int videoTop = top;
+            // Video is ~2/3 of available height, vertically centered
+            int videoH   = (int)(availH * 0.67f);
+            if (videoH < 160) videoH = 160;
+            int videoTop = top + (availH - videoH) / 2;
 
             // Side panels are exactly aligned with the video top and bottom
             int panelTop = videoTop;
@@ -723,7 +728,7 @@ namespace WindowsFormsApp1
             int fy = H - FOOTER_H;
             _lblFooterLeft = new Label
             {
-                        Text      = "ONE United Global  •  2026  •  v5.5",
+                        Text      = "ONE United Global  •  2026  •  v5.9",
                 ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
                 Font      = new Font("Segoe UI", SF(14f), FontStyle.Bold),
