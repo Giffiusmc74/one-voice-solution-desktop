@@ -60,7 +60,7 @@ namespace WindowsFormsApp1
         private static readonly Color ONE_BLUE_SEL = Color.FromArgb(0, 102, 204);
 
         // ── Version — update this single constant for every release ──────────
-        private const string APP_VERSION = "6.3";
+        private const string APP_VERSION = "6.4";
         // Meter segment colours — inactive = same blue as dropdown, active = ONE red
         private static readonly Color SEG_OFF      = Color.FromArgb(0, 102, 204);   // same as dropdown blue
         private static readonly Color SEG_ON       = Color.FromArgb(254, 1, 1);     // ONE red
@@ -162,7 +162,7 @@ namespace WindowsFormsApp1
             if (!string.IsNullOrEmpty(agentNameOverride) && _lblAgentName != null)
                 _lblAgentName.Text = "Agent: " + agentNameOverride;
             // Delay video play until form is fully shown — WMP needs handle created
-            this.Load += (s, e) =>
+            this.Shown += (s, e) =>
             {
                 StartVideoPlayback();
                 // Auto-open ScriptBuilder in default browser so agent is ready to call
@@ -433,20 +433,20 @@ namespace WindowsFormsApp1
             int taglineGap = (int)(8  * _scale);
             int availH     = H - top - taglineH - taglineGap - FOOTER_H;
 
-            // Video ~35% of form width (narrower); side panels get more room
-            int videoW    = (int)(W * 0.35f);
+            // Video ~30% of form width (narrower); side panels get more room
+            int videoW    = (int)(W * 0.30f);
             int sideW     = (W - SIDE_PAD * 2 - VIDEO_GAP * 2 - videoW) / 2;
             if (sideW < 200) sideW = 200;
             int videoLeft = SIDE_PAD + sideW + VIDEO_GAP;
 
             // Video is ~2/3 of available height, vertically centered
-            int videoH   = (int)(availH * 0.62f);
-            if (videoH < 160) videoH = 160;
-            int videoTop = top + (availH - videoH) / 2;
+            int videoH   = (int)(availH * 0.80f);
+            if (videoH < 200) videoH = 200;
+            int videoTop = top + (int)(8 * _scale);  // pin near top, no dead space
 
-            // Side panels are exactly aligned with the video top and bottom
-            int panelTop = videoTop;
-            int panelH   = videoH;
+            // Side panels use full available height for maximum spacing
+            int panelTop = top + (int)(8 * _scale);
+            int panelH   = availH - (int)(16 * _scale);
 
             // Video panel
             _videoPanel = new Panel
@@ -540,9 +540,9 @@ namespace WindowsFormsApp1
             int barH     = METER_H;
             int volLblH  = (int)(28 * _scale);
             int trkH     = (int)(32 * _scale);
-            int volGap   = (int)(10 * _scale);  // bar -> vol label
-            int betweenH = (int)(28 * _scale);  // slider -> meter 2 label
-            int badgeGap = (int)(22 * _scale);  // bar2 slider -> badge
+            int volGap   = (int)(12 * _scale);  // bar -> vol label
+            int betweenH = (int)(36 * _scale);  // slider -> meter 2 label
+            int badgeGap = (int)(28 * _scale);  // bar2 slider -> badge
             int hintH    = (int)(24 * _scale);
             int hintGap  = (int)(8  * _scale);
 
@@ -789,7 +789,14 @@ namespace WindowsFormsApp1
             g.SmoothingMode = SmoothingMode.AntiAlias;
             int W = this.ClientSize.Width, H = this.ClientSize.Height;
             using (var pen = new Pen(ONE_RED, 3f))
-                g.DrawRectangle(pen, 1, 1, W - 3, H - 3);
+            {
+                // Left border
+                g.DrawLine(pen, 1, 0, 1, H - 1);
+                // Right border
+                g.DrawLine(pen, W - 2, 0, W - 2, H - 1);
+                // Bottom border
+                g.DrawLine(pen, 0, H - 2, W, H - 2);
+            }
         }
 
         // ── Tray icon ─────────────────────────────────────────────────────────
@@ -841,7 +848,7 @@ namespace WindowsFormsApp1
 
                 // Step 2: after a short delay (WMP needs ~300ms to initialise the media),
                 //         force uiMode=none, correct bounds, then press play
-                var startTimer = new System.Windows.Forms.Timer { Interval = 400 };
+                var startTimer = new System.Windows.Forms.Timer { Interval = 800 };
                 startTimer.Tick += (ts, te) =>
                 {
                     startTimer.Stop();
