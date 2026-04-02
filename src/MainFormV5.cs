@@ -56,12 +56,12 @@ namespace WindowsFormsApp1
         private static readonly Color BG_PANEL     = Color.FromArgb(28, 28, 28);
         private static readonly Color TEXT_WHITE   = Color.White;
         private static readonly Color TEXT_GREY    = Color.FromArgb(155, 155, 155);
-        // Sky blue from ONE logo
+        // Sky blue from ONE logo — used for dropdown selected background
         private static readonly Color ONE_BLUE_SEL = Color.FromArgb(0, 102, 204);
-        // Meter segment colours — sky blue active, dark navy inactive
-        private static readonly Color SEG_OFF      = Color.FromArgb(0, 40, 90);
-        private static readonly Color SEG_ON       = Color.FromArgb(30, 144, 255);
-        private static readonly Color SEG_PEAK     = Color.FromArgb(0, 200, 255);
+        // Meter segment colours — inactive = same blue as dropdown, active = ONE red
+        private static readonly Color SEG_OFF      = Color.FromArgb(0, 102, 204);   // same as dropdown blue
+        private static readonly Color SEG_ON       = Color.FromArgb(254, 1, 1);     // ONE red
+        private static readonly Color SEG_PEAK     = Color.FromArgb(255, 80, 80);   // bright red peak
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
