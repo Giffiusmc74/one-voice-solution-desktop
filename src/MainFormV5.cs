@@ -426,20 +426,30 @@ namespace WindowsFormsApp1
                     _videoPlayer.uiMode = "none";
                     _videoPlayer.Ctlcontrols.play();
 
-                    // Force uiMode hidden after WMP finishes its internal load
-                    this.BeginInvoke((Action)(() =>
-                    {
-                        try { _videoPlayer.uiMode = "none"; } catch { }
-                    }));
-
-                    _videoPlayer.PlayStateChange += (s2, e2) =>
+                    // Repeatedly enforce uiMode="none" until WMP fully settles (timer fires 20x over 4s)
+                    var uiFixTimer = new System.Windows.Forms.Timer { Interval = 200 };
+                    int uiFixCount = 0;
+                    uiFixTimer.Tick += (ts, te) =>
                     {
                         try
                         {
                             if (_videoPlayer.uiMode != "none") _videoPlayer.uiMode = "none";
-                            if (e2.newState == 1) _videoPlayer.Ctlcontrols.play();
+                            // Ensure WMP fills the panel with no chrome gap
+                            _videoPlayer.Bounds = new Rectangle(2, 2, _videoPanel.Width - 4, _videoPanel.Height - 4);
                         }
                         catch { }
+                        if (++uiFixCount >= 20) uiFixTimer.Stop();
+                    };
+                    uiFixTimer.Start();
+
+                    _videoPlayer.PlayStateChange += (s2, e2) =>
+                    {
+                        Action fix = () =>
+                        {
+                            try { if (_videoPlayer.uiMode != "none") _videoPlayer.uiMode = "none"; } catch { }
+                            if (e2.newState == 1) { try { _videoPlayer.Ctlcontrols.play(); } catch { } }
+                        };
+                        if (this.InvokeRequired) this.BeginInvoke(fix); else fix();
                     };
                 }
             }
@@ -592,7 +602,7 @@ namespace WindowsFormsApp1
             switch (key)
             {
                 case "agentVoice":    return _micLevel;
-                case "customerVoice": return _micLevel;
+                case "customerVoice": return 0f;  // stays flat until real customer audio is routed in
                 case "agentScript":   return _agentScriptLevel;
                 case "customerScript":return _customerScriptLevel;
                 default: return 0f;
