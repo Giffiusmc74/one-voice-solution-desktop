@@ -422,7 +422,8 @@ namespace WindowsFormsApp1
                 {
                     _videoPlayer.settings.setMode("loop", true);
                     _videoPlayer.settings.volume = 0;
-                    _videoPlayer.URL = videoPath;
+                    // WMP requires a URI (file:///) not a raw Windows path
+                    _videoPlayer.URL = new Uri(videoPath).AbsoluteUri;
                     _videoPlayer.uiMode = "none";
                     _videoPlayer.Ctlcontrols.play();
 
