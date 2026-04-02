@@ -60,7 +60,7 @@ namespace WindowsFormsApp1
         private static readonly Color ONE_BLUE_SEL = Color.FromArgb(0, 102, 204);
 
         // ── Version — update this single constant for every release ──────────
-        private const string APP_VERSION = "5.9";
+        private const string APP_VERSION = "6.0";
         // Meter segment colours — inactive = same blue as dropdown, active = ONE red
         private static readonly Color SEG_OFF      = Color.FromArgb(0, 102, 204);   // same as dropdown blue
         private static readonly Color SEG_ON       = Color.FromArgb(254, 1, 1);     // ONE red
@@ -220,8 +220,8 @@ namespace WindowsFormsApp1
         // ── Header ────────────────────────────────────────────────────────────
         private void BuildHeader(int W)
         {
-            int logoSz = (int)(130 * _scale);  // bigger logo
-            // Logo vertically centered in header with a small top margin
+            // Logo — large, vertically centered in header
+            int logoSz = (int)(160 * _scale);  // bigger logo
             int logoY  = (HEADER_H - logoSz) / 2;
             int logoX  = SIDE_PAD;
 
@@ -235,28 +235,28 @@ namespace WindowsFormsApp1
             this.Controls.Add(_logoBox);
             AttachDrag(_logoBox);
 
-            // "Voice Solution" — sits just below the ONE lettering (lower third of logo area)
-            // logoY is the top of the logo; the ONE text occupies roughly the top 60%
-            // so we place "Voice Solution" starting at ~65% down the logo height
-            int vsW = (int)(200 * _scale);
-            int vsH = (int)(24 * _scale);     // single line height
-            int vsY = logoY + (int)(logoSz * 0.65f); // just below the ONE letters
+            // "Voice Solution" — sits BESIDE the logo (to the right), vertically centered
+            int vsGap = (int)(10 * _scale);   // gap between logo right edge and text
+            int vsX   = logoX + logoSz + vsGap;
+            int vsW   = (int)(220 * _scale);
+            int vsH   = (int)(32 * _scale);
+            int vsY   = logoY + (logoSz - vsH) / 2;  // vertically centered with logo
             _lblVoiceSolution = new Label
             {
                 Text      = "Voice Solution",
                 ForeColor = Color.White,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(16f), FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(20f), FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleLeft,
-                Bounds    = new Rectangle(logoX + logoSz + (int)(10 * _scale), vsY, vsW, vsH)
+                Bounds    = new Rectangle(vsX, vsY, vsW, vsH)
             };
             this.Controls.Add(_lblVoiceSolution);
             AttachDrag(_lblVoiceSolution);
 
-            // "Audio Dashboard" — centred horizontally, shifted up from center
+            // "Audio Dashboard" — centred horizontally, vertically centered in header
             int dashH = (int)(52 * _scale);
-            int dashY = (HEADER_H - dashH) / 2 - (int)(14 * _scale);  // 14px above true center
+            int dashY = (HEADER_H - dashH) / 2 - (int)(10 * _scale);
             _lblAudioDashboard = new Label
             {
                 Text      = "Audio Dashboard",
@@ -270,9 +270,9 @@ namespace WindowsFormsApp1
             this.Controls.Add(_lblAudioDashboard);
             AttachDrag(_lblAudioDashboard);
 
-            // "Agent: Name" — centered below "Audio Dashboard"
+            // "Agent: Name" — centered below "Audio Dashboard", with clear gap
             int agentH = (int)(26 * _scale);
-            int agentY = dashY + dashH + (int)(4 * _scale);
+            int agentY = dashY + dashH + (int)(10 * _scale);
             _lblAgentName = new Label
             {
                 Text      = "Agent: " + AppSettings.Instance.AgentName,
@@ -430,8 +430,8 @@ namespace WindowsFormsApp1
             int videoLeft = SIDE_PAD + sideW + VIDEO_GAP;
 
             // Video is ~2/3 of available height, vertically centered
-            int videoH   = (int)(availH * 0.67f);
-            if (videoH < 160) videoH = 160;
+            int videoH   = (int)(availH * 0.50f);
+            if (videoH < 140) videoH = 140;
             int videoTop = top + (availH - videoH) / 2;
 
             // Side panels are exactly aligned with the video top and bottom
@@ -520,7 +520,7 @@ namespace WindowsFormsApp1
             string volLblText = isLeft ? "Mic Volume" : "Speaker Volume";
 
             // ── Sizes ──────────────────────────────────────────────────────────
-            int titleH   = (int)(26 * _scale);
+            int titleH   = (int)(36 * _scale);
             int subH     = (int)(22 * _scale);
             int gap1     = (int)(12 * _scale);  // title block -> meter 1
             int lbl1H    = (int)(24 * _scale);
@@ -612,7 +612,7 @@ namespace WindowsFormsApp1
 
             // Vol label + % + slider directly under meter 2
             int v2LblY = m2BarY + barH + volGap;
-            var lv2 = new Label { Text = "Speaker Volume", ForeColor = TEXT_WHITE, BackColor = Color.Transparent,
+            var lv2 = new Label { Text = isLeft ? "Script Playback Volume" : "Speaker Volume", ForeColor = TEXT_WHITE, BackColor = Color.Transparent,
                 Font = new Font("Segoe UI", SF(16f), FontStyle.Bold), AutoSize = false,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Bounds = new Rectangle(x, v2LblY, w - (int)(60 * _scale), volLblH) };
