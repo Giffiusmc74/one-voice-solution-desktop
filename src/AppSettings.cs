@@ -52,6 +52,10 @@ namespace WindowsFormsApp1.src
         public bool AgentAutoLevel    { get; set; } = true;
         public bool CustomerAutoLevel { get; set; } = true;
 
+        // System device volume levels (0-100) - persisted across restarts
+        public int MicSystemVolume     { get; set; } = 100;
+        public int SpeakerSystemVolume { get; set; } = 100;
+
         // Volume helpers (float 0–1, maps to int 0–100 internally)
         public float GetVolume(string key, float defaultVal = 0.5f)
         {
