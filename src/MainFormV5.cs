@@ -1,5 +1,11 @@
 /*
- * MainFormV5.cs  —  ONE Voice Solution v5.1
+ * MainFormV5.cs  —  ONE Voice Solution v5.2
+ *
+ * v5.2 Fixes (Apr 2 2026 — second pass):
+ *   - LIVE pill moved to top-CENTER of header (was overlapping window buttons)
+ *   - Subtitle text ("What You Hear" / "What They Hear") on its own row — no longer cut off
+ *   - Side panels now fill all the way to footer (panelH includes tagline+gap area)
+ *   - WMP control bar clipped below visible area (player bounds = panel height + 52px extra)
  *
  * v5.1 Fixes (Apr 2 2026):
  *   - Header: extra top cushion (~half inch), clear space between "Audio Dashboard" and "Agent:" label
@@ -268,11 +274,11 @@ namespace WindowsFormsApp1
             _btnMinimize.Click += (s, e) => { this.WindowState = FormWindowState.Minimized; };
             this.Controls.Add(_btnMinimize);
 
-            // LIVE pill — well left of window buttons, no overlap
+            // LIVE pill — top-center of header, well clear of window buttons
             int pillW = (int)(168 * _scale);
             int pillH = (int)(32  * _scale);
-            int pillX = W - btnSz * 2 - 12 - pillW - (int)(20 * _scale);
-            int pillY = btnY + (btnSz - pillH) / 2;
+            int pillX = (W - pillW) / 2;
+            int pillY = (int)(8 * _scale);
             _livePill = new Panel { Bounds = new Rectangle(pillX, pillY, pillW, pillH), BackColor = ONE_RED };
             _livePill.Paint += DrawLivePill;
             this.Controls.Add(_livePill);
@@ -383,9 +389,9 @@ namespace WindowsFormsApp1
             if (videoH < 180) videoH = 180;
             int videoTop  = top + (availH - videoH) / 2;
 
-            // Side panels fill FULL available height
+            // Side panels fill ALL the way to footer (include tagline+gap area)
             int panelTop = top;
-            int panelH   = availH;
+            int panelH   = availH + taglineGap + taglineH;
 
             // Video panel
             _videoPanel = new Panel
@@ -398,11 +404,16 @@ namespace WindowsFormsApp1
             // WMP — looping, muted, no chrome
             try
             {
+                // WMP chrome bar is ~48px tall — make the control taller than the panel
+                // so the control bar is clipped below the visible area
+                int wmpExtraH = 52;
                 _videoPlayer = new AxWMPLib.AxWindowsMediaPlayer
                 {
-                    Bounds = new Rectangle(0, 0, videoW, videoH)
+                    Bounds = new Rectangle(0, 0, videoW, videoH + wmpExtraH)
                 };
                 _videoPanel.Controls.Add(_videoPlayer);
+                _videoPanel.AutoScroll = false;
+                _videoPanel.AutoSize   = false;
                 _videoPlayer.CreateControl();
                 _videoPlayer.uiMode       = "none";
                 _videoPlayer.stretchToFit = true;
@@ -425,7 +436,8 @@ namespace WindowsFormsApp1
                         try
                         {
                             if (_videoPlayer.uiMode != "none") _videoPlayer.uiMode = "none";
-                            _videoPlayer.Bounds = new Rectangle(0, 0, _videoPanel.Width, _videoPanel.Height);
+                            // Keep oversized bounds so WMP chrome bar stays below visible area
+                            _videoPlayer.Bounds = new Rectangle(0, 0, _videoPanel.Width, _videoPanel.Height + wmpExtraH);
                         }
                         catch { }
                         if (++uiFixCount >= 25) uiFixTimer.Stop();
@@ -474,7 +486,7 @@ namespace WindowsFormsApp1
             string m1Label = isLeft ? "My Mic Level"    : "Customer Voice";
             string m2Label = "Script Playback";
 
-            // Title — 2pts bigger (15 vs 13), left portion of row
+            // Title — 2pts bigger (15 vs 13), full width
             var lblTitle = new Label
             {
                 Text      = title,
@@ -483,25 +495,25 @@ namespace WindowsFormsApp1
                 Font      = new Font("Segoe UI", SF(15f), FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleLeft,
-                Bounds    = new Rectangle(x, top, (int)(w * 0.58f), (int)(22 * _scale))
+                Bounds    = new Rectangle(x, top, w, (int)(20 * _scale))
             };
             this.Controls.Add(lblTitle);
-
-            // Subtitle — same line, right portion, 2pts bigger (12 vs 10)
+            // Subtitle — own row below title, full width, left-aligned
+            int subY = top + (int)(20 * _scale);
             var lblSub = new Label
             {
                 Text      = sub,
                 ForeColor = TEXT_GREY,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(12f)),
+                Font      = new Font("Segoe UI", SF(11f)),
                 AutoSize  = false,
-                TextAlign = ContentAlignment.MiddleRight,
-                Bounds    = new Rectangle(x + (int)(w * 0.58f), top, (int)(w * 0.42f), (int)(22 * _scale))
+                TextAlign = ContentAlignment.MiddleLeft,
+                Bounds    = new Rectangle(x, subY, w, (int)(18 * _scale))
             };
             this.Controls.Add(lblSub);
 
             // Meter 1 label + bar with extra separation
-            int m1LabelY = top + (int)(28 * _scale);
+            int m1LabelY = subY + (int)(22 * _scale);
             MakeLabel(m1Label, x, m1LabelY, 11, color: TEXT_WHITE);
             int m1BarY = m1LabelY + (int)(20 * _scale);
             MakeMeterPanel(x, m1BarY, w, isLeft ? "myMicLevel" : "customerVoice");
@@ -619,7 +631,7 @@ namespace WindowsFormsApp1
             int fy = H - FOOTER_H;
             _lblFooterLeft = new Label
             {
-                Text      = "ONE United Global  \u2022  2026  \u2022  v5.1",
+                Text      = "ONE United Global  \u2022  2026  \u2022  v5.2",
                 ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
                 Font      = new Font("Segoe UI", SF(12f)),
