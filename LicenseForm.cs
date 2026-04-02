@@ -63,28 +63,44 @@ namespace WindowsFormsApp1
 
                 Thread.Sleep(3000); // add delay for timer thread to validate license at startup
 
-                //Initialize();                
+                // ── Pre-keyed installer support ───────────────────────────────
+                // When a call center manager generates agent installers from the
+                // portal, App.config is stamped with PreloadedLicenseKey.  On the
+                // agent's first launch we silently save it to the registry so the
+                // agent never sees the license entry screen.
+                string preloaded = System.Configuration.ConfigurationManager
+                    .AppSettings["PreloadedLicenseKey"];
+                if (!string.IsNullOrWhiteSpace(preloaded))
+                {
+                    var existingKey = RegistryUtils.GetRegistryValue(@"SOFTWARE\OneApp3", "License");
+                    if (existingKey == null)
+                    {
+                        logger.Info("[License] Pre-keyed installer: saving key to registry silently.");
+                        RegistryUtils.SetRegistryValue(
+                            @"Software\OneApp3", "License",
+                            DataEncryption.EncryptString_Aes(preloaded.Trim()),
+                            RegistryValueKind.String);
+                    }
+                }
 
                 var value = RegistryUtils.GetRegistryValue(@"SOFTWARE\OneApp3", "License");
 
-
                 if (value == null)
                 {
-                    // first time case                    
+                    // first time case — no saved key and no pre-keyed installer
                     lblStatus.Text = "Status: Need License to activate.";
                     UpdateUIForLoading(false); // Show standard UI
                 }
                 else
                 {
                     licenseKey = DataEncryption.DecryptString_Aes(value.ToString());
-                    
+
                     // Show loading state
                     UpdateUIForLoading(true);
                     lblStatus.Text = "Status: Verifying saved license...";
-                    
-                    // Validate silently
-                    CheckLicenseStatus();
 
+                    // Validate silently — key is already saved, no entry screen needed
+                    CheckLicenseStatus();
                     // Note: CheckLicenseStatus is async and will handle the UI/Form transition
                 }
             }
