@@ -1,5 +1,5 @@
 /*
- * MainFormV5.cs  —  ONE Voice Solution v5.4
+ * MainFormV5.cs  —  ONE Voice Solution v5.5
  *
  * v5.4 Fixes (Apr 2 2026 — fourth pass):
  *   - Video narrowed to ~50% of form width; side panels wider accordingly
@@ -69,7 +69,7 @@ namespace WindowsFormsApp1
         private int REDLINE_H    => 3;
         private int DEVICE_ROW_H => (int)(58  * _scale);
         private int FOOTER_H     => (int)(48  * _scale);  // taller: half-inch cushion
-        private int SIDE_PAD     => (int)(26  * _scale);
+        private int SIDE_PAD     => (int)(40  * _scale);  // more cushion from edges
         private int VIDEO_GAP    => (int)(12  * _scale);
         private int METER_H      => (int)(28  * _scale);
         private int BADGE_H      => (int)(36  * _scale);  // 2pts taller badge
@@ -127,6 +127,8 @@ namespace WindowsFormsApp1
         private const int HTCAPTION        = 0x2;
         private Button _btnClose;
         private Button _btnMinimize;
+        private string _videoFilePath;
+        private int    _wmpExtraH = 80;
 
         // ── Constructor ───────────────────────────────────────────────────────
         public MainFormV5() : this(null) { }
@@ -143,6 +145,8 @@ namespace WindowsFormsApp1
             StartHeartbeat();
             if (!string.IsNullOrEmpty(agentNameOverride) && _lblAgentName != null)
                 _lblAgentName.Text = "Agent: " + agentNameOverride;
+            // Delay video play until form is fully shown — WMP needs handle created
+            this.Load += (s, e) => StartVideoPlayback();
         }
 
         private void InitializeComponent()
@@ -167,8 +171,8 @@ namespace WindowsFormsApp1
         {
             Screen screen = Screen.FromPoint(Cursor.Position);
             Rectangle wa  = screen.WorkingArea;
-            int w = Math.Max((int)(wa.Width  * 0.96), 900);
-            int h = Math.Max((int)(wa.Height * 0.96), 600);
+            int w = Math.Max((int)(wa.Width  * 0.88), 860);
+            int h = Math.Max((int)(wa.Height * 0.88), 560);
             _scale = Math.Max(0.60f, Math.Min(Math.Min((float)w / 1280f, (float)h / 900f), 1.20f));
             this.ClientSize = new Size(w, h);
             this.Location   = new Point(wa.Left + (wa.Width - w) / 2, wa.Top + (wa.Height - h) / 2);
@@ -230,7 +234,7 @@ namespace WindowsFormsApp1
                 Text      = "Agent: " + AppSettings.Instance.AgentName,
                 ForeColor = TEXT_GREY,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(13f), FontStyle.Regular),
+                Font      = new Font("Segoe UI", SF(13f), FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.BottomLeft,
                 Bounds    = new Rectangle(agentLabelX, logoY, (int)(280 * _scale), vsH)
@@ -261,14 +265,14 @@ namespace WindowsFormsApp1
                 Text      = "X",
                 FlatStyle = FlatStyle.Flat,
                 ForeColor = Color.White,
-                BackColor = ONE_RED,
+                BackColor = Color.FromArgb(55, 55, 55),
                 Font      = new Font("Segoe UI", SF(13f), FontStyle.Bold),
                 Bounds    = new Rectangle(W - btnSz - 8, btnY, btnSz, btnSz),
                 Cursor    = Cursors.Hand,
                 TabStop   = false
             };
             _btnClose.FlatAppearance.BorderSize = 0;
-            _btnClose.FlatAppearance.MouseOverBackColor = Color.FromArgb(200, 0, 0);
+            _btnClose.FlatAppearance.MouseOverBackColor = Color.FromArgb(180, 0, 0);
             _btnClose.Click += (s, e) => Application.Exit();
             this.Controls.Add(_btnClose);
 
@@ -345,7 +349,7 @@ namespace WindowsFormsApp1
                 BackColor     = BG_PANEL,
                 ForeColor     = TEXT_WHITE,
                 FlatStyle     = FlatStyle.Flat,
-                Font          = new Font("Segoe UI", SF(12f))
+                Font          = new Font("Segoe UI", SF(12f), FontStyle.Bold)
             };
             _cboMic.SelectedIndexChanged += (s, e) =>
             {
@@ -367,7 +371,7 @@ namespace WindowsFormsApp1
                 BackColor     = BG_PANEL,
                 ForeColor     = TEXT_WHITE,
                 FlatStyle     = FlatStyle.Flat,
-                Font          = new Font("Segoe UI", SF(12f))
+                Font          = new Font("Segoe UI", SF(12f), FontStyle.Bold)
             };
             _cboHeadset.SelectedIndexChanged += (s, e) =>
             {
@@ -411,9 +415,10 @@ namespace WindowsFormsApp1
             // WMP — looping, muted, no chrome
             try
             {
-                // WMP chrome bar is ~48px tall — make the control taller than the panel
+                // WMP chrome bar is ~48-80px tall — make the control taller than the panel
                 // so the control bar is clipped below the visible area
-                int wmpExtraH = 52;
+                // Panel clips children automatically when AutoScroll=false and AutoSize=false
+                int wmpExtraH = 80;
                 _videoPlayer = new AxWMPLib.AxWindowsMediaPlayer
                 {
                     Bounds = new Rectangle(0, 0, videoW, videoH + wmpExtraH)
@@ -421,6 +426,10 @@ namespace WindowsFormsApp1
                 _videoPanel.Controls.Add(_videoPlayer);
                 _videoPanel.AutoScroll = false;
                 _videoPanel.AutoSize   = false;
+                // Force panel to clip children (hides WMP chrome bar)
+                _videoPanel.GetType().GetProperty("DoubleBuffered",
+                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
+                    ?.SetValue(_videoPanel, true);
                 _videoPlayer.CreateControl();
                 _videoPlayer.uiMode       = "none";
                 _videoPlayer.stretchToFit = true;
@@ -429,33 +438,15 @@ namespace WindowsFormsApp1
                     AppDomain.CurrentDomain.BaseDirectory, "Resources", "1ONEDigitalVideo.mp4");
                 if (File.Exists(videoPath))
                 {
-                    _videoPlayer.settings.setMode("loop", true);
-                    _videoPlayer.settings.volume = 0;
-                    _videoPlayer.URL    = new Uri(videoPath).AbsoluteUri;
-                    _videoPlayer.uiMode = "none";
-                    _videoPlayer.Ctlcontrols.play();
-
-                    // Enforce uiMode="none" for 5 seconds (25 x 200ms)
-                    var uiFixTimer = new System.Windows.Forms.Timer { Interval = 200 };
-                    int uiFixCount = 0;
-                    uiFixTimer.Tick += (ts, te) =>
-                    {
-                        try
-                        {
-                            if (_videoPlayer.uiMode != "none") _videoPlayer.uiMode = "none";
-                            // Keep oversized bounds so WMP chrome bar stays below visible area
-                            _videoPlayer.Bounds = new Rectangle(0, 0, _videoPanel.Width, _videoPanel.Height + wmpExtraH);
-                        }
-                        catch { }
-                        if (++uiFixCount >= 25) uiFixTimer.Stop();
-                    };
-                    uiFixTimer.Start();
-
+                    // Store path for deferred play in StartVideoPlayback()
+                    _videoFilePath = videoPath;
+                    _wmpExtraH     = wmpExtraH;
                     _videoPlayer.PlayStateChange += (s2, e2) =>
                     {
                         Action fix = () =>
                         {
                             try { if (_videoPlayer.uiMode != "none") _videoPlayer.uiMode = "none"; } catch { }
+                            // State 1 = stopped — restart loop
                             if (e2.newState == 1) { try { _videoPlayer.Ctlcontrols.play(); } catch { } }
                         };
                         if (this.InvokeRequired) this.BeginInvoke(fix); else fix();
@@ -469,8 +460,8 @@ namespace WindowsFormsApp1
             int rightX = videoLeft + videoW + VIDEO_GAP;
             BuildMeterPanel(rightX, panelTop, sideW, panelH, isLeft: false);
 
-            // Tagline below content area
-            int tagY = top + availH + taglineGap;
+            // Tagline directly below the video panel
+            int tagY = videoTop + videoH + taglineGap;
             _lblTagline = new Label
             {
                 Text      = "\u201c The Geniusness Is In The Simplicity \u201d",
@@ -494,22 +485,21 @@ namespace WindowsFormsApp1
             string m2Label = "Script Playback";
 
             // ── Measure total content height to center it vertically in the panel ──
-            int titleH  = (int)(22 * _scale);
-            int subH    = (int)(20 * _scale);
-            int gap1    = (int)(18 * _scale);  // title/sub -> meter1 label
-            int lbl1H   = (int)(22 * _scale);
+            int titleH  = (int)(26 * _scale);  // +2pts
+            int subH    = (int)(22 * _scale);  // +2pts
+            int gap1    = (int)(14 * _scale);  // title/sub -> meter1 label
+            int lbl1H   = (int)(24 * _scale);  // +2pts
             int lbl2gap = (int)(10 * _scale);  // label to bar
             int barH    = METER_H;
-            int betweenH= (int)(18 * _scale);  // bar1 -> meter2 label
-            int lbl2H   = (int)(22 * _scale);
+            int betweenH= (int)(16 * _scale);  // bar1 -> meter2 label
+            int lbl2H   = (int)(24 * _scale);  // +2pts
             int bar2gapH= (int)(10 * _scale);
-            int badgeGap= (int)(18 * _scale);  // bar2 -> badge
-            int hintH   = (int)(22 * _scale);
+            int badgeGap= (int)(14 * _scale);  // bar2 -> badge
+            int hintH   = (int)(24 * _scale);  // +2pts
             int hintGap = (int)(6  * _scale);
             int contentH = titleH + subH + gap1 + lbl1H + lbl2gap + barH + betweenH + lbl2H + bar2gapH + barH + badgeGap + BADGE_H + hintGap + hintH;
-            // Vertically center within panel
-            int cy = top + (panelH - contentH) / 2;
-            if (cy < top) cy = top;
+            // Pin content near top of panel with a small top margin
+            int cy = top + (int)(16 * _scale);
 
             // Title — bigger (17), full width
             var lblTitle = new Label
@@ -517,7 +507,7 @@ namespace WindowsFormsApp1
                 Text      = title,
                 ForeColor = ONE_RED,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(17f), FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(19f), FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Bounds    = new Rectangle(x, cy, w, titleH)
@@ -530,7 +520,7 @@ namespace WindowsFormsApp1
                 Text      = sub,
                 ForeColor = TEXT_GREY,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(13f)),
+                Font      = new Font("Segoe UI", SF(15f), FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Bounds    = new Rectangle(x, subY, w, subH)
@@ -539,13 +529,13 @@ namespace WindowsFormsApp1
 
             // Meter 1 label + bar — more separation (10px gap between label and bar)
             int m1LabelY = subY + subH + gap1;
-            MakeLabel(m1Label, x, m1LabelY, 13, color: TEXT_WHITE);  // +2pts
+            MakeLabel(m1Label, x, m1LabelY, 15, color: TEXT_WHITE);
             int m1BarY = m1LabelY + lbl1H + lbl2gap;
             MakeMeterPanel(x, m1BarY, w, isLeft ? "myMicLevel" : "customerVoice");
 
             // Meter 2 label + bar
             int m2LabelY = m1BarY + barH + betweenH;
-            MakeLabel(m2Label, x, m2LabelY, 13, color: TEXT_WHITE);  // +2pts
+            MakeLabel(m2Label, x, m2LabelY, 15, color: TEXT_WHITE);
             int m2BarY = m2LabelY + lbl2H + bar2gapH;
             MakeMeterPanel(x, m2BarY, w, isLeft ? "agentScript" : "customerScript");
 
@@ -557,7 +547,7 @@ namespace WindowsFormsApp1
                 ForeColor = Color.White,
                 BackColor = ONE_RED,
                 FlatStyle = FlatStyle.Flat,
-                Font      = new Font("Segoe UI", SF(15f), FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(17f), FontStyle.Bold),
                 Bounds    = new Rectangle(x, badgeTop, w, BADGE_H),
                 Cursor    = Cursors.Hand
             };
@@ -571,10 +561,10 @@ namespace WindowsFormsApp1
             int hintY = badgeTop + BADGE_H + hintGap;
             var lblHint = new Label
             {
-                Text      = "Tap to switch between manual & automatic level control",
+                Text      = "Tap to switch between manual / automatic level control",
                 ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(12f), FontStyle.Italic),
+                Font      = new Font("Segoe UI", SF(14f), FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Bounds    = new Rectangle(x, hintY, w, hintH)
@@ -656,10 +646,10 @@ namespace WindowsFormsApp1
             int fy = H - FOOTER_H;
             _lblFooterLeft = new Label
             {
-                Text      = "ONE United Global  \u2022  2026  \u2022  v5.4",
+                        Text      = "ONE United Global  •  2026  •  v5.5",
                 ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(12f)),
+                Font      = new Font("Segoe UI", SF(12f), FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Bounds    = new Rectangle(SIDE_PAD, fy, 320, FOOTER_H)
@@ -668,10 +658,10 @@ namespace WindowsFormsApp1
 
             _lblFooterCenter = new Label
             {
-                Text      = "This App Can Be Minimized  \u2022  Settings Are Auto-Saved",
+                   Text      = "This App Can Be Minimized  •  Settings Are Auto-Saved",
                 ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(12f)),
+                Font      = new Font("Segoe UI", SF(12f), FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleCenter,
                 Bounds    = new Rectangle(0, fy, W, FOOTER_H)
@@ -721,6 +711,37 @@ namespace WindowsFormsApp1
             this.WindowState   = FormWindowState.Normal;
             this.BringToFront();
             this.Activate();
+        }
+
+        // ── Video playback (deferred until form Load) ─────────────────────────
+        private void StartVideoPlayback()
+        {
+            if (_videoPlayer == null || string.IsNullOrEmpty(_videoFilePath)) return;
+            try
+            {
+                _videoPlayer.settings.setMode("loop", true);
+                _videoPlayer.settings.volume = 0;
+                _videoPlayer.uiMode          = "none";
+                _videoPlayer.URL             = new Uri(_videoFilePath).AbsoluteUri;
+                _videoPlayer.stretchToFit    = true;
+                _videoPlayer.Ctlcontrols.play();
+
+                // Enforce uiMode="none" + oversized bounds for 5 seconds
+                var uiFixTimer = new System.Windows.Forms.Timer { Interval = 200 };
+                int uiFixCount = 0;
+                uiFixTimer.Tick += (ts, te) =>
+                {
+                    try
+                    {
+                        if (_videoPlayer.uiMode != "none") _videoPlayer.uiMode = "none";
+                        _videoPlayer.Bounds = new Rectangle(0, 0, _videoPanel.Width, _videoPanel.Height + _wmpExtraH);
+                    }
+                    catch { }
+                    if (++uiFixCount >= 25) uiFixTimer.Stop();
+                };
+                uiFixTimer.Start();
+            }
+            catch (Exception ex) { Log.Warn($"[Video] StartVideoPlayback failed: {ex.Message}"); }
         }
 
         // ── Meter timer ───────────────────────────────────────────────────────
@@ -921,7 +942,7 @@ namespace WindowsFormsApp1
                 Text      = text,
                 ForeColor = color ?? TEXT_WHITE,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(size), bold ? FontStyle.Bold : FontStyle.Regular),
+                Font      = new Font("Segoe UI", SF(size), FontStyle.Bold),
                 AutoSize  = true,
                 Location  = new Point(x, y)
             };
