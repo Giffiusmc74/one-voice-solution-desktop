@@ -51,19 +51,19 @@ namespace WindowsFormsApp1
         private static readonly Color BG_PANEL  = Color.FromArgb(28, 28, 28);
         private static readonly Color TEXT_WHITE = Color.White;
         private static readonly Color TEXT_GREY  = Color.FromArgb(155, 155, 155);
-        private static readonly Color SEG_OFF    = Color.FromArgb(55, 10, 10);
-        private static readonly Color SEG_ON     = Color.FromArgb(254, 1, 1);
-        private static readonly Color SEG_PEAK   = Color.FromArgb(255, 145, 0);
+        private static readonly Color SEG_OFF    = Color.FromArgb(0, 60, 120);   // ocean blue background
+        private static readonly Color SEG_ON     = Color.FromArgb(254, 1, 1);    // ONE red when active
+        private static readonly Color SEG_PEAK   = Color.FromArgb(255, 145, 0);  // orange at peak
 
         // ── Scale — set from screen dimensions at startup ─────────────────────
         private float _scale = 1.0f;
         private int HEADER_H     => (int)(100 * _scale);
         private int REDLINE_H    => 3;
         private int DEVICE_ROW_H => (int)(52  * _scale);
-        private int FOOTER_H     => (int)(40  * _scale);
+        private int FOOTER_H     => (int)(32  * _scale);  // tighter footer
         private int SIDE_PAD     => (int)(26  * _scale);
         private int VIDEO_GAP    => (int)(12  * _scale);
-        private int METER_H      => (int)(20  * _scale);
+        private int METER_H      => (int)(30  * _scale);  // taller meter bars
         private int BADGE_H      => (int)(30  * _scale);
         private const int METER_SEGS = 24;
         private float SF(float pt) => Math.Max(7f, (float)Math.Round(pt * _scale, 1));
@@ -185,7 +185,7 @@ namespace WindowsFormsApp1
             _redLine = new Panel { BackColor = ONE_RED, Bounds = new Rectangle(0, HEADER_H, W, REDLINE_H) };
             this.Controls.Add(_redLine);
             BuildDeviceRow(W);
-            int contentTop = HEADER_H + REDLINE_H + DEVICE_ROW_H + 8;
+            int contentTop = HEADER_H + REDLINE_H + DEVICE_ROW_H + (int)(28 * _scale);  // extra top cushion
             BuildContentArea(W, H, contentTop);
             BuildFooter(W, H);
         }
@@ -384,16 +384,20 @@ namespace WindowsFormsApp1
         // ── Content area ──────────────────────────────────────────────────────
         private void BuildContentArea(int W, int H, int top)
         {
-            int availH = H - top - FOOTER_H - 8;
+            // Reserve space: 8px top gap + tagline (28px) + 6px gap + footer
+            int taglineH = (int)(28 * _scale);
+            int availH   = H - top - taglineH - (int)(10 * _scale) - FOOTER_H;  // tight bottom
 
-            // Video: 72% of available height, ~4:3 aspect
-            int videoH = (int)(availH * 0.72f);
-            int videoW = (int)(videoH * 1.45f);
-            int maxVW  = W - SIDE_PAD * 2 - (int)(220 * _scale) * 2;
-            if (videoW > maxVW) { videoW = maxVW; videoH = (int)(videoW / 1.45f); }
+            // Side panels: fixed width, video gets the rest
+            int sideW    = (int)(200 * _scale);
+            int videoLeft = SIDE_PAD + sideW + VIDEO_GAP;
+            int videoW    = W - videoLeft - VIDEO_GAP - sideW - SIDE_PAD;
+            int videoH    = availH;   // video fills ALL available height
+            int videoTop  = top + (int)(8 * _scale);
 
-            int videoLeft = (W - videoW) / 2;
-            int videoTop  = top + (int)(10 * _scale);
+            // Enforce minimum reasonable video size
+            if (videoW < 300) { videoW = 300; }
+            if (videoH < 200) { videoH = 200; }
 
             // Video panel
             _videoPanel = new Panel
@@ -456,16 +460,14 @@ namespace WindowsFormsApp1
             }
             catch (Exception ex) { Log.Warn($"[Video] WMP failed: {ex.Message}"); }
 
-            // Side panels flush with video
-            int sideW = videoLeft - SIDE_PAD - VIDEO_GAP;
+            // Side panels — same height as video, flush left and right
             BuildMeterPanel(SIDE_PAD, videoTop, sideW, videoH, isLeft: true);
 
             int rightX = videoLeft + videoW + VIDEO_GAP;
-            int rightW = W - rightX - SIDE_PAD;
-            BuildMeterPanel(rightX, videoTop, rightW, videoH, isLeft: false);
+            BuildMeterPanel(rightX, videoTop, sideW, videoH, isLeft: false);
 
-            // Tagline — snug below video
-            int tagY = videoTop + videoH + (int)(8 * _scale);
+            // Tagline — snug below video, no dead space
+            int tagY = videoTop + videoH + (int)(6 * _scale);
             _lblTagline = new Label
             {
                 Text      = "\u201c The Geniusness Is In The Simplicity \u201d",
