@@ -73,8 +73,9 @@ Source: "..\bin\Release\NLog.config";               DestDir: "{app}";           
 
 ; ── Resources ─────────────────────────────────────────────────────────────────
 Source: "..\Resources\one_logo.ico";                DestDir: "{app}\Resources";    Flags: ignoreversion
-Source: "..\Resources\one_logo.png";                DestDir: "{app}\Resources";    Flags: ignoreversion
-Source: "..\Resources\1ONEDigitalVideo.mp4";        DestDir: "{app}\Resources";    Flags: ignoreversion
+Source: "..\Resources\one_logo.png";               DestDir: "{app}\Resources";    Flags: ignoreversion
+Source: "..\Resources\installer_banner.bmp";       DestDir: "{app}\Resources";    Flags: ignoreversion
+Source: "..\Resources\1ONEDigitalVideo.mp4";       DestDir: "{app}\Resources";    Flags: ignoreversion skipifsourcedoesntexist
 
 ; ── VB-Audio Virtual Cable driver (bundled, silent install) ───────────────────
 ; Extract VBCABLE_Driver_Pack45.zip into installer\vbcable\ before building

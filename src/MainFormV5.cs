@@ -245,9 +245,9 @@ namespace WindowsFormsApp1
             _lblVoiceSolution = new Label
             {
                 Text      = "Voice Solution",
-                ForeColor = TEXT_GREY,
+                ForeColor = Color.White,
                 BackColor = Color.Transparent,
-                Font      = new Font("DM Sans", 10f, FontStyle.Regular),
+                Font      = new Font("Segoe UI", 13f, FontStyle.Regular),
                 AutoSize  = true,
                 TextAlign = ContentAlignment.MiddleCenter,
                 Bounds    = new Rectangle(SIDE_PAD, 78, 140, 18)
@@ -260,7 +260,7 @@ namespace WindowsFormsApp1
                 Text      = "Audio Dashboard",
                 ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
-                Font      = new Font("Barlow Condensed", 28f, FontStyle.Bold),
+                Font      = new Font("Segoe UI", 30f, FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleCenter,
                 Bounds    = new Rectangle(0, 10, W, 44)
@@ -273,10 +273,10 @@ namespace WindowsFormsApp1
                 Text      = "Agent: " + AppSettings.Instance.AgentName,
                 ForeColor = TEXT_GREY,
                 BackColor = Color.Transparent,
-                Font      = new Font("DM Sans", 14f, FontStyle.Regular),
+                Font      = new Font("Segoe UI", 16f, FontStyle.Regular),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleCenter,
-                Bounds    = new Rectangle(0, 52, W, 26)
+                Bounds    = new Rectangle(0, 52, W, 28)
             };
             this.Controls.Add(_lblAgentName);
 
@@ -306,7 +306,7 @@ namespace WindowsFormsApp1
             using (var dot = new SolidBrush(pulse ? Color.White : Color.FromArgb(180, 255, 255, 255)))
                 g.FillEllipse(dot, 12, (p.Height - 10) / 2, 10, 10);
             // Text
-            using (var font = new Font("Barlow Condensed", 12f, FontStyle.Bold))
+            using (var font = new Font("Segoe UI", 14f, FontStyle.Bold))
             using (var brush = new SolidBrush(Color.White))
             {
                 var sf = new StringFormat { Alignment = StringAlignment.Near, LineAlignment = StringAlignment.Center };
@@ -319,7 +319,7 @@ namespace WindowsFormsApp1
             int top = HEADER_H + REDLINE_H + 8;
             int dropW = (W - SIDE_PAD * 2 - 40) / 2;
 
-            _lblMicLabel = MakeLabel("Microphone", SIDE_PAD, top, 11, color: TEXT_GREY);
+            _lblMicLabel = MakeLabel("Microphone", SIDE_PAD, top, 14, color: TEXT_GREY);
             _cboMic = new ComboBox
             {
                 Bounds        = new Rectangle(SIDE_PAD, top + 16, dropW, 26),
@@ -327,13 +327,13 @@ namespace WindowsFormsApp1
                 BackColor     = BG_PANEL,
                 ForeColor     = TEXT_WHITE,
                 FlatStyle     = FlatStyle.Flat,
-                Font          = new Font("DM Sans", 10f)
+                Font          = new Font("Segoe UI", 13f)
             };
             _cboMic.SelectedIndexChanged += (s, e) => { AppSettings.Instance.MicDevice = _cboMic.Text; AppSettings.Instance.Save(); };
             this.Controls.Add(_cboMic);
 
             int rightX = W - SIDE_PAD - dropW;
-            _lblHeadsetLabel = MakeLabel("Headset / Speaker", rightX, top, 11, color: TEXT_GREY);
+            _lblHeadsetLabel = MakeLabel("Headset / Speaker", rightX, top, 14, color: TEXT_GREY);
             _cboHeadset = new ComboBox
             {
                 Bounds        = new Rectangle(rightX, top + 16, dropW, 26),
@@ -341,7 +341,7 @@ namespace WindowsFormsApp1
                 BackColor     = BG_PANEL,
                 ForeColor     = TEXT_WHITE,
                 FlatStyle     = FlatStyle.Flat,
-                Font          = new Font("DM Sans", 10f)
+                Font          = new Font("Segoe UI", 13f)
             };
             _cboHeadset.SelectedIndexChanged += (s, e) => { AppSettings.Instance.HeadsetDevice = _cboHeadset.Text; AppSettings.Instance.Save(); };
             this.Controls.Add(_cboHeadset);
@@ -400,7 +400,7 @@ namespace WindowsFormsApp1
                 Text      = "The Geniusness Is In The Simplicity",
                 ForeColor = ONE_RED,
                 BackColor = Color.Transparent,
-                Font      = new Font("Barlow Condensed", 26f, FontStyle.Bold),
+                Font      = new Font("Segoe UI", 28f, FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleCenter,
                 Bounds    = new Rectangle(0, taglineY, W, 40)
@@ -412,28 +412,39 @@ namespace WindowsFormsApp1
         {
             // Section label
             string sectionLabel = isLeft ? "AGENT AUDIO" : "CUSTOMER OUTPUT";
+            string subLabel     = isLeft ? "(What You Hear)" : "(What They Hear)";
             var lbl = new Label
             {
                 Text      = sectionLabel,
                 ForeColor = ONE_RED,
                 BackColor = Color.Transparent,
-                Font      = new Font("Barlow Condensed", 14f, FontStyle.Bold),
+                Font      = new Font("Segoe UI", 16f, FontStyle.Bold),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleLeft,
-                Bounds    = new Rectangle(x, top, w, 22)
+                Bounds    = new Rectangle(x, top, w, 24)
             };
             this.Controls.Add(lbl);
+            var lblSub = new Label
+            {
+                Text      = subLabel,
+                ForeColor = Color.White,
+                BackColor = Color.Transparent,
+                Font      = new Font("Segoe UI", 14f, FontStyle.Regular),
+                AutoSize  = false,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Bounds    = new Rectangle(x, top + 26, w, 20)
+            };
+            this.Controls.Add(lblSub);
 
             // Meter 1
-            string m1Label = isLeft ? "Customer Voice" : "My Mic Level";
-            int m1Top = top + 28;
-            var lbl1 = MakeLabel(m1Label, x, m1Top, 12, color: TEXT_WHITE);
-            var meter1 = BuildMeterControl(x, m1Top + 18, w, isLeft ? "agentVoice" : "customerVoice");
-
+             string m1Label = isLeft ? "Customer Voice" : "My Mic Level";
+            int m1Top = top + 52;
+            var lbl1 = MakeLabel(m1Label, x, m1Top, 14, color: TEXT_WHITE);
+            var meter1 = BuildMeterControl(x, m1Top + 20, w, isLeft ? "agentVoice" : "customerVoice");
             // Meter 2
             string m2Label = "Script Playback";
-            int m2Top = m1Top + 18 + METER_H + METER_GAP;
-            var lbl2 = MakeLabel(m2Label, x, m2Top, 12, color: TEXT_WHITE);
+            int m2Top = m1Top + 20 + METER_H + METER_GAP;
+            var lbl2 = MakeLabel(m2Label, x, m2Top, 14, color: TEXT_WHITE);
             var meter2 = BuildMeterControl(x, m2Top + 18, w, isLeft ? "agentScript" : "customerScript");
 
             // Auto Level-Match badge
@@ -444,7 +455,7 @@ namespace WindowsFormsApp1
                 ForeColor = Color.White,
                 BackColor = ONE_RED,
                 FlatStyle = FlatStyle.Flat,
-                Font      = new Font("DM Sans", 10f, FontStyle.Bold),
+                Font      = new Font("Segoe UI", 13f, FontStyle.Bold),
                 Bounds    = new Rectangle(x, badgeTop, w, BADGE_H),
                 Cursor    = Cursors.Hand
             };
@@ -463,7 +474,7 @@ namespace WindowsFormsApp1
                 ForeColor = TEXT_WHITE,
                 BackColor = BG_PANEL,
                 FlatStyle = FlatStyle.Flat,
-                Font      = new Font("DM Sans", 11f, FontStyle.Bold),
+                Font      = new Font("Segoe UI", 14f, FontStyle.Bold),
                 Bounds    = new Rectangle(x, btnTop, w, BTN_H),
                 Cursor    = Cursors.Hand
             };
@@ -620,7 +631,7 @@ namespace WindowsFormsApp1
                 Text      = "ONE United Global  2026  v5.0",
                 ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
-                Font      = new Font("DM Sans", 13f),
+                Font      = new Font("Segoe UI", 15f),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Bounds    = new Rectangle(SIDE_PAD, footerY + 2, 300, FOOTER_H - 2)
@@ -632,7 +643,7 @@ namespace WindowsFormsApp1
                 Text      = "This Desktop App Can Be Minimized  •  Settings Are Auto Saved",
                 ForeColor = TEXT_GREY,
                 BackColor = Color.Transparent,
-                Font      = new Font("DM Sans", 12f),
+                Font      = new Font("Segoe UI", 14f),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleCenter,
                 Bounds    = new Rectangle(0, footerY + 2, W, FOOTER_H - 2)
@@ -916,7 +927,7 @@ namespace WindowsFormsApp1
                 Text      = text,
                 ForeColor = color ?? TEXT_WHITE,
                 BackColor = Color.Transparent,
-                Font      = new Font("DM Sans", size, bold ? FontStyle.Bold : FontStyle.Regular),
+                Font      = new Font("Segoe UI", size, bold ? FontStyle.Bold : FontStyle.Regular),
                 AutoSize  = true,
                 Location  = new Point(x, y)
             };
