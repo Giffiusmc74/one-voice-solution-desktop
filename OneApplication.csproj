@@ -198,9 +198,13 @@
       <SubType>Component</SubType>
     </Compile>
     <Compile Include="AudioHelpers.cs" />
+    <Compile Include="src\AppSettings.cs" />
+    <Compile Include="src\AudioNormalizer.cs" />
     <Compile Include="src\AudioService.cs" />
     <Compile Include="src\DataEncryption.cs" />
     <Compile Include="src\DataUtils.cs" />
+    <Compile Include="src\HeartbeatService.cs" />
+    <Compile Include="src\MachineId.cs" />
     <Compile Include="src\MacroListChangeNotifier.cs" />
     <Compile Include="src\MacroManager.cs" />
     <Compile Include="src\MacrosInfo.cs" />
@@ -208,6 +212,9 @@
     <Compile Include="src\RegistryUtils.cs" />
     <Compile Include="src\ScriptManager.cs" />
     <Compile Include="src\Scripts.cs" />
+    <Compile Include="src\MainFormV5.cs">
+      <SubType>Form</SubType>
+    </Compile>
     <Compile Include="src\SimpleHTTPServer.cs" />
     <Compile Include="src\TimeAPI.cs" />
     <Compile Include="TestForm.cs">
