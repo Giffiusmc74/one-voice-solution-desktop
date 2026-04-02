@@ -79,8 +79,9 @@ Source: "..\Resources\1ONEDigitalVideo.mp4";       DestDir: "{app}\Resources";  
 
 ; ── VB-Audio Virtual Cable driver (bundled, silent install) ───────────────────
 ; Extract VBCABLE_Driver_Pack45.zip into installer\vbcable\ before building
-Source: ".\vbcable\VBCABLE_Setup_x64.exe";          DestDir: "{tmp}\vbcable";      Flags: ignoreversion deleteafterinstall
-Source: ".\vbcable\VBCABLE_Setup.exe";              DestDir: "{tmp}\vbcable";      Flags: ignoreversion deleteafterinstall
+; ALL files in the vbcable folder must be bundled — the .inf and driver files
+; must be present alongside the .exe or the installer will error with "Missing inf"
+Source: ".\vbcable\*";                              DestDir: "{tmp}\vbcable";      Flags: ignoreversion recursesubdirs createallsubdirs deleteafterinstall
 
 [Icons]
 ; Desktop shortcut
