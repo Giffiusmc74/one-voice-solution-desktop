@@ -232,10 +232,12 @@ namespace WindowsFormsApp1
             this.Controls.Add(_logoBox);
             AttachDrag(_logoBox);
 
-            // "Voice Solution" — at the FOOT of the logo (bottom quarter)
+            // "Voice Solution" — sits just below the ONE lettering (lower third of logo area)
+            // logoY is the top of the logo; the ONE text occupies roughly the top 60%
+            // so we place "Voice Solution" starting at ~65% down the logo height
             int vsW = (int)(200 * _scale);
-            int vsH = (int)(logoSz * 0.30f);  // bottom 30% of logo height
-            int vsY = logoY + logoSz - vsH;   // pinned to bottom of logo
+            int vsH = (int)(24 * _scale);     // single line height
+            int vsY = logoY + (int)(logoSz * 0.65f); // just below the ONE letters
             _lblVoiceSolution = new Label
             {
                 Text      = "Voice Solution",
@@ -243,7 +245,7 @@ namespace WindowsFormsApp1
                 BackColor = Color.Transparent,
                 Font      = new Font("Segoe UI", SF(16f), FontStyle.Bold),
                 AutoSize  = false,
-                TextAlign = ContentAlignment.BottomLeft,
+                TextAlign = ContentAlignment.MiddleLeft,
                 Bounds    = new Rectangle(logoX + logoSz + (int)(10 * _scale), vsY, vsW, vsH)
             };
             this.Controls.Add(_lblVoiceSolution);
