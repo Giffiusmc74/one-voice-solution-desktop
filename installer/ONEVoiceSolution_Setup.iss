@@ -19,7 +19,7 @@
 ; ============================================================
 
 #define AppName      "ONE Voice Solution"
-#define AppVersion   "5.0"
+#define AppVersion   "6.5"
 #define AppPublisher "ONE United Global"
 #define AppURL       "https://www.onevoicesolution.com"
 #define AppExeName   "OneApp2025.exe"
@@ -40,7 +40,7 @@ AllowNoIcons=no
 ; Require admin so the VB-Audio driver can install
 PrivilegesRequired=admin
 OutputDir=.\output
-OutputBaseFilename=ONEVoiceSolution_Setup_v5
+OutputBaseFilename=ONEVoiceSolution_Setup
 SetupIconFile=..\Resources\one_logo.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
