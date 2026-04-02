@@ -507,28 +507,36 @@ namespace WindowsFormsApp1
         {
             string title   = isLeft ? "AGENT AUDIO"     : "CUSTOMER OUTPUT";
             string sub     = isLeft ? "(What You Hear)"  : "(What They Hear)";
-            // Left: "My Mic Level" moves; Right: "Customer Voice" stays at 0
             string m1Label = isLeft ? "My Mic Level"    : "Customer Voice";
             string m2Label = "Script Playback";
+            string volLblText = isLeft ? "Mic Volume" : "Speaker Volume";
 
-            // ── Measure total content height to center it vertically in the panel ──
-            int titleH  = (int)(26 * _scale);  // +2pts
-            int subH    = (int)(22 * _scale);  // +2pts
-            int gap1    = (int)(14 * _scale);  // title/sub -> meter1 label
-            int lbl1H   = (int)(24 * _scale);  // +2pts
-            int lbl2gap = (int)(10 * _scale);  // label to bar
-            int barH    = METER_H;
-            int betweenH= (int)(16 * _scale);  // bar1 -> meter2 label
-            int lbl2H   = (int)(24 * _scale);  // +2pts
-            int bar2gapH= (int)(10 * _scale);
-            int badgeGap= (int)(14 * _scale);  // bar2 -> badge
-            int hintH   = (int)(36 * _scale);  // tall enough for wrapped hint text
-            int hintGap = (int)(6  * _scale);
-            int contentH = titleH + subH + gap1 + lbl1H + lbl2gap + barH + betweenH + lbl2H + bar2gapH + barH + badgeGap + BADGE_H + hintGap + hintH;
-            // Pin content near top of panel with a small top margin
-            int cy = top + (int)(16 * _scale);
+            // ── Sizes ──────────────────────────────────────────────────────────
+            int titleH   = (int)(26 * _scale);
+            int subH     = (int)(22 * _scale);
+            int gap1     = (int)(12 * _scale);  // title block -> meter 1
+            int lbl1H    = (int)(24 * _scale);
+            int lblBarGap= (int)(6  * _scale);  // label -> bar
+            int barH     = METER_H;
+            int volLblH  = (int)(20 * _scale);
+            int trkH     = (int)(26 * _scale);
+            int volGap   = (int)(4  * _scale);  // bar -> vol label
+            int betweenH = (int)(14 * _scale);  // slider -> meter 2 label
+            int badgeGap = (int)(12 * _scale);  // bar2 slider -> badge
+            int hintH    = (int)(20 * _scale);
+            int hintGap  = (int)(4  * _scale);
 
-            // Title — 21pt, no italic
+            // Total content height
+            int contentH = titleH + subH + gap1
+                         + lbl1H + lblBarGap + barH + volGap + volLblH + trkH   // meter 1 + vol
+                         + betweenH
+                         + lbl1H + lblBarGap + barH + volGap + volLblH + trkH   // meter 2 + vol
+                         + badgeGap + BADGE_H + hintGap + hintH;
+
+            // Vertically center the content block within the panel
+            int cy = top + Math.Max((int)(16 * _scale), (panelH - contentH) / 2);
+
+            // ── Title ─────────────────────────────────────────────────────────
             var lblTitle = new Label
             {
                 Text      = title,
@@ -540,7 +548,8 @@ namespace WindowsFormsApp1
                 Bounds    = new Rectangle(x, cy, w, titleH)
             };
             this.Controls.Add(lblTitle);
-            // Subtitle — own row below title
+
+            // ── Subtitle ──────────────────────────────────────────────────────
             int subY = cy + titleH;
             var lblSub = new Label
             {
@@ -554,27 +563,81 @@ namespace WindowsFormsApp1
             };
             this.Controls.Add(lblSub);
 
-            // Meter 1 label + bar — more separation (10px gap between label and bar)
+            // ── Meter 1: label + bar + volume slider directly under ────────────
             int m1LabelY = subY + subH + gap1;
             MakeLabel(m1Label, x, m1LabelY, 17, color: TEXT_WHITE);
-            int m1BarY = m1LabelY + lbl1H + lbl2gap;
+            int m1BarY = m1LabelY + lbl1H + lblBarGap;
             MakeMeterPanel(x, m1BarY, w, isLeft ? "myMicLevel" : "customerVoice");
 
-            // Meter 2 label + bar
-            int m2LabelY = m1BarY + barH + betweenH;
+            // Vol label + % + slider directly under meter 1
+            int v1LblY = m1BarY + barH + volGap;
+            var lv1 = new Label { Text = volLblText, ForeColor = TEXT_WHITE, BackColor = Color.Transparent,
+                Font = new Font("Segoe UI", SF(16f), FontStyle.Bold), AutoSize = false,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Bounds = new Rectangle(x, v1LblY, w - (int)(60 * _scale), volLblH) };
+            this.Controls.Add(lv1);
+            var lp1 = new Label { Text = "75%", ForeColor = ONE_RED, BackColor = Color.Transparent,
+                Font = new Font("Segoe UI", SF(16f), FontStyle.Bold), AutoSize = false,
+                TextAlign = ContentAlignment.MiddleRight,
+                Bounds = new Rectangle(x + w - (int)(65 * _scale), v1LblY, (int)(65 * _scale), volLblH) };
+            this.Controls.Add(lp1);
+            int t1Y = v1LblY + volLblH;
+            var trk1 = new TrackBar { Minimum = 0, Maximum = 100, Value = 75,
+                TickStyle = TickStyle.None, Bounds = new Rectangle(x, t1Y, w, trkH), BackColor = BG_DARK };
+            trk1.ValueChanged += (s, e) =>
+            {
+                lp1.Text = $"{trk1.Value}%";
+                try {
+                    if (isLeft && _activeMicDevice != null)
+                        _activeMicDevice.AudioEndpointVolume.MasterVolumeLevelScalar = trk1.Value / 100f;
+                } catch { }
+                if (isLeft) { AppSettings.Instance.MicSystemVolume = trk1.Value; AppSettings.Instance.Save(); }
+            };
+            this.Controls.Add(trk1);
+            if (isLeft) { _trkMicVol = trk1; _lblMicVol = lp1; }
+
+            // ── Meter 2: label + bar + volume slider directly under ────────────
+            int m2LabelY = t1Y + trkH + betweenH;
             MakeLabel(m2Label, x, m2LabelY, 17, color: TEXT_WHITE);
-            int m2BarY = m2LabelY + lbl2H + bar2gapH;
+            int m2BarY = m2LabelY + lbl1H + lblBarGap;
             MakeMeterPanel(x, m2BarY, w, isLeft ? "agentScript" : "customerScript");
 
-            // Auto Level-Match badge — bigger font (15), taller button
-            int badgeTop = m2BarY + barH + badgeGap;
+            // Vol label + % + slider directly under meter 2
+            int v2LblY = m2BarY + barH + volGap;
+            var lv2 = new Label { Text = "Speaker Volume", ForeColor = TEXT_WHITE, BackColor = Color.Transparent,
+                Font = new Font("Segoe UI", SF(16f), FontStyle.Bold), AutoSize = false,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Bounds = new Rectangle(x, v2LblY, w - (int)(60 * _scale), volLblH) };
+            this.Controls.Add(lv2);
+            var lp2 = new Label { Text = "100%", ForeColor = ONE_RED, BackColor = Color.Transparent,
+                Font = new Font("Segoe UI", SF(16f), FontStyle.Bold), AutoSize = false,
+                TextAlign = ContentAlignment.MiddleRight,
+                Bounds = new Rectangle(x + w - (int)(65 * _scale), v2LblY, (int)(65 * _scale), volLblH) };
+            this.Controls.Add(lp2);
+            int t2Y = v2LblY + volLblH;
+            var trk2 = new TrackBar { Minimum = 0, Maximum = 100, Value = 100,
+                TickStyle = TickStyle.None, Bounds = new Rectangle(x, t2Y, w, trkH), BackColor = BG_DARK };
+            trk2.ValueChanged += (s, e) =>
+            {
+                lp2.Text = $"{trk2.Value}%";
+                try {
+                    if (!isLeft && _activeSpeakerDevice != null)
+                        _activeSpeakerDevice.AudioEndpointVolume.MasterVolumeLevelScalar = trk2.Value / 100f;
+                } catch { }
+                if (!isLeft) { AppSettings.Instance.SpeakerSystemVolume = trk2.Value; AppSettings.Instance.Save(); }
+            };
+            this.Controls.Add(trk2);
+            if (!isLeft) { _trkSpeakerVol = trk2; _lblSpeakerVol = lp2; }
+
+            // ── Auto Level-Match badge ─────────────────────────────────────────
+            int badgeTop = t2Y + trkH + badgeGap;
             var btnBadge = new Button
             {
                 Text      = "\u25cf Auto Level-Match: ON",
                 ForeColor = Color.White,
                 BackColor = ONE_RED,
                 FlatStyle = FlatStyle.Flat,
-                Font      = new Font("Segoe UI", SF(19f), FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(17f), FontStyle.Bold),
                 Bounds    = new Rectangle(x, badgeTop, w, BADGE_H),
                 Cursor    = Cursors.Hand
             };
@@ -584,94 +647,19 @@ namespace WindowsFormsApp1
             this.Controls.Add(btnBadge);
             if (isLeft) _btnAgentAutoLevel = btnBadge; else _btnCustomerAutoLevel = btnBadge;
 
-            // Helper hint — bigger (12), color white
+            // ── Hint ──────────────────────────────────────────────────────────
             int hintY = badgeTop + BADGE_H + hintGap;
             var lblHint = new Label
             {
-                Text      = "Tap to switch between manual / automatic level control",
-                ForeColor = TEXT_WHITE,
+                Text      = "Tap to switch between manual / automatic",
+                ForeColor = TEXT_GREY,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(13f), FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(12f), FontStyle.Bold),
                 AutoSize  = false,
-                TextAlign = ContentAlignment.TopLeft,
+                TextAlign = ContentAlignment.MiddleLeft,
                 Bounds    = new Rectangle(x, hintY, w, hintH)
             };
             this.Controls.Add(lblHint);
-
-            // ── Volume slider ──────────────────────────────────────────────
-            int volLblY  = hintY + hintH + (int)(14 * _scale);
-            int volLblH  = (int)(22 * _scale);
-            int trkH     = (int)(28 * _scale);
-            int trkY     = volLblY + volLblH + (int)(4 * _scale);
-
-            string volLblText = isLeft ? "Mic Volume" : "Speaker Volume";
-            var lblVol = new Label
-            {
-                Text      = volLblText,
-                ForeColor = TEXT_WHITE,
-                BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(16f), FontStyle.Bold),
-                AutoSize  = false,
-                TextAlign = ContentAlignment.MiddleLeft,
-                Bounds    = new Rectangle(x, volLblY, w - (int)(60 * _scale), volLblH)
-            };
-            this.Controls.Add(lblVol);
-
-            // Percentage label (right-aligned next to slider label)
-            var lblPct = new Label
-            {
-                Text      = "100%",
-                ForeColor = ONE_RED,
-                BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(16f), FontStyle.Bold),
-                AutoSize  = false,
-                TextAlign = ContentAlignment.MiddleRight,
-                Bounds    = new Rectangle(x + w - (int)(65 * _scale), volLblY, (int)(65 * _scale), volLblH)
-            };
-            this.Controls.Add(lblPct);
-
-            var trk = new TrackBar
-            {
-                Minimum   = 0,
-                Maximum   = 100,
-                Value     = 100,
-                TickStyle = TickStyle.None,
-                Bounds    = new Rectangle(x, trkY, w, trkH),
-                BackColor = BG_DARK
-            };
-            trk.ValueChanged += (s, e) =>
-            {
-                float vol = trk.Value / 100f;
-                lblPct.Text = $"{trk.Value}%";
-                try
-                {
-                    if (isLeft && _activeMicDevice != null)
-                        _activeMicDevice.AudioEndpointVolume.MasterVolumeLevelScalar = vol;
-                    else if (!isLeft && _activeSpeakerDevice != null)
-                        _activeSpeakerDevice.AudioEndpointVolume.MasterVolumeLevelScalar = vol;
-                }
-                catch { }
-                // Persist volume setting immediately on change
-                if (isLeft) AppSettings.Instance.MicSystemVolume     = trk.Value;
-                else        AppSettings.Instance.SpeakerSystemVolume = trk.Value;
-                AppSettings.Instance.Save();
-            };
-            this.Controls.Add(trk);
-            if (isLeft) { _trkMicVol = trk; _lblMicVol = lblPct; }
-            else        { _trkSpeakerVol = trk; _lblSpeakerVol = lblPct; }
-
-            // Fill remaining space to footer — no dead black space
-            int filledTop = trkY + trkH + (int)(4 * _scale);
-            int filledH   = (top + panelH) - filledTop;
-            if (filledH > 0)
-            {
-                var filler = new Panel
-                {
-                    Bounds    = new Rectangle(x, filledTop, w, filledH),
-                    BackColor = BG_DARK
-                };
-                this.Controls.Add(filler);
-            }
         }
 
         private Panel MakeMeterPanel(int x, int y, int w, string key)
