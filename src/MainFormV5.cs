@@ -208,17 +208,17 @@ namespace WindowsFormsApp1
             this.Controls.Add(_logoBox);
             AttachDrag(_logoBox);
 
-            // "Voice Solution" — beside the logo, vertically centred to it
+            // "Voice Solution" — beside the logo, vertically centred to logo height
             int vsX = logoX + logoSz + (int)(10 * _scale);
-            int vsY = logoY + (logoSz / 2) - (int)(SF(14f) * 0.8f);
             _lblVoiceSolution = new Label
             {
                 Text      = "Voice Solution",
                 ForeColor = Color.White,
                 BackColor = Color.Transparent,
                 Font      = new Font("Segoe UI", SF(14f), FontStyle.Bold),
-                AutoSize  = true,
-                Location  = new Point(vsX, vsY)
+                AutoSize  = false,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Bounds    = new Rectangle(vsX, logoY, (int)(160 * _scale), logoSz)
             };
             this.Controls.Add(_lblVoiceSolution);
             AttachDrag(_lblVoiceSolution);
