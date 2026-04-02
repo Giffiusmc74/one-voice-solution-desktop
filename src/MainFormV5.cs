@@ -866,7 +866,7 @@ namespace WindowsFormsApp1
                         try
                         {
                             _videoPlayer.uiMode = "none";
-                            if (_videoPlayer.playState != 3)   // 3 = wmppsPlaying
+                            if (_videoPlayer.playState != WMPLib.WMPPlayState.wmppsPlaying)
                                 _videoPlayer.Ctlcontrols.play();
                         }
                         catch (Exception ex2) { Log.Warn("[Video] play() failed: " + ex2.Message); }
