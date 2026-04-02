@@ -166,7 +166,7 @@ namespace WindowsFormsApp1
             {
                 StartVideoPlayback();
                 // Check for updates silently in the background
-                _ = AutoUpdater.CheckAndUpdateAsync(APP_VERSION);
+                AutoUpdater.CheckAndUpdate(APP_VERSION);
                 // Auto-open ScriptBuilder in default browser so agent is ready to call
                 try
                 {
@@ -476,12 +476,9 @@ namespace WindowsFormsApp1
                 _videoPanel.Controls.Add(_videoPlayer);
                 _videoPanel.AutoScroll = false;
                 _videoPanel.AutoSize   = false;
-                _videoPanel.GetType().GetProperty("DoubleBuffered",
-                    System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
-                    ?.SetValue(_videoPanel, true);
-                _videoPlayer.CreateControl();
-                _videoPlayer.uiMode       = "none";
-                _videoPlayer.stretchToFit = true;
+                // NOTE: do NOT call CreateControl() manually — WinForms handles it
+                // Setting uiMode here causes a COM exception before the handle exists;
+                // defer all WMP config to StartVideoPlayback() called from Shown event.
 
                 string videoPath = Path.Combine(
                     AppDomain.CurrentDomain.BaseDirectory, "Resources", "1ONEDigitalVideo.mp4");
@@ -489,12 +486,12 @@ namespace WindowsFormsApp1
                 {
                     _videoFilePath = videoPath;
                     _wmpExtraH     = wmpExtraH;
+                    // Loop: when playback stops (state 1), restart
                     _videoPlayer.PlayStateChange += (s2, e2) =>
                     {
                         Action fix = () =>
                         {
                             try { if (_videoPlayer.uiMode != "none") _videoPlayer.uiMode = "none"; } catch { }
-                            // State 1 = stopped — restart loop
                             if (e2.newState == 1) { try { _videoPlayer.Ctlcontrols.play(); } catch { } }
                         };
                         if (this.InvokeRequired) this.BeginInvoke(fix); else fix();
@@ -841,53 +838,44 @@ namespace WindowsFormsApp1
             this.Activate();
         }
 
-          // ── Video playback (deferred until form Load) ─────────────────────
+          // ── Video playback (deferred until form Shown) ────────────────────
         private void StartVideoPlayback()
         {
             if (_videoPlayer == null || string.IsNullOrEmpty(_videoFilePath)) return;
-            try
+
+            // Use a timer so the WMP ActiveX control handle is fully created
+            // before we touch any COM properties (avoids black screen / COM errors)
+            var t = new System.Windows.Forms.Timer { Interval = 500 };
+            t.Tick += (ts, te) =>
             {
-                // Step 1: configure settings before assigning URL
-                _videoPlayer.settings.volume    = 0;
-                _videoPlayer.settings.autoStart = true;
-                _videoPlayer.settings.setMode("loop", true);
-                _videoPlayer.stretchToFit       = true;
-                _videoPlayer.uiMode             = "none";
-                _videoPlayer.URL                = _videoFilePath;  // direct path for local files
-
-                // Step 2: after a short delay (WMP needs ~300ms to initialise the media),
-                //         force uiMode=none, correct bounds, then press play
-                var startTimer = new System.Windows.Forms.Timer { Interval = 800 };
-                startTimer.Tick += (ts, te) =>
+                t.Stop();
+                try
                 {
-                    startTimer.Stop();
-                    try
-                    {
-                        _videoPlayer.uiMode = "none";
-                        _videoPlayer.Bounds = new Rectangle(0, 0, _videoPanel.Width, _videoPanel.Height + _wmpExtraH);
-                        _videoPlayer.Ctlcontrols.play();
-                    }
-                    catch (Exception ex2) { Log.Warn($"[Video] Delayed play failed: {ex2.Message}"); }
+                    _videoPlayer.settings.volume    = 0;
+                    _videoPlayer.settings.autoStart = true;
+                    _videoPlayer.settings.setMode("loop", true);
+                    _videoPlayer.stretchToFit       = true;
+                    _videoPlayer.uiMode             = "none";
+                    _videoPlayer.URL                = _videoFilePath;
 
-                    // Step 3: keep enforcing uiMode=none every 200ms for 6 seconds
-                    //         (WMP can reset it when media changes state)
-                    var uiFixTimer = new System.Windows.Forms.Timer { Interval = 200 };
-                    int uiFixCount = 0;
-                    uiFixTimer.Tick += (ts2, te2) =>
+                    // After another short delay, ensure uiMode stayed "none" and press play
+                    var t2 = new System.Windows.Forms.Timer { Interval = 700 };
+                    t2.Tick += (ts2, te2) =>
                     {
+                        t2.Stop();
                         try
                         {
-                            if (_videoPlayer.uiMode != "none") _videoPlayer.uiMode = "none";
-                            _videoPlayer.Bounds = new Rectangle(0, 0, _videoPanel.Width, _videoPanel.Height + _wmpExtraH);
+                            _videoPlayer.uiMode = "none";
+                            if (_videoPlayer.playState != 3)   // 3 = wmppsPlaying
+                                _videoPlayer.Ctlcontrols.play();
                         }
-                        catch { }
-                        if (++uiFixCount >= 30) uiFixTimer.Stop();
+                        catch (Exception ex2) { Log.Warn("[Video] play() failed: " + ex2.Message); }
                     };
-                    uiFixTimer.Start();
-                };
-                startTimer.Start();
-            }
-            catch (Exception ex) { Log.Warn($"[Video] StartVideoPlayback failed: {ex.Message}"); }
+                    t2.Start();
+                }
+                catch (Exception ex) { Log.Warn("[Video] StartVideoPlayback failed: " + ex.Message); }
+            };
+            t.Start();
         }
 
         // ── Meter timer ───────────────────────────────────────────────────────
