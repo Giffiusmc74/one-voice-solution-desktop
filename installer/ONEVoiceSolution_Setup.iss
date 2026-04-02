@@ -22,7 +22,7 @@
 #define AppVersion   "5.0"
 #define AppPublisher "ONE United Global"
 #define AppURL       "https://www.onevoicesolution.com"
-#define AppExeName   "WindowsFormsApp1.exe"
+#define AppExeName   "OneApp2025.exe"
 #define AppId        "{{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"
 
 [Setup]
