@@ -3,6 +3,10 @@ on:
   push:
     branches: [ main, master ]
   workflow_dispatch:
+
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -20,6 +24,7 @@ jobs:
       - name: Build Release
         run: msbuild OneApplication.csproj /p:Configuration=Release /p:Platform=AnyCPU /p:OutputPath=bin\Release\
       - name: Download VB-Audio Cable
+        shell: powershell
         run: |
           New-Item -ItemType Directory -Force -Path installer\vbcable | Out-Null
           $url = "https://download.vb-audio.com/Download_CABLE/VBCABLE_Driver_Pack45.zip"
@@ -27,15 +32,30 @@ jobs:
           Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
           Expand-Archive -Path $zip -DestinationPath installer\vbcable -Force
           Remove-Item $zip
-        shell: powershell
       - name: Install Inno Setup
         run: choco install innosetup --yes --no-progress
       - name: Build Installer
         run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\ONEVoiceSolution_Setup.iss
-      - name: Upload Installer
+          & "C:\Program Files (x86 )\Inno Setup 6\ISCC.exe" installer\ONEVoiceSolution_Setup.iss
+      - name: Extract app version
+        id: get_version
+        shell: powershell
+        run: |
+          $line = Select-String -Path "src\MainFormV5.cs" -Pattern 'APP_VERSION = "([^"]+)"' | Select-Object -First 1
+          $ver  = $line.Matches[0].Groups[1].Value
+          echo "VERSION=$ver" >> $env:GITHUB_OUTPUT
+      - name: Upload Installer Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ONENEW20260401-Installer
-          path: installer\output\ONEVoiceSolution_Setup_v5.exe
+          name: ONEVoiceSolution-v${{ steps.get_version.outputs.VERSION }}-Installer
+          path: installer\output\ONEVoiceSolution_Setup.exe
           retention-days: 30
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.get_version.outputs.VERSION }}
+          name: ONE Voice Solution v${{ steps.get_version.outputs.VERSION }}
+          files: installer\output\ONEVoiceSolution_Setup.exe
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
