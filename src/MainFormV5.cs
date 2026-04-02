@@ -60,7 +60,7 @@ namespace WindowsFormsApp1
         private static readonly Color ONE_BLUE_SEL = Color.FromArgb(0, 102, 204);
 
         // ── Version — update this single constant for every release ──────────
-        private const string APP_VERSION = "6.1";
+        private const string APP_VERSION = "6.2";
         // Meter segment colours — inactive = same blue as dropdown, active = ONE red
         private static readonly Color SEG_OFF      = Color.FromArgb(0, 102, 204);   // same as dropdown blue
         private static readonly Color SEG_ON       = Color.FromArgb(254, 1, 1);     // ONE red
@@ -513,26 +513,28 @@ namespace WindowsFormsApp1
         // ── Meter panel ───────────────────────────────────────────────────────
         private void BuildMeterPanel(int x, int top, int w, int panelH, bool isLeft)
         {
-            string title   = isLeft ? "AGENT AUDIO"     : "CUSTOMER OUTPUT";
-            string sub     = isLeft ? "(What You Hear)"  : "(What They Hear)";
-            string m1Label = isLeft ? "My Mic Level"    : "Customer Voice";
-            string m2Label = "Script Playback";
-            string volLblText = isLeft ? "Mic Volume" : "Speaker Volume";
+            // LEFT=AGENT AUDIO: what agent hears (Customer Voice + Script Playback)
+            // RIGHT=CUSTOMER OUTPUT: what customer hears (My Voice Level + Script Playback)
+            string title      = isLeft ? "AGENT AUDIO"          : "CUSTOMER OUTPUT";
+            string sub        = isLeft ? "(What You Hear)"       : "(What They Hear)";
+            string m1Label    = isLeft ? "Customer Voice"        : "My Voice Level";
+            string m2Label    = "Script Playback";
+            string volLblText = isLeft ? "Customer Voice Volume" : "Recordings";
 
             // ── Sizes ──────────────────────────────────────────────────────────
             int titleH   = (int)(36 * _scale);
             int subH     = (int)(22 * _scale);
             int gap1     = (int)(12 * _scale);  // title block -> meter 1
-            int lbl1H    = (int)(24 * _scale);
-            int lblBarGap= (int)(6  * _scale);  // label -> bar
+            int lbl1H    = (int)(30 * _scale);
+            int lblBarGap= (int)(10 * _scale);  // label -> bar
             int barH     = METER_H;
-            int volLblH  = (int)(20 * _scale);
-            int trkH     = (int)(26 * _scale);
-            int volGap   = (int)(4  * _scale);  // bar -> vol label
-            int betweenH = (int)(14 * _scale);  // slider -> meter 2 label
-            int badgeGap = (int)(12 * _scale);  // bar2 slider -> badge
-            int hintH    = (int)(20 * _scale);
-            int hintGap  = (int)(4  * _scale);
+            int volLblH  = (int)(28 * _scale);
+            int trkH     = (int)(32 * _scale);
+            int volGap   = (int)(10 * _scale);  // bar -> vol label
+            int betweenH = (int)(28 * _scale);  // slider -> meter 2 label
+            int badgeGap = (int)(22 * _scale);  // bar2 slider -> badge
+            int hintH    = (int)(24 * _scale);
+            int hintGap  = (int)(8  * _scale);
 
             // Total content height
             int contentH = titleH + subH + gap1
@@ -575,7 +577,7 @@ namespace WindowsFormsApp1
             int m1LabelY = subY + subH + gap1;
             MakeLabel(m1Label, x, m1LabelY, 17, color: TEXT_WHITE);
             int m1BarY = m1LabelY + lbl1H + lblBarGap;
-            MakeMeterPanel(x, m1BarY, w, isLeft ? "myMicLevel" : "customerVoice");
+            MakeMeterPanel(x, m1BarY, w, isLeft ? "customerVoice" : "myMicLevel");
 
             // Vol label + % + slider directly under meter 1
             int v1LblY = m1BarY + barH + volGap;
@@ -612,7 +614,7 @@ namespace WindowsFormsApp1
 
             // Vol label + % + slider directly under meter 2
             int v2LblY = m2BarY + barH + volGap;
-            var lv2 = new Label { Text = isLeft ? "Script Playback Volume" : "Speaker Volume", ForeColor = TEXT_WHITE, BackColor = Color.Transparent,
+            var lv2 = new Label { Text = isLeft ? "Script Playback Volume" : "Script Playback Volume", ForeColor = TEXT_WHITE, BackColor = Color.Transparent,
                 Font = new Font("Segoe UI", SF(16f), FontStyle.Bold), AutoSize = false,
                 TextAlign = ContentAlignment.MiddleLeft,
                 Bounds = new Rectangle(x, v2LblY, w - (int)(60 * _scale), volLblH) };
