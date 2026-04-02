@@ -53,8 +53,6 @@ WizardImageStretch=no
 MinVersion=10.0
 ; 64-bit only
 ArchitecturesInstallIn64BitMode=x64
-; DPI aware
-DPIAware=yes
 ; Uninstall display icon
 UninstallDisplayIcon={app}\{#AppExeName}
 UninstallDisplayName={#AppName} {#AppVersion}
