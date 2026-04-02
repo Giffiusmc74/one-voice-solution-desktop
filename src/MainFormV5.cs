@@ -60,7 +60,7 @@ namespace WindowsFormsApp1
         private static readonly Color ONE_BLUE_SEL = Color.FromArgb(0, 102, 204);
 
         // ── Version — update this single constant for every release ──────────
-        private const string APP_VERSION = "6.5";
+        private const string APP_VERSION = "6.6";
         // Meter segment colours — inactive = same blue as dropdown, active = ONE red
         private static readonly Color SEG_OFF      = Color.FromArgb(0, 102, 204);   // same as dropdown blue
         private static readonly Color SEG_ON       = Color.FromArgb(254, 1, 1);     // ONE red
@@ -221,16 +221,16 @@ namespace WindowsFormsApp1
             int H = this.ClientSize.Height;
             this.Paint += (s, e) => DrawRedBorder(e.Graphics);
             BuildHeader(W);
-            // Top red border line — sits at y=0, always on top
-            var topLine = new Panel { BackColor = ONE_RED, Bounds = new Rectangle(0, 0, W, REDLINE_H) };
-            this.Controls.Add(topLine);
-            topLine.BringToFront();
             // Separator red line below header
             _redLine = new Panel { BackColor = ONE_RED, Bounds = new Rectangle(0, HEADER_H, W, REDLINE_H) };
             this.Controls.Add(_redLine);
             BuildDeviceRow(W);
             int contentTop = HEADER_H + REDLINE_H + DEVICE_ROW_H + (int)(4 * _scale);
             BuildContentArea(W, H, contentTop);
+            // Top red border — added LAST so it's never covered by any other control
+            var topLine = new Panel { BackColor = ONE_RED, Bounds = new Rectangle(0, 0, W, REDLINE_H) };
+            this.Controls.Add(topLine);
+            topLine.BringToFront();
             BuildFooter(W, H);
         }
 
@@ -437,7 +437,7 @@ namespace WindowsFormsApp1
         private void BuildContentArea(int W, int H, int top)
         {
             int taglineH   = (int)(28 * _scale);
-            int taglineGap = (int)(8  * _scale);
+            int taglineGap = (int)(20 * _scale);
             int availH     = H - top - taglineH - taglineGap - FOOTER_H;
 
             // Video ~38% of form width; side panels get the rest
@@ -538,7 +538,7 @@ namespace WindowsFormsApp1
             // ── Sizes ──────────────────────────────────────────────────────────
             int titleH   = (int)(36 * _scale);
             int subH     = (int)(22 * _scale);
-            int gap1     = (int)(12 * _scale);  // title block -> meter 1
+            int gap1     = (int)(22 * _scale);  // title block -> meter 1
             int lbl1H    = (int)(30 * _scale);
             int lblBarGap= (int)(10 * _scale);  // label -> bar
             int barH     = METER_H;
@@ -546,7 +546,7 @@ namespace WindowsFormsApp1
             int trkH     = (int)(32 * _scale);
             int volGap   = (int)(12 * _scale);  // bar -> vol label
             int betweenH = (int)(36 * _scale);  // slider -> meter 2 label
-            int badgeGap = (int)(28 * _scale);  // bar2 slider -> badge
+            int badgeGap = (int)(16 * _scale);  // bar2 slider -> badge
             int hintH    = (int)(24 * _scale);
             int hintGap  = (int)(8  * _scale);
 
@@ -558,7 +558,7 @@ namespace WindowsFormsApp1
                          + badgeGap + BADGE_H + hintGap + hintH;
 
             // Vertically center the content block within the panel
-            int cy = top + Math.Max((int)(16 * _scale), (panelH - contentH) / 2);
+            int cy = top + Math.Max((int)(30 * _scale), (panelH - contentH) / 2);
 
             // ── Title ─────────────────────────────────────────────────────────
             var lblTitle = new Label
