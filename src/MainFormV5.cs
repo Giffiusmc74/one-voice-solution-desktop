@@ -57,7 +57,7 @@ namespace WindowsFormsApp1
 
         // ── Scale — set from screen dimensions at startup ─────────────────────
         private float _scale = 1.0f;
-        private int HEADER_H     => (int)(100 * _scale);
+        private int HEADER_H     => (int)(124 * _scale);  // taller header with cushion
         private int REDLINE_H    => 3;
         private int DEVICE_ROW_H => (int)(52  * _scale);
         private int FOOTER_H     => (int)(32  * _scale);  // tighter footer
@@ -193,7 +193,7 @@ namespace WindowsFormsApp1
         // ── Header ────────────────────────────────────────────────────────────
         private void BuildHeader(int W)
         {
-            int logoSz = (int)(86 * _scale);
+            int logoSz = (int)(104 * _scale);  // bigger ONE logo
             int logoY  = (HEADER_H - logoSz) / 2;
             int logoX  = SIDE_PAD;
 
@@ -389,7 +389,7 @@ namespace WindowsFormsApp1
             int availH   = H - top - taglineH - (int)(10 * _scale) - FOOTER_H;  // tight bottom
 
             // Side panels: fixed width, video gets the rest
-            int sideW    = (int)(200 * _scale);
+            int sideW    = (int)(300 * _scale);  // wider panels = video only slightly bigger than original
             int videoLeft = SIDE_PAD + sideW + VIDEO_GAP;
             int videoW    = W - videoLeft - VIDEO_GAP - sideW - SIDE_PAD;
             int videoH    = availH;   // video fills ALL available height
@@ -405,7 +405,7 @@ namespace WindowsFormsApp1
                 Bounds    = new Rectangle(videoLeft, videoTop, videoW, videoH),
                 BackColor = Color.Black
             };
-            _videoPanel.Paint += DrawVideoRedBorder;
+            // No border on video panel
             this.Controls.Add(_videoPanel);
 
             // WMP — looping, muted, no UI chrome
@@ -476,7 +476,7 @@ namespace WindowsFormsApp1
                 Font      = new Font("Segoe UI", SF(18f), FontStyle.Bold | FontStyle.Italic),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleCenter,
-                Bounds    = new Rectangle(0, tagY, W, (int)(30 * _scale))
+                Bounds    = new Rectangle(videoLeft, tagY, videoW, (int)(30 * _scale))  // centered under video
             };
             this.Controls.Add(_lblTagline);
         }
@@ -613,11 +613,10 @@ namespace WindowsFormsApp1
         }
 
         // ── Footer ────────────────────────────────────────────────────────────
-        private void BuildFooter(int W, int H)
+         private void BuildFooter(int W, int H)
         {
             int fy = H - FOOTER_H;
-            this.Controls.Add(new Panel { BackColor = ONE_RED, Bounds = new Rectangle(0, fy, W, 2) });
-
+            // No red line — clean footer
             _lblFooterLeft = new Label
             {
                 Text      = "ONE United Global  2026  v5.0",
@@ -626,19 +625,18 @@ namespace WindowsFormsApp1
                 Font      = new Font("Segoe UI", SF(12f)),
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleLeft,
-                Bounds    = new Rectangle(SIDE_PAD, fy + 2, 300, FOOTER_H - 2)
+                Bounds    = new Rectangle(SIDE_PAD, fy, 300, FOOTER_H)
             };
             this.Controls.Add(_lblFooterLeft);
-
             _lblFooterCenter = new Label
             {
                 Text      = "This App Can Be Minimized  \u2022  Settings Are Auto-Saved",
-                ForeColor = TEXT_GREY,
+                ForeColor = TEXT_WHITE,   // same color as left label
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(11f)),
+                Font      = new Font("Segoe UI", SF(12f)),  // same font and size
                 AutoSize  = false,
                 TextAlign = ContentAlignment.MiddleCenter,
-                Bounds    = new Rectangle(0, fy + 2, W, FOOTER_H - 2)
+                Bounds    = new Rectangle(0, fy, W, FOOTER_H)
             };
             this.Controls.Add(_lblFooterCenter);
         }
