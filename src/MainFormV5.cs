@@ -60,7 +60,7 @@ namespace WindowsFormsApp1
         private static readonly Color ONE_BLUE_SEL = Color.FromArgb(0, 102, 204);
 
         // ── Version — update this single constant for every release ──────────
-        private const string APP_VERSION = "6.0";
+        private const string APP_VERSION = "6.1";
         // Meter segment colours — inactive = same blue as dropdown, active = ONE red
         private static readonly Color SEG_OFF      = Color.FromArgb(0, 102, 204);   // same as dropdown blue
         private static readonly Color SEG_ON       = Color.FromArgb(254, 1, 1);     // ONE red
@@ -272,7 +272,7 @@ namespace WindowsFormsApp1
 
             // "Agent: Name" — centered below "Audio Dashboard", with clear gap
             int agentH = (int)(26 * _scale);
-            int agentY = dashY + dashH + (int)(10 * _scale);
+            int agentY = dashY + dashH + (int)(24 * _scale);
             _lblAgentName = new Label
             {
                 Text      = "Agent: " + AppSettings.Instance.AgentName,
@@ -798,33 +798,49 @@ namespace WindowsFormsApp1
             this.Activate();
         }
 
-        // ── Video playback (deferred until form Load) ─────────────────────────
+          // ── Video playback (deferred until form Load) ─────────────────────
         private void StartVideoPlayback()
         {
             if (_videoPlayer == null || string.IsNullOrEmpty(_videoFilePath)) return;
             try
             {
-                _videoPlayer.settings.setMode("loop", true);
+                // Step 1: mute and assign URL — do NOT set uiMode yet, WMP resets it on URL change
                 _videoPlayer.settings.volume = 0;
-                _videoPlayer.uiMode          = "none";
-                _videoPlayer.URL             = new Uri(_videoFilePath).AbsoluteUri;
+                _videoPlayer.settings.setMode("loop", true);
                 _videoPlayer.stretchToFit    = true;
-                _videoPlayer.Ctlcontrols.play();
+                _videoPlayer.URL             = new Uri(_videoFilePath).AbsoluteUri;
 
-                // Enforce uiMode="none" + oversized bounds for 5 seconds
-                var uiFixTimer = new System.Windows.Forms.Timer { Interval = 200 };
-                int uiFixCount = 0;
-                uiFixTimer.Tick += (ts, te) =>
+                // Step 2: after a short delay (WMP needs ~300ms to initialise the media),
+                //         force uiMode=none, correct bounds, then press play
+                var startTimer = new System.Windows.Forms.Timer { Interval = 400 };
+                startTimer.Tick += (ts, te) =>
                 {
+                    startTimer.Stop();
                     try
                     {
-                        if (_videoPlayer.uiMode != "none") _videoPlayer.uiMode = "none";
+                        _videoPlayer.uiMode = "none";
                         _videoPlayer.Bounds = new Rectangle(0, 0, _videoPanel.Width, _videoPanel.Height + _wmpExtraH);
+                        _videoPlayer.Ctlcontrols.play();
                     }
-                    catch { }
-                    if (++uiFixCount >= 25) uiFixTimer.Stop();
+                    catch (Exception ex2) { Log.Warn($"[Video] Delayed play failed: {ex2.Message}"); }
+
+                    // Step 3: keep enforcing uiMode=none every 200ms for 6 seconds
+                    //         (WMP can reset it when media changes state)
+                    var uiFixTimer = new System.Windows.Forms.Timer { Interval = 200 };
+                    int uiFixCount = 0;
+                    uiFixTimer.Tick += (ts2, te2) =>
+                    {
+                        try
+                        {
+                            if (_videoPlayer.uiMode != "none") _videoPlayer.uiMode = "none";
+                            _videoPlayer.Bounds = new Rectangle(0, 0, _videoPanel.Width, _videoPanel.Height + _wmpExtraH);
+                        }
+                        catch { }
+                        if (++uiFixCount >= 30) uiFixTimer.Stop();
+                    };
+                    uiFixTimer.Start();
                 };
-                uiFixTimer.Start();
+                startTimer.Start();
             }
             catch (Exception ex) { Log.Warn($"[Video] StartVideoPlayback failed: {ex.Message}"); }
         }
