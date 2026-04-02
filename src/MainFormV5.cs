@@ -438,7 +438,7 @@ namespace WindowsFormsApp1
 
             // Meter 1
              string m1Label = isLeft ? "Customer Voice" : "My Mic Level";
-            int m1Top = top + 52;
+            int m1Top = top + 68;
             var lbl1 = MakeLabel(m1Label, x, m1Top, 14, color: TEXT_WHITE);
             var meter1 = BuildMeterControl(x, m1Top + 20, w, isLeft ? "agentVoice" : "customerVoice");
             // Meter 2

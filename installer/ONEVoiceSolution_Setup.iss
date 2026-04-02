@@ -61,8 +61,8 @@ UninstallDisplayName={#AppName} {#AppVersion}
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "desktopicon";    Description: "Create a &desktop shortcut";    GroupDescription: "Additional icons:"; Flags: checked
-Name: "startupicon";   Description: "Launch ONE Voice at &Windows startup"; GroupDescription: "Additional icons:"; Flags: unchecked
+Name: "desktopicon";    Description: "Create a &desktop shortcut";    GroupDescription: "Additional icons:"; Flags: checkedonce
+Name: "startupicon";   Description: "Launch ONE Voice at &Windows startup"; GroupDescription: "Additional icons:"
 
 [Files]
 ; ── Main application ──────────────────────────────────────────────────────────
