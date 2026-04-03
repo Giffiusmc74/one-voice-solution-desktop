@@ -59,6 +59,9 @@ namespace WindowsFormsApp1.src
 
         private readonly object _playLock = new object();
         private bool   isAudioPlaying;
+
+        /// <summary>True while a recording is actively playing. Used by MainFormV5 to suppress loopback meter during playback.</summary>
+        public bool IsPlaying => isAudioPlaying;
         private long   lastReadPosition;
         private CancellationTokenSource cancellationTokenSource;
 

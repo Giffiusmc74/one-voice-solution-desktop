@@ -1,5 +1,5 @@
 /*
- * MainFormV5.cs  —  ONE Voice Solution v7.22
+ * MainFormV5.cs  —  ONE Voice Solution v7.23
  *
  * v7.21 changes:
  *   - Volume sliders now take effect from the FIRST playback, not just after moving them.
@@ -31,7 +31,7 @@ namespace WindowsFormsApp1
         private static readonly Color ONE_BLUE_SEL = Color.FromArgb(0, 102, 204);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.22";
+        private const string APP_VERSION = "7.23";
 
         // Meter segment colours
         private static readonly Color SEG_OFF  = Color.FromArgb(0, 102, 204);
@@ -106,9 +106,11 @@ namespace WindowsFormsApp1
         private Label    _lblCustomerScriptVol;
 
         // Loopback capture for Customer Voice meter only (no monitor playback)
-        // Customer Voice Volume slider controls Windows system volume of the headset device
-        // exactly as the original SetSpeakerVolume(mMDevice, volumeLevel) did.
+        // Customer Voice Volume slider scales the meter display only — same as original
+        // incomingAudioVolume which scaled the loopback buffer for meter and waveOutSecond.
+        // It does NOT change Windows system volume (that would affect recording playback too).
         private WasapiLoopbackCapture  _loopbackCapture;
+        private float                  _customerVoiceVolume = 1.0f; // 0.0-1.0, set by trk1 left
 
         [DllImport("user32.dll")]
         private static extern int SendMessage(IntPtr hWnd, int Msg, int wParam, int lParam);
@@ -603,10 +605,10 @@ namespace WindowsFormsApp1
                 try {
                     if (isLeft)
                     {
-                        // Customer Voice Volume: Windows system volume of headset device
-                        // Exact port of original SetSpeakerVolume(mMDevice, volumeLevel)
-                        if (_activeSpeakerDevice != null)
-                            _activeSpeakerDevice.AudioEndpointVolume.MasterVolumeLevelScalar = trk1.Value / 100f;
+                        // Customer Voice Volume: scales the loopback meter display only.
+                        // Same as original AudioService.incomingAudioVolume — does NOT
+                        // change Windows system volume (which would also affect recordings).
+                        _customerVoiceVolume = trk1.Value / 100f;
                         AppSettings.Instance.SpeakerSystemVolume = trk1.Value;
                     }
                     else
@@ -999,11 +1001,15 @@ namespace WindowsFormsApp1
                 _loopbackCapture.DataAvailable += (s, e) =>
                 {
                     if (e.BytesRecorded < 4) return;
-                    // Meter-only: calculate peak level from loopback buffer
+                    // Suppress meter during recording playback — loopback captures ALL system
+                    // audio including recordings, so we zero it out while a script is playing
+                    // to avoid the recording showing on the Customer Voice meter.
+                    if (LocalBridgeServer.Instance.IsPlaying) { _customerVoiceLevel = 0f; return; }
+                    // Scale by _customerVoiceVolume (same as original incomingAudioVolume)
                     float max = 0f;
                     for (int i = 0; i + 4 <= e.BytesRecorded; i += 4)
                     {
-                        float sample = Math.Abs(BitConverter.ToSingle(e.Buffer, i));
+                        float sample = Math.Abs(BitConverter.ToSingle(e.Buffer, i)) * _customerVoiceVolume;
                         if (sample > max) max = sample;
                     }
                     float level = Math.Min(1f, max * 3.5f);
@@ -1055,9 +1061,8 @@ namespace WindowsFormsApp1
                         try
                         {
                             int savedPct = AppSettings.Instance.SpeakerSystemVolume;
-                            // Restore Customer Voice Volume: Windows system volume of headset
-                            if (_activeSpeakerDevice != null)
-                                _activeSpeakerDevice.AudioEndpointVolume.MasterVolumeLevelScalar = savedPct / 100f;
+                            // Restore Customer Voice Volume: meter scale factor only
+                            _customerVoiceVolume = savedPct / 100f;
                             if (_trkSpeakerVol != null) { _trkSpeakerVol.Value = savedPct; if (_lblSpeakerVol != null) _lblSpeakerVol.Text = $"{savedPct}%"; }
                         }
                         catch { }
