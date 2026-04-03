@@ -195,21 +195,31 @@ namespace WindowsFormsApp1.src
                 float aVol = _agentVol    / 100f;
 
                 // ── waveOut → VB-Cable (customer hears recording) ─────────────
-                try
+                // Only route to VB-Cable if a cable device was actually found.
+                // If _cableDeviceNumber == -1 (no VB-Cable installed), skip entirely
+                // so we never accidentally play through the default (computer speakers).
+                if (_cableDeviceNumber >= 0)
                 {
-                    audioFileReader = new AudioFileReader(tmpPath);
-                    _volCable       = new VolumeSampleProvider(audioFileReader) { Volume = cVol };
-                    waveOut         = new WaveOutEvent { DeviceNumber = _cableDeviceNumber, DesiredLatency = 100 };
-                    waveOut.Init(_volCable);
-                    waveOut.Play();
-                    waveOut.PlaybackStopped += OnPlaybackStopped_Cable;
-                    _log.Info($"[Bridge] Cable WaveOut → device #{_cableDeviceNumber} vol={_customerVol}%");
+                    try
+                    {
+                        audioFileReader = new AudioFileReader(tmpPath);
+                        _volCable       = new VolumeSampleProvider(audioFileReader) { Volume = cVol };
+                        waveOut         = new WaveOutEvent { DeviceNumber = _cableDeviceNumber, DesiredLatency = 100 };
+                        waveOut.Init(_volCable);
+                        waveOut.Play();
+                        waveOut.PlaybackStopped += OnPlaybackStopped_Cable;
+                        _log.Info($"[Bridge] Cable WaveOut → device #{_cableDeviceNumber} vol={_customerVol}%");
+                    }
+                    catch (Exception ex)
+                    {
+                        _log.Warn($"[Bridge] Cable WaveOut failed: {ex.Message}");
+                        try { audioFileReader?.Dispose(); } catch { }
+                        audioFileReader = null; _volCable = null; waveOut = null;
+                    }
                 }
-                catch (Exception ex)
+                else
                 {
-                    _log.Warn($"[Bridge] Cable WaveOut failed: {ex.Message}");
-                    try { audioFileReader?.Dispose(); } catch { }
-                    audioFileReader = null; _volCable = null; waveOut = null;
+                    _log.Info("[Bridge] No VB-Cable device found — skipping cable output (no computer speaker fallback).");
                 }
 
                 // ── waveO → headset (agent hears recording) ───────────────────
@@ -225,21 +235,13 @@ namespace WindowsFormsApp1.src
                 }
                 catch (Exception ex)
                 {
-                    _log.Warn($"[Bridge] Agent WaveOut failed (device #{outputDeviceNumber}): {ex.Message}. Falling back to default.");
+                    // Do NOT fall back to device -1 (default/computer speakers).
+                    // If the headset device fails, log it and skip — never route to computer speakers.
+                    _log.Error($"[Bridge] Agent WaveOut failed (device #{outputDeviceNumber}): {ex.Message}. No fallback.");
                     try { audioFileReader2?.Dispose(); } catch { }
-                    try
-                    {
-                        audioFileReader2 = new AudioFileReader(tmpPath);
-                        _volAgent        = new VolumeSampleProvider(audioFileReader2) { Volume = aVol };
-                        waveO            = new WaveOutEvent { DeviceNumber = -1, DesiredLatency = 100 };
-                        waveO.Init(_volAgent);
-                        waveO.Play();
-                        waveO.PlaybackStopped += OnPlaybackStopped_Agent;
-                    }
-                    catch (Exception ex2)
-                    {
-                        _log.Error($"[Bridge] Agent fallback also failed: {ex2.Message}");
-                    }
+                    audioFileReader2 = null; _volAgent = null; waveO = null;
+                    isAudioPlaying = false;
+                    OnPlaybackStopped?.Invoke();
                 }
 
                 // ── Meter loop (matches original ProcessAudioAndVisualizeIntensity_) ──

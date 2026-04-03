@@ -1,14 +1,13 @@
 /*
- * MainFormV5.cs  —  ONE Voice Solution v7.7
+ * MainFormV5.cs  —  ONE Voice Solution v7.20
  *
- * v7.7 changes:
- *   - Background pure black (0,0,0) instead of (18,18,18)
- *   - AGENT AUDIO / CUSTOMER OUTPUT headings centered between dropdown and first meter
- *   - Device routing fixed: uses FindWaveOutDeviceNumber (name-based) instead of ComboBox index
- *   - Volume sliders now properly control system volume and bridge playback
- *   - License parameter fixed in TimeAPI.cs (licenseId → key)
- *   - LicenseForm falls back to offline launch on network error
- *   - Meter sensitivity boosted, decay slowed
+ * v7.20 changes:
+ *   - VB-Cable routing fix: skip cable WaveOut entirely when no VB-Cable found
+ *     (previously fell back to device -1 = computer speakers, causing dual audio output)
+ *   - Agent WaveOut: removed fallback to default device on failure
+ *     (never route to computer speakers silently)
+ *   - FindWaveOutDeviceNumber: improved matching with word-level scoring
+ *     (fixes Realtek/Dell/Jabra device name matching when WaveOut name is truncated)
  */
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
@@ -34,7 +33,7 @@ namespace WindowsFormsApp1
         private static readonly Color ONE_BLUE_SEL = Color.FromArgb(0, 102, 204);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.19";
+        private const string APP_VERSION = "7.20";
 
         // Meter segment colours
         private static readonly Color SEG_OFF  = Color.FromArgb(0, 102, 204);
@@ -1096,30 +1095,59 @@ namespace WindowsFormsApp1
         {
             if (string.IsNullOrEmpty(targetDeviceName)) return -1;
             // WaveOut.ProductName is truncated to 31 chars by Windows.
-            // Log all available devices for debugging, then match by partial name.
+            // Matching strategy (in priority order):
+            //   1. Exact substring match (either direction)
+            //   2. Scored prefix match (first N chars of WaveOut name appear in target)
+            //   3. First-word match (e.g. WaveOut "Speakers (Realtek" matches WASAPI "Speakers (Realtek High...")
             string target = targetDeviceName.ToLower().Trim();
-            int bestIdx = -1;
+            int bestIdx   = -1;
             int bestScore = 0;
-            for (int i = 0; i < WaveOut.DeviceCount; i++)
+
+            int count = WaveOut.DeviceCount;
+            for (int i = 0; i < count; i++)
             {
                 var capabilities = WaveOut.GetCapabilities(i);
                 string prod = capabilities.ProductName.ToLower().Trim();
                 Log.Info($"[Audio] WaveOut #{i}: '{capabilities.ProductName}'");
-                // Exact contains check both ways
+
+                // 1. Exact substring match
                 if (target.Contains(prod) || prod.Contains(target))
                 {
                     Log.Info($"[Audio] Matched WaveOut #{i} ('{capabilities.ProductName}') for '{targetDeviceName}'");
                     return i;
                 }
-                // Score by how many chars of prod appear in target
+
+                // 2. Prefix score: how many leading chars of prod appear in target
                 int score = 0;
-                for (int c = Math.Min(prod.Length, 15); c >= 5; c--)
+                for (int c = Math.Min(prod.Length, 20); c >= 5; c--)
                 {
                     if (target.Contains(prod.Substring(0, c))) { score = c; break; }
                 }
+
+                // 3. Word-level match: split on spaces/parens and count matching words from start
+                //    e.g. WaveOut "speakers (realtek" → words ["speakers","realtek"]
+                //         WASAPI  "speakers (realtek high definition audio)" → words ["speakers","realtek",...]
+                //    Two matching leading words = score 8
+                char[] sep = new char[] { ' ', '(', ')', '-', '/' };
+                string[] prodWords   = prod.Split(sep,   StringSplitOptions.RemoveEmptyEntries);
+                string[] targetWords = target.Split(sep, StringSplitOptions.RemoveEmptyEntries);
+                if (prodWords.Length > 0 && targetWords.Length > 0)
+                {
+                    int wordMatches = 0;
+                    int maxWords = Math.Min(prodWords.Length, targetWords.Length);
+                    for (int w = 0; w < maxWords; w++)
+                    {
+                        if (prodWords[w] == targetWords[w]) wordMatches++;
+                        else break;
+                    }
+                    int wordScore = wordMatches * 4;
+                    if (wordScore > score) score = wordScore;
+                }
+
                 if (score > bestScore) { bestScore = score; bestIdx = i; }
             }
-            if (bestIdx >= 0 && bestScore >= 5)
+
+            if (bestIdx >= 0 && bestScore >= 4)
             {
                 Log.Info($"[Audio] Partial match WaveOut #{bestIdx} (score={bestScore}) for '{targetDeviceName}'");
                 return bestIdx;
