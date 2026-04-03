@@ -87,6 +87,10 @@ namespace WindowsFormsApp1
                     "License",
                     DataEncryption.EncryptString_Aes(licenseKey),
                     RegistryValueKind.String);
+
+                // Also save to AppSettings so MainFormV5 heartbeat can use it
+                AppSettings.Instance.LicenseKey = licenseKey;
+                AppSettings.Instance.Save();
             }
             catch
             {
