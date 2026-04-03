@@ -34,7 +34,7 @@ namespace WindowsFormsApp1
         private static readonly Color ONE_BLUE_SEL = Color.FromArgb(0, 102, 204);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.16";
+        private const string APP_VERSION = "7.17";
 
         // Meter segment colours
         private static readonly Color SEG_OFF  = Color.FromArgb(0, 102, 204);
@@ -1049,7 +1049,12 @@ namespace WindowsFormsApp1
                 _activeVBCableDevice = rends.FirstOrDefault(d =>
                     d.FriendlyName.Contains("CABLE") || d.FriendlyName.Contains("VB-Audio"));
                 if (_activeVBCableDevice != null)
+                {
                     Log.Info($"[Audio] VB-Cable output: {_activeVBCableDevice.FriendlyName}");
+                    int cableNum = FindWaveOutDeviceNumber(_activeVBCableDevice.FriendlyName);
+                    LocalBridgeServer.Instance.SetCableDevice(cableNum);
+                    Log.Info($"[Audio] VB-Cable WaveOut device #{cableNum} wired to bridge.");
+                }
 
                 // ── Headset dropdown change handler ──────────────────────────
                 // Uses name-based WaveOut device lookup instead of ComboBox index
