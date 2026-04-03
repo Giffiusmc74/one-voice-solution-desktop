@@ -34,7 +34,7 @@ namespace WindowsFormsApp1
         private static readonly Color ONE_BLUE_SEL = Color.FromArgb(0, 102, 204);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.18";
+        private const string APP_VERSION = "7.19";
 
         // Meter segment colours
         private static readonly Color SEG_OFF  = Color.FromArgb(0, 102, 204);
@@ -614,8 +614,8 @@ namespace WindowsFormsApp1
                 AppSettings.Instance.Save();
             };
             this.Controls.Add(trk1);
-            if (isLeft) { _trkMicVol = trk1; _lblMicVol = lp1; }
-            else { _trkSpeakerVol = trk1; _lblSpeakerVol = lp1; }
+            if (isLeft) { _trkSpeakerVol = trk1; _lblSpeakerVol = lp1; }
+            else { _trkMicVol = trk1; _lblMicVol = lp1; }
             cy += trkH;
 
             // ── Meter 2 ──────────────────────────────────────────────────────
