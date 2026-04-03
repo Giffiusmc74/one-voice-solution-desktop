@@ -60,7 +60,7 @@ namespace WindowsFormsApp1
         private static readonly Color ONE_BLUE_SEL = Color.FromArgb(0, 102, 204);
 
         // ── Version — update this single constant for every release ──────────
-        private const string APP_VERSION = "7.2";
+        private const string APP_VERSION = "7.3";
         // Meter segment colours — inactive = same blue as dropdown, active = ONE red
         private static readonly Color SEG_OFF      = Color.FromArgb(0, 102, 204);   // same as dropdown blue
         private static readonly Color SEG_ON       = Color.FromArgb(254, 1, 1);     // ONE red
@@ -167,16 +167,7 @@ namespace WindowsFormsApp1
                 StartVideoPlayback();
                 // Check for updates silently in the background
                 AutoUpdater.CheckAndUpdate(APP_VERSION);
-                // Auto-open ScriptBuilder in default browser so agent is ready to call
-                try
-                {
-                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                    {
-                        FileName = "https://onevoiceapp-wpzvhh8c.manus.space/member/scripts",
-                        UseShellExecute = true
-                    });
-                }
-                catch (Exception ex) { Log.Warn($"[Startup] Could not open ScriptBuilder: {ex.Message}"); }
+                // Browser auto-open removed — user is already in the portal
             };
         }
 
