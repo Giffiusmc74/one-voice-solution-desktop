@@ -1,11 +1,8 @@
 using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Diagnostics;
-using System.Linq;
+using System.IO;
+using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using System.Threading;
-using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Win32;
 using WindowsFormsApp1.src;
@@ -14,42 +11,42 @@ namespace WindowsFormsApp1
 {
     internal static class Program
     {
-        // ── Win32 helpers to bring existing window to foreground ─────────────
-        [DllImport("user32.dll")]
-        private static extern bool SetForegroundWindow(IntPtr hWnd);
+        // ── Pipe name — unique to this app ───────────────────────────────────
+        private const string PipeName = "ONEVoiceSolution_SingleInstance_Pipe";
 
-        [DllImport("user32.dll")]
-        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-
-        [DllImport("user32.dll")]
-        private static extern bool IsIconic(IntPtr hWnd);
-
+        // ── Win32: bring existing window to foreground ───────────────────────
+        [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
+        [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+        [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr hWnd);
         private const int SW_RESTORE = 9;
 
-        /// <summary>
-        /// The main entry point for the application.
-        /// </summary>
         [STAThread]
         static void Main(string[] args)
         {
-            // ── Single-instance guard ────────────────────────────────────────
-            // Named mutex ensures only ONE copy of the app runs at a time.
-            // If a second instance is launched (e.g. via one-voice:// protocol),
-            // it brings the existing window to the front and exits immediately.
-            const string MutexName = "Global\\ONEVoiceSolution_SingleInstance";
-            bool createdNew;
-            using (var mutex = new Mutex(true, MutexName, out createdNew))
+            // ── Single-instance via named pipe ───────────────────────────────
+            // Try to create the server pipe. If it already exists, another
+            // instance is running — signal it and exit immediately.
+            bool isFirstInstance;
+            using (var mutex = new Mutex(true, "ONEVoiceSolution_Mutex", out isFirstInstance))
             {
-                if (!createdNew)
+                if (!isFirstInstance)
                 {
-                    // Another instance is already running — bring it to the front.
-                    BringExistingInstanceToFront();
-                    return; // Exit this second instance immediately.
+                    // Tell the running instance to come to the front.
+                    SignalFirstInstance();
+                    return;
                 }
 
-                // This is the first (and only) instance — proceed normally.
+                // We are the first instance — start listening for signals.
                 RegisterUriScheme();
                 ExtractAndSaveLicenseKey(args);
+
+                // Start the pipe listener on a background thread.
+                Thread pipeThread = new Thread(ListenForActivation)
+                {
+                    IsBackground = true,
+                    Name = "PipeListener"
+                };
+                pipeThread.Start();
 
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
@@ -58,65 +55,94 @@ namespace WindowsFormsApp1
         }
 
         /// <summary>
-        /// Finds the already-running instance of this app and brings its window
-        /// to the foreground (restoring it if minimized).
+        /// Called by the SECOND instance: connects to the first instance's
+        /// pipe and sends an "activate" signal, then exits.
         /// </summary>
-        private static void BringExistingInstanceToFront()
+        private static void SignalFirstInstance()
         {
             try
             {
-                string exeName = Process.GetCurrentProcess().ProcessName;
-                Process current = Process.GetCurrentProcess();
-                foreach (Process proc in Process.GetProcessesByName(exeName))
+                using (var client = new NamedPipeClientStream(".", PipeName, PipeDirection.Out))
                 {
-                    if (proc.Id == current.Id) continue;
-                    IntPtr hWnd = proc.MainWindowHandle;
-                    if (hWnd == IntPtr.Zero) continue;
-                    if (IsIconic(hWnd))
-                        ShowWindow(hWnd, SW_RESTORE);
-                    SetForegroundWindow(hWnd);
-                    break;
+                    client.Connect(2000); // 2-second timeout
+                    using (var sw = new StreamWriter(client))
+                        sw.WriteLine("activate");
                 }
             }
-            catch
+            catch { /* Best-effort — if pipe not ready, just exit silently */ }
+        }
+
+        /// <summary>
+        /// Runs on a background thread in the FIRST instance.
+        /// Waits for activation signals and brings the main window to front.
+        /// </summary>
+        private static void ListenForActivation()
+        {
+            while (true)
             {
-                // Best-effort — silently ignore if we can't bring window to front.
+                try
+                {
+                    using (var server = new NamedPipeServerStream(PipeName, PipeDirection.In,
+                        1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous))
+                    {
+                        server.WaitForConnection();
+                        using (var sr = new StreamReader(server))
+                        {
+                            string msg = sr.ReadLine();
+                            if (msg == "activate")
+                                BringMainWindowToFront();
+                        }
+                    }
+                }
+                catch { Thread.Sleep(500); }
             }
         }
 
         /// <summary>
-        /// Extracts the license key from the one-voice:// protocol URL passed
-        /// as a command-line argument and saves it to the registry.
-        /// Example URL: one-voice://launch?key=ABC-123-DEF
+        /// Finds the main application window and brings it to the foreground.
+        /// </summary>
+        private static void BringMainWindowToFront()
+        {
+            try
+            {
+                // Find the main form — it may be LicenseForm or MainFormV5.
+                Form mainForm = null;
+                // Marshal to UI thread to safely access Application.OpenForms
+                if (Application.OpenForms.Count > 0)
+                {
+                    Form f = Application.OpenForms[Application.OpenForms.Count - 1];
+                    f.Invoke((Action)(() =>
+                    {
+                        f.WindowState = FormWindowState.Normal;
+                        f.Activate();
+                        f.BringToFront();
+                        IntPtr hWnd = f.Handle;
+                        if (IsIconic(hWnd)) ShowWindow(hWnd, SW_RESTORE);
+                        SetForegroundWindow(hWnd);
+                    }));
+                }
+            }
+            catch { }
+        }
+
+        /// <summary>
+        /// Extracts the license key from the one-voice:// protocol URL.
         /// </summary>
         private static void ExtractAndSaveLicenseKey(string[] args)
         {
             try
             {
-                if (args == null || args.Length == 0)
-                    return;
-
-                // The full URL comes as the first argument, e.g.:
-                // "one-voice://launch?key=ABC-123-DEF"
+                if (args == null || args.Length == 0) return;
                 string url = args[0];
+                if (string.IsNullOrWhiteSpace(url)) return;
+                if (!url.StartsWith("one-voice://", StringComparison.OrdinalIgnoreCase)) return;
 
-                if (string.IsNullOrWhiteSpace(url))
-                    return;
-
-                // Only process if it's our protocol
-                if (!url.StartsWith("one-voice://", StringComparison.OrdinalIgnoreCase))
-                    return;
-
-                // Parse the key parameter from the URL
                 string licenseKey = null;
-
                 int queryStart = url.IndexOf('?');
                 if (queryStart >= 0 && queryStart < url.Length - 1)
                 {
                     string queryString = url.Substring(queryStart + 1);
-                    // Split on & to handle multiple params
-                    string[] pairs = queryString.Split('&');
-                    foreach (string pair in pairs)
+                    foreach (string pair in queryString.Split('&'))
                     {
                         string[] kv = pair.Split(new[] { '=' }, 2);
                         if (kv.Length == 2 && kv[0].Equals("key", StringComparison.OrdinalIgnoreCase))
@@ -127,63 +153,41 @@ namespace WindowsFormsApp1
                     }
                 }
 
-                if (string.IsNullOrWhiteSpace(licenseKey))
-                    return;
+                if (string.IsNullOrWhiteSpace(licenseKey)) return;
 
-                // Save the license key to registry (encrypted, same as manual entry)
                 RegistryUtils.SetRegistryValue(
-                    @"Software\OneApp3",
-                    "License",
+                    @"Software\OneApp3", "License",
                     DataEncryption.EncryptString_Aes(licenseKey),
-                    RegistryValueKind.String);
+                    Microsoft.Win32.RegistryValueKind.String);
 
-                // Also save to AppSettings so MainFormV5 heartbeat can use it
                 AppSettings.Instance.LicenseKey = licenseKey;
                 AppSettings.Instance.Save();
             }
-            catch
-            {
-                // Silently ignore — license extraction is best-effort.
-                // The user can still enter the key manually if this fails.
-            }
+            catch { }
         }
 
         /// <summary>
-        /// Registers the one-voice:// custom URI scheme in HKEY_CLASSES_ROOT.
-        /// Safe to call on every launch — only writes if the key is missing or stale.
+        /// Registers the one-voice:// custom URI scheme.
         /// </summary>
         private static void RegisterUriScheme()
         {
             try
             {
                 string exePath = Application.ExecutablePath;
-
-                string protocolKey = @"one-voice";
                 string commandValue = $"\"{exePath}\" \"%1\"";
 
-                using (RegistryKey key = Registry.ClassesRoot.CreateSubKey(protocolKey))
+                using (RegistryKey key = Registry.ClassesRoot.CreateSubKey("one-voice"))
                 {
-                    if (key != null)
-                    {
-                        key.SetValue("", "URL:ONE Voice Solution");
-                        key.SetValue("URL Protocol", "");
-                    }
+                    key?.SetValue("", "URL:ONE Voice Solution");
+                    key?.SetValue("URL Protocol", "");
                 }
-
-                using (RegistryKey iconKey = Registry.ClassesRoot.CreateSubKey($@"{protocolKey}\DefaultIcon"))
-                {
+                using (RegistryKey iconKey = Registry.ClassesRoot.CreateSubKey(@"one-voice\DefaultIcon"))
                     iconKey?.SetValue("", $"{exePath},0");
-                }
 
-                using (RegistryKey cmdKey = Registry.ClassesRoot.CreateSubKey($@"{protocolKey}\shell\open\command"))
-                {
+                using (RegistryKey cmdKey = Registry.ClassesRoot.CreateSubKey(@"one-voice\shell\open\command"))
                     cmdKey?.SetValue("", commandValue);
-                }
             }
-            catch
-            {
-                // Silently ignore — protocol registration is best-effort.
-            }
+            catch { }
         }
     }
 }
