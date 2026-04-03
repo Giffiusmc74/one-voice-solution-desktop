@@ -14,7 +14,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          lfs: true
+          lfs: false
       - name: Setup NuGet
         uses: NuGet/setup-nuget@v2
       - name: Restore NuGet packages
