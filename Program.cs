@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Linq;
+using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using Microsoft.Win32;
@@ -11,26 +14,74 @@ namespace WindowsFormsApp1
 {
     internal static class Program
     {
+        // ── Win32 helpers to bring existing window to foreground ─────────────
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsIconic(IntPtr hWnd);
+
+        private const int SW_RESTORE = 9;
+
         /// <summary>
         /// The main entry point for the application.
         /// </summary>
         [STAThread]
         static void Main(string[] args)
         {
-            // Register the one-voice:// URI scheme so the member portal can launch this app.
-            // This runs silently every startup so existing installs self-heal without a reinstall.
-            RegisterUriScheme();
+            // ── Single-instance guard ────────────────────────────────────────
+            // Named mutex ensures only ONE copy of the app runs at a time.
+            // If a second instance is launched (e.g. via one-voice:// protocol),
+            // it brings the existing window to the front and exits immediately.
+            const string MutexName = "Global\\ONEVoiceSolution_SingleInstance";
+            bool createdNew;
+            using (var mutex = new Mutex(true, MutexName, out createdNew))
+            {
+                if (!createdNew)
+                {
+                    // Another instance is already running — bring it to the front.
+                    BringExistingInstanceToFront();
+                    return; // Exit this second instance immediately.
+                }
 
-            // ── Parse protocol URL for license key ──────────────────────────
-            // When launched via one-voice://launch?key=XXXX from the member
-            // portal, Windows passes the full URL as the first command-line arg.
-            // We extract the key and save it to the registry so the user never
-            // has to enter it manually.
-            ExtractAndSaveLicenseKey(args);
+                // This is the first (and only) instance — proceed normally.
+                RegisterUriScheme();
+                ExtractAndSaveLicenseKey(args);
 
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new LicenseForm());
+                Application.EnableVisualStyles();
+                Application.SetCompatibleTextRenderingDefault(false);
+                Application.Run(new LicenseForm());
+            }
+        }
+
+        /// <summary>
+        /// Finds the already-running instance of this app and brings its window
+        /// to the foreground (restoring it if minimized).
+        /// </summary>
+        private static void BringExistingInstanceToFront()
+        {
+            try
+            {
+                string exeName = Process.GetCurrentProcess().ProcessName;
+                Process current = Process.GetCurrentProcess();
+                foreach (Process proc in Process.GetProcessesByName(exeName))
+                {
+                    if (proc.Id == current.Id) continue;
+                    IntPtr hWnd = proc.MainWindowHandle;
+                    if (hWnd == IntPtr.Zero) continue;
+                    if (IsIconic(hWnd))
+                        ShowWindow(hWnd, SW_RESTORE);
+                    SetForegroundWindow(hWnd);
+                    break;
+                }
+            }
+            catch
+            {
+                // Best-effort — silently ignore if we can't bring window to front.
+            }
         }
 
         /// <summary>
@@ -80,8 +131,6 @@ namespace WindowsFormsApp1
                     return;
 
                 // Save the license key to registry (encrypted, same as manual entry)
-                // This overwrites any existing key — the portal always has the
-                // authoritative key for this user.
                 RegistryUtils.SetRegistryValue(
                     @"Software\OneApp3",
                     "License",
@@ -102,16 +151,12 @@ namespace WindowsFormsApp1
         /// <summary>
         /// Registers the one-voice:// custom URI scheme in HKEY_CLASSES_ROOT.
         /// Safe to call on every launch — only writes if the key is missing or stale.
-        /// Requires the app to be run at least once after install (or after a fresh download).
         /// </summary>
         private static void RegisterUriScheme()
         {
             try
             {
-                // Get the full path to this executable
-                string exePath = System.Reflection.Assembly.GetExecutingAssembly().Location;
-                // For .NET Framework WinForms, Application.ExecutablePath is more reliable
-                exePath = Application.ExecutablePath;
+                string exePath = Application.ExecutablePath;
 
                 string protocolKey = @"one-voice";
                 string commandValue = $"\"{exePath}\" \"%1\"";
@@ -138,7 +183,6 @@ namespace WindowsFormsApp1
             catch
             {
                 // Silently ignore — protocol registration is best-effort.
-                // The app still launches normally even if this fails (e.g. no admin rights).
             }
         }
     }
