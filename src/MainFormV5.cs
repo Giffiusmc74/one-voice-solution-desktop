@@ -60,7 +60,7 @@ namespace WindowsFormsApp1
         private static readonly Color ONE_BLUE_SEL = Color.FromArgb(0, 102, 204);
 
         // ── Version — update this single constant for every release ──────────
-        private const string APP_VERSION = "6.6";
+        private const string APP_VERSION = "3.3";
         // Meter segment colours — inactive = same blue as dropdown, active = ONE red
         private static readonly Color SEG_OFF      = Color.FromArgb(0, 102, 204);   // same as dropdown blue
         private static readonly Color SEG_ON       = Color.FromArgb(254, 1, 1);     // ONE red
@@ -219,7 +219,7 @@ namespace WindowsFormsApp1
         {
             int W = this.ClientSize.Width;
             int H = this.ClientSize.Height;
-            this.Paint += (s, e) => DrawRedBorder(e.Graphics);
+            // Red border removed per client request
             BuildHeader(W);
             // Separator red line below header
             _redLine = new Panel { BackColor = ONE_RED, Bounds = new Rectangle(0, HEADER_H, W, REDLINE_H) };
@@ -227,10 +227,7 @@ namespace WindowsFormsApp1
             BuildDeviceRow(W);
             int contentTop = HEADER_H + REDLINE_H + DEVICE_ROW_H + (int)(4 * _scale);
             BuildContentArea(W, H, contentTop);
-            // Top red border — added LAST so it's never covered by any other control
-            var topLine = new Panel { BackColor = ONE_RED, Bounds = new Rectangle(0, 0, W, REDLINE_H) };
-            this.Controls.Add(topLine);
-            topLine.BringToFront();
+            // Top red line removed per client request
             BuildFooter(W, H);
         }
 
@@ -383,15 +380,25 @@ namespace WindowsFormsApp1
         // ── Device row ────────────────────────────────────────────────────────
         private void BuildDeviceRow(int W)
         {
-            int top   = HEADER_H + REDLINE_H + (int)(18 * _scale);
+            int top   = HEADER_H + REDLINE_H + (int)(10 * _scale);  // moved up
             // Widen dropdowns — each takes ~45% of form width so they feel substantial
             int dropW = (int)(W * 0.44f);
             int labelH = (int)(32 * _scale);
             int cboH   = (int)(44 * _scale);
-            int cboGap = (int)(12 * _scale);  // gap between label and dropdown
+            int cboGap = (int)(8 * _scale);  // tighter gap between label and dropdown
 
-            // Microphone label — bold, 20pt (3pts bigger than before)
-            _lblMicLabel = MakeLabel("Microphone", SIDE_PAD, top, 20, bold: true, color: TEXT_WHITE);
+            // Microphone label — bold, 20pt, centered above dropdown
+            _lblMicLabel = new Label
+            {
+                Text      = "Microphone",
+                ForeColor = TEXT_WHITE,
+                BackColor = Color.Transparent,
+                Font      = new Font("Segoe UI", SF(20f), FontStyle.Bold),
+                AutoSize  = false,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Bounds    = new Rectangle(SIDE_PAD, top, dropW, labelH)
+            };
+            this.Controls.Add(_lblMicLabel);
             _cboMic = new ComboBox
             {
                 Bounds        = new Rectangle(SIDE_PAD, top + labelH + cboGap, dropW, cboH),
@@ -412,8 +419,18 @@ namespace WindowsFormsApp1
             this.Controls.Add(_cboMic);
 
             int rightX = W - SIDE_PAD - dropW;
-            // Headset/Speaker label — bold, 20pt
-            _lblHeadsetLabel = MakeLabel("Headset / Speaker", rightX, top, 20, bold: true, color: TEXT_WHITE);
+            // Headset/Speaker label — bold, 20pt, centered above dropdown
+            _lblHeadsetLabel = new Label
+            {
+                Text      = "Headset / Speaker",
+                ForeColor = TEXT_WHITE,
+                BackColor = Color.Transparent,
+                Font      = new Font("Segoe UI", SF(20f), FontStyle.Bold),
+                AutoSize  = false,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Bounds    = new Rectangle(rightX, top, dropW, labelH)
+            };
+            this.Controls.Add(_lblHeadsetLabel);
             _cboHeadset = new ComboBox
             {
                 Bounds        = new Rectangle(rightX, top + labelH + cboGap, dropW, cboH),
@@ -536,19 +553,19 @@ namespace WindowsFormsApp1
             string volLblText = isLeft ? "Customer Voice Volume" : "Recordings";
 
             // ── Sizes ──────────────────────────────────────────────────────────
-            int titleH   = (int)(36 * _scale);
+            int titleH   = (int)(32 * _scale);
             int subH     = (int)(22 * _scale);
-            int gap1     = (int)(22 * _scale);  // title block -> meter 1
-            int lbl1H    = (int)(30 * _scale);
-            int lblBarGap= (int)(10 * _scale);  // label -> bar
+            int gap1     = (int)(14 * _scale);  // title block -> meter 1 (tighter)
+            int lbl1H    = (int)(26 * _scale);
+            int lblBarGap= (int)(6 * _scale);   // label -> bar (tighter)
             int barH     = METER_H;
-            int volLblH  = (int)(28 * _scale);
-            int trkH     = (int)(32 * _scale);
-            int volGap   = (int)(12 * _scale);  // bar -> vol label
-            int betweenH = (int)(36 * _scale);  // slider -> meter 2 label
-            int badgeGap = (int)(16 * _scale);  // bar2 slider -> badge
-            int hintH    = (int)(24 * _scale);
-            int hintGap  = (int)(8  * _scale);
+            int volLblH  = (int)(24 * _scale);
+            int trkH     = (int)(28 * _scale);
+            int volGap   = (int)(8 * _scale);   // bar -> vol label (tighter)
+            int betweenH = (int)(24 * _scale);  // slider -> meter 2 label (tighter)
+            int badgeGap = (int)(12 * _scale);  // bar2 slider -> badge
+            int hintH    = (int)(22 * _scale);
+            int hintGap  = (int)(6  * _scale);
 
             // Total content height
             int contentH = titleH + subH + gap1
@@ -558,7 +575,7 @@ namespace WindowsFormsApp1
                          + badgeGap + BADGE_H + hintGap + hintH;
 
             // Vertically center the content block within the panel
-            int cy = top + Math.Max((int)(30 * _scale), (panelH - contentH) / 2);
+            int cy = top + Math.Max((int)(10 * _scale), (panelH - contentH) / 2);
 
             // ── Title ─────────────────────────────────────────────────────────
             var lblTitle = new Label
