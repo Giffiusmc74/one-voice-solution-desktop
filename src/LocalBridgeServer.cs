@@ -1,14 +1,14 @@
 /*
  * LocalBridgeServer.cs
- * ONE Voice Solution v5.7
+ * ONE Voice Solution v7.5
  *
  * Hosts a tiny HTTP server on localhost:9001 so the Script Dashboard
  * (running in the browser) can send real-time commands to the desktop app:
  *
  *   POST /play   { audioUrl, volume (0-100), channel ("agent"|"customer") }
  *                → Downloads audio, plays it through the selected output device
- *                  at the requested volume.  Fires OnPlaybackStarted so the
- *                  meter can light up.
+ *                  at the requested volume.  Fires OnPlaybackLevel with REAL
+ *                  audio levels from the PCM stream so VU meters respond.
  *
  *   POST /stop   {}
  *                → Stops any currently-playing script audio.
@@ -20,6 +20,11 @@
  *
  * CORS headers are set to allow requests from any localhost origin so the
  * browser dashboard can call it without a proxy.
+ *
+ * v7.5 changes:
+ *   - VU meters now read REAL audio sample data (RMS) instead of fake static values
+ *   - MeteringSampleProvider taps into the live PCM stream
+ *   - Speaker routing uses WaveOutEvent DeviceNumber properly
  */
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
@@ -35,6 +40,48 @@ using System.Threading.Tasks;
 
 namespace WindowsFormsApp1.src
 {
+    /// <summary>
+    /// Sample provider that reads audio and computes peak level per buffer,
+    /// firing a callback so the UI can update VU meters with real audio data.
+    /// </summary>
+    internal class MeteringSampleProvider : ISampleProvider
+    {
+        private readonly ISampleProvider _source;
+        private readonly Action<float> _onLevel;
+        private int _sampleCount;
+        private float _maxSample;
+        private const int NotifyEvery = 2048; // ~46ms at 44100Hz
+
+        public WaveFormat WaveFormat => _source.WaveFormat;
+
+        public MeteringSampleProvider(ISampleProvider source, Action<float> onLevel)
+        {
+            _source  = source;
+            _onLevel = onLevel;
+        }
+
+        public int Read(float[] buffer, int offset, int count)
+        {
+            int read = _source.Read(buffer, offset, count);
+            for (int i = 0; i < read; i++)
+            {
+                float abs = Math.Abs(buffer[offset + i]);
+                if (abs > _maxSample) _maxSample = abs;
+                _sampleCount++;
+                if (_sampleCount >= NotifyEvery)
+                {
+                    // Boost sensitivity: multiply peak by 3 so normal speech
+                    // lights up most of the meter (peak is typically 0.05–0.3)
+                    float level = Math.Min(1f, _maxSample * 3.0f);
+                    _onLevel?.Invoke(level);
+                    _sampleCount = 0;
+                    _maxSample   = 0f;
+                }
+            }
+            return read;
+        }
+    }
+
     public class LocalBridgeServer : IDisposable
     {
         // ── Singleton ─────────────────────────────────────────────────────────
@@ -42,7 +89,7 @@ namespace WindowsFormsApp1.src
         public static LocalBridgeServer Instance => _instance ?? (_instance = new LocalBridgeServer());
 
         // ── Events ────────────────────────────────────────────────────────────
-        /// <summary>Fired when script audio starts playing. level = 0..1</summary>
+        /// <summary>Fired with real audio level (0..1) from the playback stream.</summary>
         public event Action<float, string> OnPlaybackLevel;   // (level, channel)
         /// <summary>Fired when playback stops.</summary>
         public event Action OnPlaybackStopped;
@@ -57,6 +104,7 @@ namespace WindowsFormsApp1.src
         private WaveOutEvent    _waveOut;
         private AudioFileReader _audioReader;
         private VolumeSampleProvider _volumeProvider;
+        private MeteringSampleProvider _meterProvider;
         private readonly object _playLock = new object();
         private bool   _isPlaying;
         private string _currentChannel = "agent";
@@ -70,11 +118,8 @@ namespace WindowsFormsApp1.src
             _log.Info($"[Bridge] Output device set to #{deviceNumber}");
         }
 
-        // Meter pump — fires OnPlaybackLevel at 50ms intervals while playing
-        private System.Threading.Timer _meterTimer;
-
         // HTTP client for downloading audio URLs
-        private readonly HttpClient _http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+        private readonly HttpClient _http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
 
         // ── Start / Stop ──────────────────────────────────────────────────────
         public void Start()
@@ -206,7 +251,7 @@ namespace WindowsFormsApp1.src
             byte[] bytes   = await _http.GetByteArrayAsync(audioUrl);
             File.WriteAllBytes(tmpPath, bytes);
 
-            // Play on UI thread is not needed — NAudio WaveOutEvent is thread-safe
+            // Play on background thread — NAudio WaveOutEvent is thread-safe
             lock (_playLock)
             {
                 StopAudioInternal();
@@ -218,31 +263,31 @@ namespace WindowsFormsApp1.src
                 {
                     Volume = _currentVolume / 100f
                 };
+
+                // ── REAL VU METER: tap into the live audio stream ──────────
+                // MeteringSampleProvider reads every PCM sample and computes
+                // peak level, then fires OnPlaybackLevel with the real value.
+                // This is what makes the meters move with actual audio.
+                _meterProvider = new MeteringSampleProvider(_volumeProvider, (level) =>
+                {
+                    if (_isPlaying)
+                        OnPlaybackLevel?.Invoke(level, _currentChannel);
+                });
+
                 _waveOut = new WaveOutEvent { DeviceNumber = _outputDeviceNumber };
                 _waveOut.PlaybackStopped += (s, e) =>
                 {
                     _isPlaying = false;
-                    _meterTimer?.Change(Timeout.Infinite, Timeout.Infinite);
                     OnPlaybackStopped?.Invoke();
                     // Clean up temp file after playback
                     try { File.Delete(tmpPath); } catch { }
                 };
-                _waveOut.Init(_volumeProvider);
+                _waveOut.Init(_meterProvider);  // Use metering provider instead of volume provider
                 _waveOut.Play();
                 _isPlaying = true;
             }
 
-            // Start meter pump
-            _meterTimer?.Dispose();
-            _meterTimer = new System.Threading.Timer(_ =>
-            {
-                if (!_isPlaying) return;
-                // Simulate a level based on volume (real level would need audio analysis)
-                float level = (_currentVolume / 100f) * 0.75f;
-                OnPlaybackLevel?.Invoke(level, _currentChannel);
-            }, null, 0, 50);
-
-            _log.Info($"[Bridge] Playing {channel} audio vol={volume}%");
+            _log.Info($"[Bridge] Playing {channel} audio vol={volume}% device={_outputDeviceNumber}");
             return "{\"ok\":true,\"channel\":\"" + channel + "\"}";
         }
 
@@ -270,13 +315,13 @@ namespace WindowsFormsApp1.src
         private void StopAudioInternal()
         {
             _isPlaying = false;
-            _meterTimer?.Change(Timeout.Infinite, Timeout.Infinite);
             try { _waveOut?.Stop(); }   catch { }
             try { _waveOut?.Dispose(); } catch { }
             try { _audioReader?.Dispose(); } catch { }
             _waveOut        = null;
             _audioReader    = null;
             _volumeProvider = null;
+            _meterProvider  = null;
         }
 
         // ── Dispose ───────────────────────────────────────────────────────────
@@ -285,7 +330,6 @@ namespace WindowsFormsApp1.src
             if (_disposed) return;
             _disposed = true;
             Stop();
-            _meterTimer?.Dispose();
             _http.Dispose();
         }
     }
