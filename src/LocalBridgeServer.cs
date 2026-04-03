@@ -224,9 +224,11 @@ namespace WindowsFormsApp1.src
                     try
                     {
                         audioFileReader = new AudioFileReader(tmpPath);
+                        // Use AudioFileReader.Volume (software gain) — reliable on ALL drivers.
+                        // WaveOutEvent.Volume is ignored by many drivers (e.g. Jabra).
+                        audioFileReader.Volume = Math.Max(0f, Math.Min(1f, _customerVol / 100f));
                         waveOut = new WaveOutEvent { DeviceNumber = _cableDeviceNumber, DesiredLatency = 100 };
                         waveOut.Init(audioFileReader);
-                        waveOut.Volume = Math.Max(0f, Math.Min(1f, _customerVol / 100f));
                         waveOut.Play();
                         waveOut.PlaybackStopped += OnPlaybackStopped_Cable;
                         _log.Info($"[Bridge] Cable WaveOut → device #{_cableDeviceNumber} vol={_customerVol}%");
@@ -247,9 +249,11 @@ namespace WindowsFormsApp1.src
                 try
                 {
                     audioFileReader2 = new AudioFileReader(tmpPath);
+                    // Use AudioFileReader.Volume (software gain) — reliable on ALL drivers.
+                    // WaveOutEvent.Volume is ignored by many drivers (e.g. Jabra).
+                    audioFileReader2.Volume = Math.Max(0f, Math.Min(1f, _agentVol / 100f));
                     waveO = new WaveOutEvent { DeviceNumber = outputDeviceNumber, DesiredLatency = 100 };
                     waveO.Init(audioFileReader2);
-                    waveO.Volume = Math.Max(0f, Math.Min(1f, _agentVol / 100f));
                     waveO.Play();
                     waveO.PlaybackStopped += OnPlaybackStopped_Agent;
                     _log.Info($"[Bridge] Agent WaveOut → device #{outputDeviceNumber} vol={_agentVol}%");
@@ -321,8 +325,9 @@ namespace WindowsFormsApp1.src
         }
 
         // ── /volume ───────────────────────────────────────────────────────────
-        // Uses WaveOutEvent.Volume — hardware-level, zero sample processing,
-        // cannot cause clipping or garbling.
+        // Uses AudioFileReader.Volume (software gain, works on ALL drivers including Jabra).
+        // WaveOutEvent.Volume is ignored by many drivers — AudioFileReader.Volume is reliable.
+        // AudioFileReader.Volume range: 0.0-1.0 (same as slider / 100).
         private string HandleVolume(string body)
         {
             dynamic data    = JsonConvert.DeserializeObject(body);
@@ -334,12 +339,12 @@ namespace WindowsFormsApp1.src
                 if (channel == "customer")
                 {
                     _customerVol = volume;
-                    if (waveOut != null) waveOut.Volume = volume / 100f;
+                    if (audioFileReader  != null) audioFileReader.Volume  = volume / 100f;
                 }
                 else
                 {
                     _agentVol = volume;
-                    if (waveO != null) waveO.Volume = volume / 100f;
+                    if (audioFileReader2 != null) audioFileReader2.Volume = volume / 100f;
                 }
             }
             _log.Info($"[Bridge] Volume {channel} → {volume}%");
