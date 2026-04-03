@@ -165,19 +165,17 @@ namespace WindowsFormsApp1
                     if (status == "LicenseValidated")
                     {
                         isLicenseVerified = true;
+                        // Save license key to AppSettings so MainFormV5 heartbeat can use it
+                        AppSettings.Instance.LicenseKey = lic;
+                        AppSettings.Instance.Save();
                         
-                        // Launch Main Form logic
+                        // Launch MainFormV5
                         this.Invoke(new Action(() =>
                         {
                             this.Hide();
-                            // Only create if not already open
-                            if (mainForm == null || mainForm.IsDisposed)
-                            {
-                                mainForm = new MainForm(this);
-                                mainForm.ShowDialog();
-                                // Ensure we close this form when main form closes to end app
-                                this.Close(); 
-                            }
+                            var mainFormV5 = new MainFormV5();
+                            mainFormV5.ShowDialog();
+                            this.Close();
                         }));
                     }
                     else
@@ -333,13 +331,13 @@ namespace WindowsFormsApp1
             if (status == "LicenseValidated")
             {
                 isLicenseVerified = true;
+                // Save license key to AppSettings so MainFormV5 heartbeat can use it
+                AppSettings.Instance.LicenseKey = licenseKey;
+                AppSettings.Instance.Save();
                 this.Hide();
-                if (!MainForm.IsFormOpen)
-                {
-                    mainForm = new MainForm(this);
-                    //mainForm = new MainForm();
-                    mainForm.ShowDialog();
-                }
+                var mainFormV5 = new MainFormV5();
+                mainFormV5.ShowDialog();
+                this.Close();
             }
             else
             {

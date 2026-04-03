@@ -61,6 +61,14 @@ namespace WindowsFormsApp1.src
         private bool   _isPlaying;
         private string _currentChannel = "agent";
         private int    _currentVolume  = 80;
+        private int    _outputDeviceNumber = -1; // -1 = default device
+
+        /// <summary>Set the output device number for WaveOutEvent playback.</summary>
+        public void SetOutputDevice(int deviceNumber)
+        {
+            _outputDeviceNumber = deviceNumber;
+            _log.Info($"[Bridge] Output device set to #{deviceNumber}");
+        }
 
         // Meter pump — fires OnPlaybackLevel at 50ms intervals while playing
         private System.Threading.Timer _meterTimer;
@@ -210,7 +218,7 @@ namespace WindowsFormsApp1.src
                 {
                     Volume = _currentVolume / 100f
                 };
-                _waveOut = new WaveOutEvent();
+                _waveOut = new WaveOutEvent { DeviceNumber = _outputDeviceNumber };
                 _waveOut.PlaybackStopped += (s, e) =>
                 {
                     _isPlaying = false;
