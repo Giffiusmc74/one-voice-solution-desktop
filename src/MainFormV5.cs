@@ -249,7 +249,7 @@ namespace WindowsFormsApp1
             _lblAgentName = new Label
             {
                 Text      = "Agent: " + AppSettings.Instance.AgentName,
-                ForeColor = TEXT_GREY,
+                ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
                 Font      = new Font("Segoe UI", SF(14f), FontStyle.Bold),
                 AutoSize  = true
@@ -524,7 +524,7 @@ namespace WindowsFormsApp1
             var lblSub = new Label
             {
                 Text      = sub,
-                ForeColor = TEXT_GREY,
+                ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
                 Font      = new Font("Segoe UI", SF(15f), FontStyle.Bold),
                 AutoSize  = true,
