@@ -76,12 +76,30 @@ namespace WindowsFormsApp1.src
             outputDeviceNumber = deviceNumber;
             _log.Info($"[Bridge] Agent device → #{deviceNumber}");
         }
+        /// <summary>Current headset WaveOut device number (-1 = default).</summary>
+        public int OutputDeviceNumber => outputDeviceNumber;
 
         /// <summary>Called by MainFormV5 on startup after VB-Cable is found.</summary>
         public void SetCableDevice(int deviceNumber)
         {
             _cableDeviceNumber = deviceNumber;
             _log.Info($"[Bridge] Cable device → #{deviceNumber}");
+        }
+        /// <summary>
+        /// Called by MainFormV5 on startup to sync saved slider values into the bridge.
+        /// This ensures playback uses the correct volume immediately — not the hardcoded default.
+        /// </summary>
+        public void SetInitialVolume(string channel, int volume)
+        {
+            volume = Math.Max(0, Math.Min(100, volume));
+            lock (_playLock)
+            {
+                if (channel == "customer")
+                    _customerVol = volume;
+                else
+                    _agentVol = volume;
+            }
+            _log.Info($"[Bridge] Initial volume {channel} → {volume}%");
         }
 
         // ── Start / Stop ──────────────────────────────────────────────────────
