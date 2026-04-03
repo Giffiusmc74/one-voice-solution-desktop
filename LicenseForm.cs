@@ -34,6 +34,7 @@ namespace WindowsFormsApp1
         private System.Threading.Timer licenseCheckTimer;
 
         public bool isLicenseVerified = false;
+        private int _isLaunching = 0; // Interlocked: 0=idle, 1=launching — prevents dual MainFormV5 windows
 
         DateTime APITime = DateTime.MinValue;
         
