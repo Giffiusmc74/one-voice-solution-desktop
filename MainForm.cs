@@ -4659,6 +4659,9 @@ namespace WindowsFormsApp1
                 // Subscribe to resize event for dynamic layout adjustments
                 this.Resize += MainForm_Resize;
                 
+                // Subscribe to location changed to detect when form moves to a different monitor
+                this.LocationChanged += MainForm_LocationChanged;
+                
                 // Create and setup panel structure
                 CreatePanelStructure();
                 
@@ -4870,6 +4873,58 @@ namespace WindowsFormsApp1
             catch (Exception ex)
             {
                 logger.Error(ex, "Error in MainForm_Resize: " + ex.Message);
+            }
+        }
+
+        private Screen _lastScreen = null;
+
+        private void MainForm_LocationChanged(object sender, EventArgs e)
+        {
+            try
+            {
+                Screen currentScreen = Screen.FromControl(this);
+                if (_lastScreen == null || !currentScreen.DeviceName.Equals(_lastScreen.DeviceName))
+                {
+                    _lastScreen = currentScreen;
+                    FitFormToScreen(currentScreen);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "Error in MainForm_LocationChanged: " + ex.Message);
+            }
+        }
+
+        private void FitFormToScreen(Screen screen)
+        {
+            try
+            {
+                Rectangle workArea = screen.WorkingArea;
+
+                // If the form is larger than the screen's working area, shrink it to fit
+                int newWidth = Math.Min(this.Width, workArea.Width - 20);
+                int newHeight = Math.Min(this.Height, workArea.Height - 20);
+
+                // Respect minimum size
+                newWidth = Math.Max(newWidth, this.MinimumSize.Width);
+                newHeight = Math.Max(newHeight, this.MinimumSize.Height);
+
+                // Only resize if the form actually needs to shrink
+                if (newWidth < this.Width || newHeight < this.Height)
+                {
+                    this.Size = new Size(newWidth, newHeight);
+                }
+
+                // Make sure the form is fully visible on the screen
+                int newX = Math.Max(workArea.Left, Math.Min(this.Left, workArea.Right - this.Width));
+                int newY = Math.Max(workArea.Top, Math.Min(this.Top, workArea.Bottom - this.Height));
+                this.Location = new Point(newX, newY);
+
+                logger.Info($"Form fitted to screen: {screen.DeviceName} ({workArea.Width}x{workArea.Height}), Form size: {this.Width}x{this.Height}");
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "Error fitting form to screen: " + ex.Message);
             }
         }
 
