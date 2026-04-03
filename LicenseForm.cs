@@ -51,7 +51,7 @@ namespace WindowsFormsApp1
                 logger.Info("License form started. Intializing Objects.");
                 //DeleteRegistryValuesTesting();
                 // Initialize the timer to call time API                                
-                licenseCheckTimer = new System.Threading.Timer(timerCallback, null, 0, 3600000); // every hour
+                licenseCheckTimer = new System.Threading.Timer(timerCallback, null, 3600000, 3600000); // every hour (no immediate fire - startup validation handled below)
 
                 txtLicenseKey.Enabled = false;
 
@@ -172,6 +172,7 @@ namespace WindowsFormsApp1
                         // Launch MainFormV5
                         this.Invoke(new Action(() =>
                         {
+                if (System.Threading.Interlocked.CompareExchange(ref _isLaunching, 1, 0) != 0) return;
                             this.Hide();
                             var mainFormV5 = new MainFormV5();
                             mainFormV5.ShowDialog();
@@ -190,6 +191,7 @@ namespace WindowsFormsApp1
                             AppSettings.Instance.Save();
                             this.Invoke(new Action(() =>
                             {
+                if (System.Threading.Interlocked.CompareExchange(ref _isLaunching, 1, 0) != 0) return;
                                 this.Hide();
                                 var mainFormV5 = new MainFormV5();
                                 mainFormV5.ShowDialog();
@@ -256,6 +258,7 @@ namespace WindowsFormsApp1
                     logger.Info("[License] Network error but saved key exists — launching app offline.");
                     this.Invoke(new Action(() =>
                     {
+                if (System.Threading.Interlocked.CompareExchange(ref _isLaunching, 1, 0) != 0) return;
                         this.Hide();
                         var mainFormV5 = new MainFormV5();
                         mainFormV5.ShowDialog();
@@ -329,6 +332,7 @@ namespace WindowsFormsApp1
                     if (txtLicenseKey.Text.Trim() == "ONE-OWNER-2026")
                     {
                         isLicenseVerified = true;
+                if (System.Threading.Interlocked.CompareExchange(ref _isLaunching, 1, 0) != 0) return;
                         this.Hide();
                         var ownerForm = new MainFormV5("Owner");
                         ownerForm.ShowDialog();
@@ -370,6 +374,7 @@ namespace WindowsFormsApp1
                 // Save license key to AppSettings so MainFormV5 heartbeat can use it
                 AppSettings.Instance.LicenseKey = licenseKey;
                 AppSettings.Instance.Save();
+                if (System.Threading.Interlocked.CompareExchange(ref _isLaunching, 1, 0) != 0) return;
                 this.Hide();
                 var mainFormV5 = new MainFormV5();
                 mainFormV5.ShowDialog();
