@@ -34,7 +34,7 @@ namespace WindowsFormsApp1
         private static readonly Color ONE_BLUE_SEL = Color.FromArgb(0, 102, 204);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.11";
+        private const string APP_VERSION = "7.12";
 
         // Meter segment colours
         private static readonly Color SEG_OFF  = Color.FromArgb(0, 102, 204);
@@ -684,14 +684,23 @@ namespace WindowsFormsApp1
                 AppSettings.Instance.Save();
                 try
                 {
-                    using (var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(2) })
+                    // Use a static shared client — do NOT dispose per-call
+                    float volSnapshot = trk2.Value;
+                    string chSnapshot = isLeft ? "agent" : "customer";
+                    System.Threading.Tasks.Task.Run(async () =>
                     {
-                        string ch = isLeft ? "agent" : "customer";
-                        var content = new System.Net.Http.StringContent(
-                            $"{{\"volume\":{trk2.Value},\"channel\":\"{ch}\"}}",
-                            System.Text.Encoding.UTF8, "application/json");
-                        http.PostAsync("http://localhost:9001/volume", content).ConfigureAwait(false);
-                    }
+                        try
+                        {
+                            using (var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(2) })
+                            {
+                                var content = new System.Net.Http.StringContent(
+                                    $"{{\"volume\":{volSnapshot},\"channel\":\"{chSnapshot}\"}}",
+                                    System.Text.Encoding.UTF8, "application/json");
+                                await http.PostAsync("http://localhost:9001/volume", content);
+                            }
+                        }
+                        catch { }
+                    });
                 }
                 catch { }
             };
@@ -1078,19 +1087,37 @@ namespace WindowsFormsApp1
         private int FindWaveOutDeviceNumber(string targetDeviceName)
         {
             if (string.IsNullOrEmpty(targetDeviceName)) return -1;
-            string target = targetDeviceName.ToLower();
+            // WaveOut.ProductName is truncated to 31 chars by Windows.
+            // Log all available devices for debugging, then match by partial name.
+            string target = targetDeviceName.ToLower().Trim();
+            int bestIdx = -1;
+            int bestScore = 0;
             for (int i = 0; i < WaveOut.DeviceCount; i++)
             {
                 var capabilities = WaveOut.GetCapabilities(i);
-                // WaveOut.ProductName is truncated to 31 chars, so use Contains
-                if (target.Contains(capabilities.ProductName.ToLower()) ||
-                    capabilities.ProductName.ToLower().Contains(target.Substring(0, Math.Min(target.Length, 28))))
+                string prod = capabilities.ProductName.ToLower().Trim();
+                Log.Info($"[Audio] WaveOut #{i}: '{capabilities.ProductName}'");
+                // Exact contains check both ways
+                if (target.Contains(prod) || prod.Contains(target))
                 {
+                    Log.Info($"[Audio] Matched WaveOut #{i} ('{capabilities.ProductName}') for '{targetDeviceName}'");
                     return i;
                 }
+                // Score by how many chars of prod appear in target
+                int score = 0;
+                for (int c = Math.Min(prod.Length, 15); c >= 5; c--)
+                {
+                    if (target.Contains(prod.Substring(0, c))) { score = c; break; }
+                }
+                if (score > bestScore) { bestScore = score; bestIdx = i; }
             }
-            Log.Warn($"[Audio] WaveOut device not found for: {targetDeviceName}, using default (-1)");
-            return -1; // Default device
+            if (bestIdx >= 0 && bestScore >= 5)
+            {
+                Log.Info($"[Audio] Partial match WaveOut #{bestIdx} (score={bestScore}) for '{targetDeviceName}'");
+                return bestIdx;
+            }
+            Log.Warn($"[Audio] WaveOut device not found for: '{targetDeviceName}', using default (-1)");
+            return -1;
         }
 
         // ── Local Bridge Server ───────────────────────────────────────────────
