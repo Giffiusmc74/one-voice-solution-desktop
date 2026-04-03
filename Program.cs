@@ -14,6 +14,10 @@ namespace WindowsFormsApp1
         // ── Pipe name — unique to this app ───────────────────────────────────
         private const string PipeName = "ONEVoiceSolution_SingleInstance_Pipe";
 
+        // ── CRITICAL: Mutex must be a static field held for the entire process lifetime.
+        // Putting it in a 'using' block disposes it early, allowing a second instance to launch.
+        private static Mutex _appMutex;
+
         // ── Win32: bring existing window to foreground ───────────────────────
         [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
         [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
@@ -23,35 +27,36 @@ namespace WindowsFormsApp1
         [STAThread]
         static void Main(string[] args)
         {
-            // ── Single-instance via named pipe ───────────────────────────────
-            // Try to create the server pipe. If it already exists, another
-            // instance is running — signal it and exit immediately.
+            // ── Single-instance guard ─────────────────────────────────────────
             bool isFirstInstance;
-            using (var mutex = new Mutex(true, "ONEVoiceSolution_Mutex", out isFirstInstance))
+            _appMutex = new Mutex(true, "ONEVoiceSolution_Mutex_v3", out isFirstInstance);
+
+            if (!isFirstInstance)
             {
-                if (!isFirstInstance)
-                {
-                    // Tell the running instance to come to the front.
-                    SignalFirstInstance();
-                    return;
-                }
-
-                // We are the first instance — start listening for signals.
-                RegisterUriScheme();
-                ExtractAndSaveLicenseKey(args);
-
-                // Start the pipe listener on a background thread.
-                Thread pipeThread = new Thread(ListenForActivation)
-                {
-                    IsBackground = true,
-                    Name = "PipeListener"
-                };
-                pipeThread.Start();
-
-                Application.EnableVisualStyles();
-                Application.SetCompatibleTextRenderingDefault(false);
-                Application.Run(new LicenseForm());
+                // Another instance is running — signal it to come to the front and exit.
+                SignalFirstInstance();
+                _appMutex.Close();
+                return;
             }
+
+            // We are the first instance — register protocol, extract key, start pipe listener.
+            RegisterUriScheme();
+            ExtractAndSaveLicenseKey(args);
+
+            Thread pipeThread = new Thread(ListenForActivation)
+            {
+                IsBackground = true,
+                Name = "PipeListener"
+            };
+            pipeThread.Start();
+
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+            Application.Run(new LicenseForm());
+
+            // Release mutex when the app exits normally.
+            try { _appMutex.ReleaseMutex(); } catch { }
+            _appMutex.Close();
         }
 
         /// <summary>
