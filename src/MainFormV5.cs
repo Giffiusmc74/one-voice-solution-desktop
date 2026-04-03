@@ -34,7 +34,7 @@ namespace WindowsFormsApp1
         private static readonly Color ONE_BLUE_SEL = Color.FromArgb(0, 102, 204);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.7";
+        private const string APP_VERSION = "7.8";
 
         // Meter segment colours
         private static readonly Color SEG_OFF  = Color.FromArgb(0, 102, 204);
@@ -899,12 +899,12 @@ namespace WindowsFormsApp1
                 }
                 if (_agentScriptLevel > 0)
                 {
-                    _agentScriptLevel = Math.Max(0f, _agentScriptLevel - 0.02f);
+                    _agentScriptLevel = Math.Max(0f, _agentScriptLevel - 0.008f); // slow decay — meter loop fires every 75ms
                     _agentScriptMeter?.Invalidate();
                 }
                 if (_customerScriptLevel > 0)
                 {
-                    _customerScriptLevel = Math.Max(0f, _customerScriptLevel - 0.02f);
+                    _customerScriptLevel = Math.Max(0f, _customerScriptLevel - 0.008f);
                     _customerScriptMeter?.Invalidate();
                 }
             };

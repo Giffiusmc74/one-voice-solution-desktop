@@ -1,30 +1,24 @@
 /*
  * LocalBridgeServer.cs
- * ONE Voice Solution v7.6
+ * ONE Voice Solution v7.8
  *
  * Hosts a tiny HTTP server on localhost:9001 so the Script Dashboard
- * (running in the browser) can send real-time commands to the desktop app:
+ * (running in the browser) can send real-time commands to the desktop app.
  *
- *   POST /play   { audioUrl, volume (0-100), channel ("agent"|"customer") }
- *                → Downloads audio, plays it through the selected output device
- *                  at the requested volume.  Fires OnPlaybackLevel with REAL
- *                  audio levels from the PCM stream so VU meters respond.
+ * METER APPROACH (matches original MainForm.cs that worked):
+ *   - Background Task.Run loop reads the audio file in 4096-sample chunks
+ *   - Calculates RMS per chunk, fires OnPlaybackLevel every 75ms
+ *   - Completely independent of WaveOut — meters always respond
  *
- *   POST /stop   {}
- *                → Stops any currently-playing script audio.
+ * DEVICE ROUTING:
+ *   - _waveOutCable  → always plays through VB-Audio Cable (for softphone)
+ *   - _waveOutSpeaker → plays through the selected headset/speaker device
+ *   - Both play the same file simultaneously (two AudioFileReader instances)
+ *   - SetOutputDevice(deviceNumber) sets the speaker device number
  *
- *   POST /volume { volume (0-100), channel ("agent"|"customer") }
- *                → Adjusts playback volume in real-time without stopping audio.
- *
- *   GET  /status → Returns { playing: bool, channel: string, volume: int }
- *
- * CORS headers are set to allow requests from any localhost origin so the
- * browser dashboard can call it without a proxy.
- *
- * v7.5 changes:
- *   - VU meters now read REAL audio sample data (RMS) instead of fake static values
- *   - MeteringSampleProvider taps into the live PCM stream
- *   - Speaker routing uses WaveOutEvent DeviceNumber properly
+ * VOLUME:
+ *   - VolumeSampleProvider on each WaveOut controls volume independently
+ *   - /volume endpoint adjusts in real-time without stopping playback
  */
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
@@ -40,48 +34,6 @@ using System.Threading.Tasks;
 
 namespace WindowsFormsApp1.src
 {
-    /// <summary>
-    /// Sample provider that reads audio and computes peak level per buffer,
-    /// firing a callback so the UI can update VU meters with real audio data.
-    /// </summary>
-    internal class MeteringSampleProvider : ISampleProvider
-    {
-        private readonly ISampleProvider _source;
-        private readonly Action<float> _onLevel;
-        private int _sampleCount;
-        private float _maxSample;
-        private const int NotifyEvery = 2048; // ~46ms at 44100Hz
-
-        public WaveFormat WaveFormat => _source.WaveFormat;
-
-        public MeteringSampleProvider(ISampleProvider source, Action<float> onLevel)
-        {
-            _source  = source;
-            _onLevel = onLevel;
-        }
-
-        public int Read(float[] buffer, int offset, int count)
-        {
-            int read = _source.Read(buffer, offset, count);
-            for (int i = 0; i < read; i++)
-            {
-                float abs = Math.Abs(buffer[offset + i]);
-                if (abs > _maxSample) _maxSample = abs;
-                _sampleCount++;
-                if (_sampleCount >= NotifyEvery)
-                {
-                    // Boost sensitivity: multiply peak by 5 so even quiet
-                    // recordings light up most of the meter bar
-                    float level = Math.Min(1f, _maxSample * 5.0f);
-                    _onLevel?.Invoke(level);
-                    _sampleCount = 0;
-                    _maxSample   = 0f;
-                }
-            }
-            return read;
-        }
-    }
-
     public class LocalBridgeServer : IDisposable
     {
         // ── Singleton ─────────────────────────────────────────────────────────
@@ -100,26 +52,31 @@ namespace WindowsFormsApp1.src
         private CancellationTokenSource _cts;
         private bool _disposed;
 
-        // Audio playback
-        private WaveOutEvent    _waveOut;
-        private AudioFileReader _audioReader;
-        private VolumeSampleProvider _volumeProvider;
-        private MeteringSampleProvider _meterProvider;
-        private readonly object _playLock = new object();
-        private bool   _isPlaying;
-        private string _currentChannel = "agent";
-        private int    _currentVolume  = 80;
-        private int    _outputDeviceNumber = -1; // -1 = default device
+        // Audio playback — two WaveOut instances (cable + speaker)
+        private WaveOutEvent         _waveOutCable;
+        private WaveOutEvent         _waveOutSpeaker;
+        private AudioFileReader      _readerCable;
+        private AudioFileReader      _readerSpeaker;
+        private VolumeSampleProvider _volCable;
+        private VolumeSampleProvider _volSpeaker;
+        private readonly object      _playLock = new object();
+        private bool                 _isPlaying;
+        private string               _currentChannel = "agent";
+        private int                  _currentVolume  = 80;
+        private int                  _outputDeviceNumber = -1; // -1 = default device
 
-        /// <summary>Set the output device number for WaveOutEvent playback.</summary>
+        // Meter task cancellation
+        private CancellationTokenSource _meterCts;
+
+        // HTTP client for downloading audio URLs
+        private readonly HttpClient _http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+
+        /// <summary>Set the WaveOut device number for the speaker output.</summary>
         public void SetOutputDevice(int deviceNumber)
         {
             _outputDeviceNumber = deviceNumber;
             _log.Info($"[Bridge] Output device set to #{deviceNumber}");
         }
-
-        // HTTP client for downloading audio URLs
-        private readonly HttpClient _http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
 
         // ── Start / Stop ──────────────────────────────────────────────────────
         public void Start()
@@ -251,44 +208,113 @@ namespace WindowsFormsApp1.src
             byte[] bytes   = await _http.GetByteArrayAsync(audioUrl);
             File.WriteAllBytes(tmpPath, bytes);
 
-            // Play on background thread — NAudio WaveOutEvent is thread-safe
             lock (_playLock)
             {
                 StopAudioInternal();
                 _currentChannel = channel;
                 _currentVolume  = Math.Max(0, Math.Min(100, volume));
+                float vol = _currentVolume / 100f;
 
-                _audioReader    = new AudioFileReader(tmpPath);
-                _volumeProvider = new VolumeSampleProvider(_audioReader)
-                {
-                    Volume = _currentVolume / 100f
-                };
-
-                // ── REAL VU METER: tap into the live audio stream ──────────
-                // MeteringSampleProvider reads every PCM sample and computes
-                // peak level, then fires OnPlaybackLevel with the real value.
-                // This is what makes the meters move with actual audio.
-                _meterProvider = new MeteringSampleProvider(_volumeProvider, (level) =>
-                {
-                    if (_isPlaying)
-                        OnPlaybackLevel?.Invoke(level, _currentChannel);
-                });
-
-                _waveOut = new WaveOutEvent { DeviceNumber = _outputDeviceNumber };
-                _waveOut.PlaybackStopped += (s, e) =>
+                // ── WaveOut #1: VB-Audio Cable (for softphone routing) ─────────
+                // Find cable device number
+                int cableDevice = FindWaveOutByName("cable");
+                _readerCable = new AudioFileReader(tmpPath);
+                _volCable    = new VolumeSampleProvider(_readerCable) { Volume = vol };
+                _waveOutCable = new WaveOutEvent { DeviceNumber = cableDevice, DesiredLatency = 100 };
+                _waveOutCable.Init(_volCable);
+                _waveOutCable.PlaybackStopped += (s, e) =>
                 {
                     _isPlaying = false;
                     OnPlaybackStopped?.Invoke();
-                    // Clean up temp file after playback
                     try { File.Delete(tmpPath); } catch { }
                 };
-                _waveOut.Init(_meterProvider);  // Use metering provider instead of volume provider
-                _waveOut.Play();
+                _waveOutCable.Play();
+
+                // ── WaveOut #2: Selected headset/speaker (for agent monitoring) ─
+                if (_outputDeviceNumber >= -1)
+                {
+                    try
+                    {
+                        _readerSpeaker = new AudioFileReader(tmpPath);
+                        _volSpeaker    = new VolumeSampleProvider(_readerSpeaker) { Volume = vol };
+                        _waveOutSpeaker = new WaveOutEvent { DeviceNumber = _outputDeviceNumber, DesiredLatency = 100 };
+                        _waveOutSpeaker.Init(_volSpeaker);
+                        _waveOutSpeaker.Play();
+                    }
+                    catch (Exception ex)
+                    {
+                        _log.Warn($"[Bridge] Speaker WaveOut failed: {ex.Message}");
+                        try { _waveOutSpeaker?.Dispose(); } catch { }
+                        try { _readerSpeaker?.Dispose(); } catch { }
+                        _waveOutSpeaker = null;
+                        _readerSpeaker  = null;
+                    }
+                }
+
                 _isPlaying = true;
+
+                // ── METER: background Task reads file chunks, calculates RMS ──
+                // This is the same approach as the original MainForm.cs that worked.
+                // Reads 4096 samples at a time, calculates RMS, fires OnPlaybackLevel.
+                // Completely independent of WaveOut — meters always respond.
+                _meterCts = new CancellationTokenSource();
+                var meterToken = _meterCts.Token;
+                var meterChannel = channel;
+                Task.Run(() => RunMeterLoop(tmpPath, meterChannel, meterToken));
             }
 
-            _log.Info($"[Bridge] Playing {channel} audio vol={volume}% device={_outputDeviceNumber}");
+            _log.Info($"[Bridge] Playing {channel} audio vol={volume}% cable={FindWaveOutByName("cable")} speaker={_outputDeviceNumber}");
             return "{\"ok\":true,\"channel\":\"" + channel + "\"}";
+        }
+
+        // ── Meter loop (original approach from MainForm.cs) ───────────────────
+        private void RunMeterLoop(string filePath, string channel, CancellationToken ct)
+        {
+            try
+            {
+                const int bufferSize = 4096;
+                using (var reader = new AudioFileReader(filePath))
+                {
+                    var buffer = new float[bufferSize];
+                    int samplesRead;
+                    while ((samplesRead = reader.Read(buffer, 0, buffer.Length)) > 0
+                           && !ct.IsCancellationRequested
+                           && _isPlaying)
+                    {
+                        // Calculate RMS of this chunk
+                        double sumSq = 0.0;
+                        for (int i = 0; i < samplesRead; i++)
+                            sumSq += buffer[i] * buffer[i];
+                        double rms = Math.Sqrt(sumSq / samplesRead);
+
+                        // Scale to 0..1, boost so quiet recordings still show on meter
+                        float level = (float)Math.Min(1.0, rms * 8.0);
+
+                        OnPlaybackLevel?.Invoke(level, channel);
+
+                        // 75ms delay matches original code — keeps meter smooth
+                        Thread.Sleep(75);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.Warn($"[Bridge] Meter loop error: {ex.Message}");
+            }
+        }
+
+        // ── Find WaveOut device by name substring ─────────────────────────────
+        private static int FindWaveOutByName(string nameHint)
+        {
+            if (string.IsNullOrEmpty(nameHint)) return -1;
+            string hint = nameHint.ToLower();
+            for (int i = 0; i < WaveOut.DeviceCount; i++)
+            {
+                string prod = WaveOut.GetCapabilities(i).ProductName.ToLower();
+                if (prod.Contains(hint) || hint.Contains(prod.Substring(0, Math.Min(prod.Length, 20))))
+                    return i;
+            }
+            return -1;
         }
 
         // ── /volume ───────────────────────────────────────────────────────────
@@ -297,10 +323,11 @@ namespace WindowsFormsApp1.src
             dynamic data   = JsonConvert.DeserializeObject(body);
             int     volume = (int?)data?.volume ?? _currentVolume;
             _currentVolume = Math.Max(0, Math.Min(100, volume));
+            float vol = _currentVolume / 100f;
             lock (_playLock)
             {
-                if (_volumeProvider != null)
-                    _volumeProvider.Volume = _currentVolume / 100f;
+                if (_volCable   != null) _volCable.Volume   = vol;
+                if (_volSpeaker != null) _volSpeaker.Volume = vol;
             }
             return "{\"ok\":true,\"volume\":" + _currentVolume + "}";
         }
@@ -315,13 +342,22 @@ namespace WindowsFormsApp1.src
         private void StopAudioInternal()
         {
             _isPlaying = false;
-            try { _waveOut?.Stop(); }   catch { }
-            try { _waveOut?.Dispose(); } catch { }
-            try { _audioReader?.Dispose(); } catch { }
-            _waveOut        = null;
-            _audioReader    = null;
-            _volumeProvider = null;
-            _meterProvider  = null;
+            _meterCts?.Cancel();
+            _meterCts = null;
+
+            try { _waveOutCable?.Stop();    } catch { }
+            try { _waveOutCable?.Dispose(); } catch { }
+            try { _readerCable?.Dispose();  } catch { }
+            try { _waveOutSpeaker?.Stop();    } catch { }
+            try { _waveOutSpeaker?.Dispose(); } catch { }
+            try { _readerSpeaker?.Dispose();  } catch { }
+
+            _waveOutCable   = null;
+            _readerCable    = null;
+            _volCable       = null;
+            _waveOutSpeaker = null;
+            _readerSpeaker  = null;
+            _volSpeaker     = null;
         }
 
         // ── Dispose ───────────────────────────────────────────────────────────
