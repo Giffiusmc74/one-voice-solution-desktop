@@ -1,17 +1,14 @@
 /*
- * MainFormV5.cs  —  ONE Voice Solution v7.5
+ * MainFormV5.cs  —  ONE Voice Solution v7.6
  *
- * v7.5 fixes:
- *   - DPI scaling: works at 150%, 175%, 200% — uses screen DPI to compute
- *     _scale so the layout adapts to any Windows scaling setting
- *   - VU meters: real audio levels from MeteringSampleProvider in bridge server
- *   - Red border: thicker (5px)
- *   - "Agent: Owner" spacing: more gap below "Audio Dashboard"
- *   - "Script Playback" label present on left side
- *   - Auto Level-Match buttons: red banners, fully visible
- *   - All text white, AutoSize labels, no cutoffs
- *   - Speaker routing: SetOutputDevice called on headset change
- *   - Customer Voice meter wired to real loopback audio
+ * v7.6 changes:
+ *   - Removed Auto Level-Match button (non-functional, cluttered layout)
+ *   - Moved AGENT AUDIO / CUSTOMER OUTPUT headings up closer to dropdowns
+ *   - Evenly spaced meters between heading and "Tap to switch" hint
+ *   - Minimize/Close buttons moved inward (not sitting on border)
+ *   - VU meter decay slowed so meters stay visible during playback
+ *   - MeteringSampleProvider sensitivity boosted for better response
+ *   - "Tap to switch" text replaced with simpler hint
  */
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
@@ -37,7 +34,7 @@ namespace WindowsFormsApp1
         private static readonly Color ONE_BLUE_SEL = Color.FromArgb(0, 102, 204);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.5";
+        private const string APP_VERSION = "7.6";
 
         // Meter segment colours
         private static readonly Color SEG_OFF  = Color.FromArgb(0, 102, 204);
@@ -52,7 +49,6 @@ namespace WindowsFormsApp1
         private int SIDE_PAD     => (int)(30  * _scale);
         private int VIDEO_GAP    => (int)(12  * _scale);
         private int METER_H      => (int)(26  * _scale);
-        private int BADGE_H      => (int)(34  * _scale);
         private const int METER_SEGS = 24;
         private float SF(float pt) => Math.Max(7f, (float)Math.Round(pt * _scale, 1));
 
@@ -74,19 +70,12 @@ namespace WindowsFormsApp1
         private float _customerVoiceLevel  = 0f;
         private float _agentScriptLevel    = 0f;
         private float _customerScriptLevel = 0f;
-        private float _agentVoiceSlider     = 0.62f;
-        private float _agentScriptSlider    = 0.48f;
-        private float _customerVoiceSlider  = 0.55f;
-        private float _customerScriptSlider = 0.55f;
-        private bool _agentAutoLevel    = true;
-        private bool _customerAutoLevel = true;
 
         // ── UI Controls ───────────────────────────────────────────────────────
         private PictureBox  _logoBox;
         private Label       _lblVoiceSolution;
         private Label       _lblAudioDashboard;
         private Label       _lblAgentName;
-        private Panel       _livePill;
         private ComboBox    _cboMic;
         private ComboBox    _cboHeadset;
         private Label       _lblMicLabel;
@@ -97,23 +86,12 @@ namespace WindowsFormsApp1
         private Panel       _agentScriptMeter;
         private Panel       _customerVoiceMeter;
         private Panel       _customerScriptMeter;
-        private Button      _btnAgentAutoLevel;
-        private Button      _btnCustomerAutoLevel;
         private Label       _lblTagline;
         private Label       _lblFooterLeft;
         private Label       _lblFooterCenter;
         private NotifyIcon  _trayIcon;
         private ContextMenuStrip _trayMenu;
         private System.Windows.Forms.Timer _meterTimer;
-        private System.Windows.Forms.Timer _livePulseTimer;
-        private bool _livePulseState = true;
-
-        [DllImport("user32.dll")]
-        private static extern int SendMessage(IntPtr hWnd, int Msg, int wParam, int lParam);
-        [DllImport("user32.dll")]
-        private static extern bool ReleaseCapture();
-        private const int WM_NCLBUTTONDOWN = 0xA1;
-        private const int HTCAPTION        = 0x2;
         private Button _btnClose;
         private Button _btnMinimize;
         private string _videoFilePath;
@@ -133,6 +111,13 @@ namespace WindowsFormsApp1
         // Loopback capture for Customer Voice meter
         private WasapiLoopbackCapture _loopbackCapture;
 
+        [DllImport("user32.dll")]
+        private static extern int SendMessage(IntPtr hWnd, int Msg, int wParam, int lParam);
+        [DllImport("user32.dll")]
+        private static extern bool ReleaseCapture();
+        private const int WM_NCLBUTTONDOWN = 0xA1;
+        private const int HTCAPTION        = 0x2;
+
         // ── Constructor ───────────────────────────────────────────────────────
         public MainFormV5() : this(null) { }
         public MainFormV5(string agentNameOverride)
@@ -141,7 +126,6 @@ namespace WindowsFormsApp1
             BuildUI();
             SetupTrayIcon();
             SetupMeterTimer();
-            SetupLivePulse();
             LoadSettings();
             PopulateDevices();
             StartAudioCapture();
@@ -175,18 +159,11 @@ namespace WindowsFormsApp1
             this.ResumeLayout(false);
         }
 
-        /// <summary>
-        /// Sizes and positions the form based on the current screen's working area
-        /// AND its DPI scaling. At 150% DPI the working area is already smaller in
-        /// logical pixels, so we just use 88% of it. The _scale factor is derived
-        /// from the actual DPI so fonts and spacing match the OS scaling.
-        /// </summary>
         private void CenterWithMargin()
         {
             Screen screen = Screen.FromPoint(Cursor.Position);
             Rectangle wa  = screen.WorkingArea;
 
-            // ── Get real DPI for this screen ──────────────────────────────────
             float dpi = 96f;
             try
             {
@@ -195,19 +172,11 @@ namespace WindowsFormsApp1
                 ReleaseDC(IntPtr.Zero, hdc);
             }
             catch { }
-            float dpiScale = dpi / 96f; // 1.0 at 100%, 1.5 at 150%, 1.75 at 175%, 2.0 at 200%
 
-            // Use 88% of the working area (which is already in logical pixels
-            // when the app is NOT declared DPI-aware — Windows scales for us)
             int w = Math.Max((int)(wa.Width  * 0.88), 860);
             int h = Math.Max((int)(wa.Height * 0.88), 560);
 
-            // _scale drives font sizes and spacing. We base it on the form size
-            // relative to our design target (1280x900) but also factor in DPI
-            // so that at 175%/200% everything shrinks proportionally to fit.
             float sizeScale = Math.Min((float)w / 1280f, (float)h / 900f);
-            // At higher DPI the working area shrinks, so sizeScale already drops.
-            // We clamp to a reasonable range.
             _scale = Math.Max(0.48f, Math.Min(sizeScale, 1.20f));
 
             this.ClientSize = new Size(w, h);
@@ -220,7 +189,6 @@ namespace WindowsFormsApp1
             Log.Info($"[UI] Screen={screen.DeviceName} DPI={dpi} WA={wa} FormSize={w}x{h} Scale={_scale:F2}");
         }
 
-        // ── OnPaint — red border around entire app ────────────────────────────
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
@@ -256,7 +224,6 @@ namespace WindowsFormsApp1
             this.Controls.Add(_logoBox);
             AttachDrag(_logoBox);
 
-            // "Voice Solution" beside logo
             _lblVoiceSolution = new Label
             {
                 Text      = "Voice Solution",
@@ -269,7 +236,6 @@ namespace WindowsFormsApp1
             this.Controls.Add(_lblVoiceSolution);
             AttachDrag(_lblVoiceSolution);
 
-            // "Audio Dashboard" centered
             _lblAudioDashboard = new Label
             {
                 Text      = "Audio Dashboard",
@@ -279,7 +245,6 @@ namespace WindowsFormsApp1
                 AutoSize  = true
             };
             this.Controls.Add(_lblAudioDashboard);
-            // Center it after adding so we can measure
             int dashW = TextRenderer.MeasureText(_lblAudioDashboard.Text, _lblAudioDashboard.Font).Width;
             int dashH = TextRenderer.MeasureText(_lblAudioDashboard.Text, _lblAudioDashboard.Font).Height;
             int dashX = (W - dashW) / 2;
@@ -287,7 +252,6 @@ namespace WindowsFormsApp1
             _lblAudioDashboard.Location = new Point(dashX, dashY);
             AttachDrag(_lblAudioDashboard);
 
-            // "Agent: Name" centered below Audio Dashboard — extra spacing
             _lblAgentName = new Label
             {
                 Text      = "Agent: " + AppSettings.Instance.AgentName,
@@ -298,13 +262,15 @@ namespace WindowsFormsApp1
             };
             this.Controls.Add(_lblAgentName);
             int agentW = TextRenderer.MeasureText(_lblAgentName.Text, _lblAgentName.Font).Width;
-            int agentY = dashY + dashH + (int)(6 * _scale);  // use measured dashH + gap
+            int agentY = dashY + dashH + (int)(6 * _scale);
             _lblAgentName.Location = new Point((W - agentW) / 2, agentY);
             AttachDrag(_lblAgentName);
 
-            // Window buttons
+            // ── Window buttons — moved INWARD from border ─────────────────────
             int btnSz = (int)(34 * _scale);
-            int btnY  = (int)(6 * _scale);
+            int btnMargin = (int)(12 * _scale);  // inset from edge
+            int btnY  = btnMargin;
+
             _btnClose = new Button
             {
                 Text      = "\u2715",
@@ -312,7 +278,7 @@ namespace WindowsFormsApp1
                 ForeColor = Color.White,
                 BackColor = Color.FromArgb(55, 55, 55),
                 Font      = new Font("Segoe UI", SF(12f), FontStyle.Bold),
-                Bounds    = new Rectangle(W - btnSz - 6, btnY, btnSz, btnSz),
+                Bounds    = new Rectangle(W - btnSz - btnMargin, btnY, btnSz, btnSz),
                 Cursor    = Cursors.Hand,
                 TabStop   = false
             };
@@ -328,7 +294,7 @@ namespace WindowsFormsApp1
                 ForeColor = Color.White,
                 BackColor = Color.FromArgb(55, 55, 55),
                 Font      = new Font("Segoe UI", SF(12f), FontStyle.Bold),
-                Bounds    = new Rectangle(W - btnSz * 2 - 14, btnY, btnSz, btnSz),
+                Bounds    = new Rectangle(W - btnSz * 2 - btnMargin - (int)(6 * _scale), btnY, btnSz, btnSz),
                 Cursor    = Cursors.Hand,
                 TabStop   = false
             };
@@ -374,11 +340,9 @@ namespace WindowsFormsApp1
                 ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
                 Font      = new Font("Segoe UI", SF(18f), FontStyle.Bold),
-                AutoSize  = true,
-                Location  = new Point(SIDE_PAD + dropW / 2 - (int)(60 * _scale), top)
+                AutoSize  = true
             };
             this.Controls.Add(_lblMicLabel);
-            // Re-center after measuring
             int micLblW = TextRenderer.MeasureText(_lblMicLabel.Text, _lblMicLabel.Font).Width;
             _lblMicLabel.Location = new Point(SIDE_PAD + (dropW - micLblW) / 2, top);
 
@@ -441,7 +405,6 @@ namespace WindowsFormsApp1
             int taglineGap = (int)(10 * _scale);
             int availH    = footerTop - top - taglineH - taglineGap;
 
-            // Video ~38% width
             int videoW    = (int)(W * 0.38f);
             int sideW     = (W - SIDE_PAD * 2 - VIDEO_GAP * 2 - videoW) / 2;
             if (sideW < 160) sideW = 160;
@@ -454,7 +417,6 @@ namespace WindowsFormsApp1
             int panelTop = top + (int)(6 * _scale);
             int panelH   = videoH;
 
-            // Video panel
             _videoPanel = new Panel
             {
                 Bounds    = new Rectangle(videoLeft, videoTop, videoW, videoH),
@@ -462,7 +424,6 @@ namespace WindowsFormsApp1
             };
             this.Controls.Add(_videoPanel);
 
-            // WMP
             try
             {
                 int wmpExtraH = 80;
@@ -517,7 +478,9 @@ namespace WindowsFormsApp1
             _lblTagline.Location = new Point(videoLeft + (videoW - tagW) / 2, tagY);
         }
 
-        // ── Side panel (meter panel) ──────────────────────────────────────────
+        // ── Side panel ────────────────────────────────────────────────────────
+        // Layout: Title → Subtitle → [evenly spaced: meter1 block, meter2 block] → hint
+        // No Auto Level-Match button — removed (non-functional)
         private void BuildSidePanel(int x, int top, int w, int panelH, bool isLeft)
         {
             string title      = isLeft ? "AGENT AUDIO"          : "CUSTOMER OUTPUT";
@@ -526,62 +489,76 @@ namespace WindowsFormsApp1
             string m2Label    = "Script Playback";
             string volLblText = isLeft ? "Customer Voice Volume" : "My Voice Volume";
 
-            // ── Spacing ───────────────────────────────────────────────────────
-            int gap      = (int)(6 * _scale);
+            // ── Font sizes for measurement ────────────────────────────────────
+            var titleFont = new Font("Segoe UI", SF(19f), FontStyle.Bold);
+            var subFont   = new Font("Segoe UI", SF(15f), FontStyle.Bold);
+            var lblFont   = new Font("Segoe UI", SF(15f), FontStyle.Bold);
+            var volFont   = new Font("Segoe UI", SF(14f), FontStyle.Bold);
+            var hintFont  = new Font("Segoe UI", SF(12f), FontStyle.Regular);
+
+            int titleH = TextRenderer.MeasureText(title, titleFont).Height;
+            int subH   = TextRenderer.MeasureText(sub, subFont).Height;
+            int lblH   = TextRenderer.MeasureText(m1Label, lblFont).Height;
+            int volH   = TextRenderer.MeasureText("Volume", volFont).Height;
+            int hintH  = TextRenderer.MeasureText("hint", hintFont).Height;
+            int barH   = METER_H;
+            int trkH   = (int)(24 * _scale);
             int smallGap = (int)(4 * _scale);
-            int medGap   = (int)(10 * _scale);
-            int bigGap   = (int)(16 * _scale);
-            int barH     = METER_H;
-            int trkH     = (int)(24 * _scale);
 
-            // Calculate total content height to center vertically
-            int titleH = (int)(28 * _scale);
-            int subH   = (int)(20 * _scale);
-            int lblH   = (int)(22 * _scale);
-            int volH   = (int)(20 * _scale);
-            int hintH  = (int)(18 * _scale);
+            // Fixed elements at top: title + subtitle
+            // Fixed element at bottom: hint text
+            // The two meter blocks go in between, evenly spaced
 
-            int totalH = titleH + subH + medGap
-                       + lblH + smallGap + barH + smallGap + volH + trkH
-                       + bigGap
-                       + lblH + smallGap + barH + smallGap + volH + trkH
-                       + medGap + BADGE_H + gap + hintH;
+            // One meter block height = lblH + smallGap + barH + smallGap + volH + trkH
+            int meterBlockH = lblH + smallGap + barH + smallGap + volH + trkH;
 
-            int cy = top + Math.Max((int)(6 * _scale), (panelH - totalH) / 2);
+            // Title + sub at top, hint at bottom
+            int headerZoneH = titleH + subH + (int)(4 * _scale);
+            int footerZoneH = hintH;
 
-            // ── Title ─────────────────────────────────────────────────────────
+            // Available space for the two meter blocks
+            int availForMeters = panelH - headerZoneH - footerZoneH;
+            // We want the two blocks evenly distributed in this space
+            // gap = (availForMeters - 2 * meterBlockH) / 3  (top gap, middle gap, bottom gap)
+            int meterGap = Math.Max((int)(8 * _scale), (availForMeters - 2 * meterBlockH) / 3);
+
+            // ── Start laying out ──────────────────────────────────────────────
+            // Title positioned right below the dropdown (top of panel)
+            int cy = top;
+
             var lblTitle = new Label
             {
                 Text      = title,
                 ForeColor = ONE_RED,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(19f), FontStyle.Bold),
+                Font      = titleFont,
                 AutoSize  = true,
                 Location  = new Point(x, cy)
             };
             this.Controls.Add(lblTitle);
             cy += titleH;
 
-            // ── Subtitle ──────────────────────────────────────────────────────
             var lblSub = new Label
             {
                 Text      = sub,
                 ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(15f), FontStyle.Bold),
+                Font      = subFont,
                 AutoSize  = true,
                 Location  = new Point(x, cy)
             };
             this.Controls.Add(lblSub);
-            cy += subH + medGap;
+            cy += subH + (int)(4 * _scale);
 
-            // ── Meter 1: label + bar + volume slider ──────────────────────────
+            // ── Meter 1 ──────────────────────────────────────────────────────
+            cy += meterGap;
+
             var lm1 = new Label
             {
                 Text      = m1Label,
                 ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(15f), FontStyle.Bold),
+                Font      = lblFont,
                 AutoSize  = true,
                 Location  = new Point(x, cy)
             };
@@ -597,7 +574,7 @@ namespace WindowsFormsApp1
                 Text      = volLblText,
                 ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(14f), FontStyle.Bold),
+                Font      = volFont,
                 AutoSize  = true,
                 Location  = new Point(x, cy)
             };
@@ -609,7 +586,7 @@ namespace WindowsFormsApp1
                 Text      = $"{pctDefault1}%",
                 ForeColor = ONE_RED,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(14f), FontStyle.Bold),
+                Font      = volFont,
                 AutoSize  = true
             };
             this.Controls.Add(lp1);
@@ -644,15 +621,17 @@ namespace WindowsFormsApp1
             this.Controls.Add(trk1);
             if (isLeft) { _trkMicVol = trk1; _lblMicVol = lp1; }
             else { _trkSpeakerVol = trk1; _lblSpeakerVol = lp1; }
-            cy += trkH + bigGap;
+            cy += trkH;
 
-            // ── Meter 2: label + bar + volume slider ──────────────────────────
+            // ── Meter 2 ──────────────────────────────────────────────────────
+            cy += meterGap;
+
             var lm2 = new Label
             {
                 Text      = m2Label,
                 ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(15f), FontStyle.Bold),
+                Font      = lblFont,
                 AutoSize  = true,
                 Location  = new Point(x, cy)
             };
@@ -662,13 +641,12 @@ namespace WindowsFormsApp1
             MakeMeterBar(x, cy, w, isLeft ? "agentScript" : "customerScript");
             cy += barH + smallGap;
 
-            // Vol label + % + slider
             var lv2 = new Label
             {
                 Text      = "Script Playback Volume",
                 ForeColor = TEXT_WHITE,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(14f), FontStyle.Bold),
+                Font      = volFont,
                 AutoSize  = true,
                 Location  = new Point(x, cy)
             };
@@ -684,7 +662,7 @@ namespace WindowsFormsApp1
                 Text      = $"{trk2Default}%",
                 ForeColor = ONE_RED,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(14f), FontStyle.Bold),
+                Font      = volFont,
                 AutoSize  = true
             };
             this.Controls.Add(lp2);
@@ -708,15 +686,10 @@ namespace WindowsFormsApp1
                 lp2.Location = new Point(x + w - pw, lp2.Location.Y);
                 float vol = trk2.Value / 100f;
                 if (isLeft)
-                {
                     AppSettings.Instance.SetVolume("agentScript", vol);
-                }
                 else
-                {
                     AppSettings.Instance.SetVolume("customerScript", vol);
-                }
                 AppSettings.Instance.Save();
-                // Notify bridge server of volume change
                 try
                 {
                     using (var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(2) })
@@ -733,39 +706,21 @@ namespace WindowsFormsApp1
             this.Controls.Add(trk2);
             if (isLeft)  { _trkAgentScriptVol    = trk2; _lblAgentScriptVol    = lp2; }
             else         { _trkCustomerScriptVol = trk2; _lblCustomerScriptVol = lp2; }
-            cy += trkH + medGap;
+            cy += trkH;
 
-            // ── Auto Level-Match badge ────────────────────────────────────────
-            bool autoOn = isLeft ? _agentAutoLevel : _customerAutoLevel;
-            var btnBadge = new Button
-            {
-                Text      = autoOn ? "\u25cf Auto Level-Match: ON" : "\u25cb Auto Level-Match: OFF",
-                ForeColor = Color.White,
-                BackColor = ONE_RED,
-                FlatStyle = FlatStyle.Flat,
-                Font      = new Font("Segoe UI", SF(15f), FontStyle.Bold),
-                Bounds    = new Rectangle(x, cy, w, BADGE_H),
-                Cursor    = Cursors.Hand
-            };
-            btnBadge.FlatAppearance.BorderSize = 0;
-            btnBadge.FlatAppearance.MouseOverBackColor = Color.FromArgb(200, 0, 0);
-            btnBadge.Click += (s, e) => ToggleAutoLevel(isLeft, btnBadge);
-            this.Controls.Add(btnBadge);
-            if (isLeft) _btnAgentAutoLevel = btnBadge; else _btnCustomerAutoLevel = btnBadge;
-            cy += BADGE_H + gap;
-
-            // ── Hint ──────────────────────────────────────────────────────────
+            // ── Hint at bottom of panel ───────────────────────────────────────
+            int hintY = top + panelH - hintH - (int)(4 * _scale);
             var lblHint = new Label
             {
-                Text      = "Tap to switch between manual / automatic",
-                ForeColor = TEXT_WHITE,
+                Text      = "Adjust sliders to control volume levels",
+                ForeColor = Color.FromArgb(160, 160, 160),
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(12f), FontStyle.Regular),
+                Font      = hintFont,
                 AutoSize  = true
             };
             this.Controls.Add(lblHint);
             int hintW = TextRenderer.MeasureText(lblHint.Text, lblHint.Font).Width;
-            lblHint.Location = new Point(x + (w - hintW) / 2, cy);
+            lblHint.Location = new Point(x + (w - hintW) / 2, hintY);
         }
 
         private Panel MakeMeterBar(int x, int y, int w, string key)
@@ -851,7 +806,7 @@ namespace WindowsFormsApp1
             _lblFooterCenter.Location = new Point((W - fcW) / 2, fy + (FOOTER_H / 2) - (int)(10 * _scale));
         }
 
-        // ── Red border around entire app — THICKER (5px) ──────────────────────
+        // ── Red border — 5px ──────────────────────────────────────────────────
         private void DrawRedBorder(Graphics g)
         {
             g.SmoothingMode = SmoothingMode.AntiAlias;
@@ -935,46 +890,42 @@ namespace WindowsFormsApp1
         }
 
         // ── Meter timer ───────────────────────────────────────────────────────
+        // Decay is SLOW so meters stay visible during playback.
+        // The MeteringSampleProvider fires every ~46ms with real peak levels;
+        // this timer decays at 0.02/tick (50ms) so the bar drops smoothly
+        // between updates instead of snapping to zero.
         private void SetupMeterTimer()
         {
             _meterTimer = new System.Windows.Forms.Timer { Interval = 50 };
             _meterTimer.Tick += (s, e) =>
             {
-                // Mic level decays
-                _micLevel = Math.Max(0f, _micLevel - 0.04f);
-                _myMicMeterLeft?.Invalidate();
+                // Mic level — decay slowly
+                if (_micLevel > 0)
+                {
+                    _micLevel = Math.Max(0f, _micLevel - 0.02f);
+                    _myMicMeterLeft?.Invalidate();
+                }
 
-                // Customer voice level decays
+                // Customer voice level — decay slowly
                 if (_customerVoiceLevel > 0)
                 {
-                    _customerVoiceLevel = Math.Max(0f, _customerVoiceLevel - 0.04f);
+                    _customerVoiceLevel = Math.Max(0f, _customerVoiceLevel - 0.02f);
                     _customerVoiceMeter?.Invalidate();
                 }
 
-                // Script levels decay
+                // Script levels — decay slowly
                 if (_agentScriptLevel > 0)
                 {
-                    _agentScriptLevel = Math.Max(0f, _agentScriptLevel - 0.04f);
+                    _agentScriptLevel = Math.Max(0f, _agentScriptLevel - 0.02f);
                     _agentScriptMeter?.Invalidate();
                 }
                 if (_customerScriptLevel > 0)
                 {
-                    _customerScriptLevel = Math.Max(0f, _customerScriptLevel - 0.04f);
+                    _customerScriptLevel = Math.Max(0f, _customerScriptLevel - 0.02f);
                     _customerScriptMeter?.Invalidate();
                 }
             };
             _meterTimer.Start();
-        }
-
-        private void SetupLivePulse()
-        {
-            _livePulseTimer = new System.Windows.Forms.Timer { Interval = 800 };
-            _livePulseTimer.Tick += (s, e) =>
-            {
-                _livePulseState = !_livePulseState;
-                _livePill?.Invalidate();
-            };
-            _livePulseTimer.Start();
         }
 
         // ── Audio capture (microphone) ────────────────────────────────────────
@@ -1023,7 +974,6 @@ namespace WindowsFormsApp1
                             : Math.Abs(BitConverter.ToSingle(e.Buffer, i));
                         if (sample > max) max = sample;
                     }
-                    // Boosted sensitivity: multiply by 4
                     _micLevel = Math.Min(1f, max * 4.0f);
                 };
                 _micCapture.StartRecording();
@@ -1032,9 +982,6 @@ namespace WindowsFormsApp1
         }
 
         // ── Loopback capture for Customer Voice meter ─────────────────────────
-        // Captures what's playing through the default output device so the
-        // "Customer Voice" meter on the left panel responds to incoming audio
-        // (e.g. the customer speaking through the softphone).
         private void StartLoopbackCapture()
         {
             try
@@ -1044,13 +991,12 @@ namespace WindowsFormsApp1
                 {
                     if (e.BytesRecorded < 4) return;
                     float max = 0f;
-                    int stride = 4; // WasapiLoopbackCapture is always 32-bit float
+                    int stride = 4;
                     for (int i = 0; i + stride <= e.BytesRecorded; i += stride)
                     {
                         float sample = Math.Abs(BitConverter.ToSingle(e.Buffer, i));
                         if (sample > max) max = sample;
                     }
-                    // Boost for meter visibility
                     float level = Math.Min(1f, max * 3.5f);
                     if (level > _customerVoiceLevel)
                         _customerVoiceLevel = level;
@@ -1090,7 +1036,6 @@ namespace WindowsFormsApp1
                     if (selIdx >= 0 && selIdx < rends.Count)
                     {
                         _activeSpeakerDevice = rends[selIdx];
-                        // Set the bridge server to use this device from the start
                         LocalBridgeServer.Instance.SetOutputDevice(selIdx);
                         try
                         {
@@ -1101,20 +1046,17 @@ namespace WindowsFormsApp1
                         catch { }
                     }
                 }
-                // Detect VB-Audio Cable output device for customer script channel
                 _activeVBCableDevice = rends.FirstOrDefault(d =>
                     d.FriendlyName.Contains("CABLE") || d.FriendlyName.Contains("VB-Audio"));
                 if (_activeVBCableDevice != null)
                     Log.Info($"[Audio] VB-Cable output: {_activeVBCableDevice.FriendlyName}");
 
-                // Update speaker device when user changes selection
                 _cboHeadset.SelectedIndexChanged += (s2, e2) =>
                 {
                     int si = _cboHeadset.SelectedIndex;
                     if (si >= 0 && si < rends.Count)
                     {
                         _activeSpeakerDevice = rends[si];
-                        // Notify bridge server to use this device
                         LocalBridgeServer.Instance.SetOutputDevice(si);
                         try
                         {
@@ -1140,12 +1082,15 @@ namespace WindowsFormsApp1
                 {
                     if (channel == "agent")
                     {
-                        _agentScriptLevel = level;
+                        // Only update if new level is higher (peak hold between timer ticks)
+                        if (level > _agentScriptLevel)
+                            _agentScriptLevel = level;
                         _agentScriptMeter?.Invalidate();
                     }
                     else
                     {
-                        _customerScriptLevel = level;
+                        if (level > _customerScriptLevel)
+                            _customerScriptLevel = level;
                         _customerScriptMeter?.Invalidate();
                     }
                 };
@@ -1190,7 +1135,6 @@ namespace WindowsFormsApp1
                     if (_lblAgentName != null)
                     {
                         _lblAgentName.Text = "Agent: " + name;
-                        // Re-center agent name
                         int agentW = TextRenderer.MeasureText(_lblAgentName.Text, _lblAgentName.Font).Width;
                         _lblAgentName.Location = new Point((this.ClientSize.Width - agentW) / 2, _lblAgentName.Location.Y);
                     }
@@ -1223,12 +1167,6 @@ namespace WindowsFormsApp1
         private void LoadSettings()
         {
             var s = AppSettings.Instance;
-            _agentVoiceSlider     = s.GetVolume("agentVoice",     0.62f);
-            _agentScriptSlider    = s.GetVolume("agentScript",    0.48f);
-            _customerVoiceSlider  = s.GetVolume("customerVoice",  0.55f);
-            _customerScriptSlider = s.GetVolume("customerScript", 0.55f);
-            _agentAutoLevel       = s.AgentAutoLevel;
-            _customerAutoLevel    = s.CustomerAutoLevel;
         }
 
         // ── Logo ──────────────────────────────────────────────────────────────
@@ -1240,24 +1178,6 @@ namespace WindowsFormsApp1
                 ? agencyLogo : oneLogo;
             if (File.Exists(logoPath))
                 _logoBox.Image = Image.FromFile(logoPath);
-        }
-
-        // ── Auto Level-Match toggle ───────────────────────────────────────────
-        private void ToggleAutoLevel(bool isLeft, Button btn)
-        {
-            if (isLeft)
-            {
-                _agentAutoLevel = !_agentAutoLevel;
-                btn.Text = _agentAutoLevel ? "\u25cf Auto Level-Match: ON" : "\u25cb Auto Level-Match: OFF";
-                AppSettings.Instance.AgentAutoLevel = _agentAutoLevel;
-            }
-            else
-            {
-                _customerAutoLevel = !_customerAutoLevel;
-                btn.Text = _customerAutoLevel ? "\u25cf Auto Level-Match: ON" : "\u25cb Auto Level-Match: OFF";
-                AppSettings.Instance.CustomerAutoLevel = _customerAutoLevel;
-            }
-            AppSettings.Instance.Save();
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────
@@ -1278,7 +1198,6 @@ namespace WindowsFormsApp1
             HeartbeatService.Instance.Stop();
             LocalBridgeServer.Instance.Stop();
             _meterTimer?.Stop();
-            _livePulseTimer?.Stop();
             _micCapture?.StopRecording();
             _micCapture?.Dispose();
             try { _loopbackCapture?.StopRecording(); } catch { }

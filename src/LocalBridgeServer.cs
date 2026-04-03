@@ -1,6 +1,6 @@
 /*
  * LocalBridgeServer.cs
- * ONE Voice Solution v7.5
+ * ONE Voice Solution v7.6
  *
  * Hosts a tiny HTTP server on localhost:9001 so the Script Dashboard
  * (running in the browser) can send real-time commands to the desktop app:
@@ -70,9 +70,9 @@ namespace WindowsFormsApp1.src
                 _sampleCount++;
                 if (_sampleCount >= NotifyEvery)
                 {
-                    // Boost sensitivity: multiply peak by 3 so normal speech
-                    // lights up most of the meter (peak is typically 0.05–0.3)
-                    float level = Math.Min(1f, _maxSample * 3.0f);
+                    // Boost sensitivity: multiply peak by 5 so even quiet
+                    // recordings light up most of the meter bar
+                    float level = Math.Min(1f, _maxSample * 5.0f);
                     _onLevel?.Invoke(level);
                     _sampleCount = 0;
                     _maxSample   = 0f;
