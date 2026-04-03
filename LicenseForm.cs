@@ -180,7 +180,23 @@ namespace WindowsFormsApp1
                     }
                     else
                     {
-                        if (MainForm.IsFormOpen && mainForm != null && !mainForm.IsDisposed)
+                        // If validation returned an error/exception string but we have a saved key,
+                        // launch the app anyway (offline-tolerant, same as HeartbeatService)
+                        bool isTransientError = status.StartsWith("Error:") || status.StartsWith("Exception:");
+                        if (isTransientError && value != null)
+                        {
+                            logger.Info($"[License] Transient validation error ({status}) but saved key exists — launching app.");
+                            AppSettings.Instance.LicenseKey = lic;
+                            AppSettings.Instance.Save();
+                            this.Invoke(new Action(() =>
+                            {
+                                this.Hide();
+                                var mainFormV5 = new MainFormV5();
+                                mainFormV5.ShowDialog();
+                                this.Close();
+                            }));
+                        }
+                        else if (MainForm.IsFormOpen && mainForm != null && !mainForm.IsDisposed)
                         {
                             // Use Invoke to close the form on the UI thread
                             mainForm.Invoke(new Action(() =>
@@ -229,7 +245,27 @@ namespace WindowsFormsApp1
                 logger.Error(ex, "An error occurred while performing an operation.");
                 logger.Error("ExceptionMessage: " + ex.Message);
                 logger.Error("Exception: " + ex.ToString());
-                this.Invoke(new Action(() => UpdateUIForLoading(false)));
+                // Network error with a saved key — launch the app anyway
+                // (same offline-tolerant approach as HeartbeatService)
+                var savedKey = RegistryUtils.GetRegistryValue(@"SOFTWARE\OneApp3", "License");
+                if (savedKey != null)
+                {
+                    string lic = DataEncryption.DecryptString_Aes(savedKey.ToString());
+                    AppSettings.Instance.LicenseKey = lic;
+                    AppSettings.Instance.Save();
+                    logger.Info("[License] Network error but saved key exists — launching app offline.");
+                    this.Invoke(new Action(() =>
+                    {
+                        this.Hide();
+                        var mainFormV5 = new MainFormV5();
+                        mainFormV5.ShowDialog();
+                        this.Close();
+                    }));
+                }
+                else
+                {
+                    this.Invoke(new Action(() => UpdateUIForLoading(false)));
+                }
             }
         }
 

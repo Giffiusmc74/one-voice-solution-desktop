@@ -1,14 +1,14 @@
 /*
- * MainFormV5.cs  —  ONE Voice Solution v7.6
+ * MainFormV5.cs  —  ONE Voice Solution v7.7
  *
- * v7.6 changes:
- *   - Removed Auto Level-Match button (non-functional, cluttered layout)
- *   - Moved AGENT AUDIO / CUSTOMER OUTPUT headings up closer to dropdowns
- *   - Evenly spaced meters between heading and "Tap to switch" hint
- *   - Minimize/Close buttons moved inward (not sitting on border)
- *   - VU meter decay slowed so meters stay visible during playback
- *   - MeteringSampleProvider sensitivity boosted for better response
- *   - "Tap to switch" text replaced with simpler hint
+ * v7.7 changes:
+ *   - Background pure black (0,0,0) instead of (18,18,18)
+ *   - AGENT AUDIO / CUSTOMER OUTPUT headings centered between dropdown and first meter
+ *   - Device routing fixed: uses FindWaveOutDeviceNumber (name-based) instead of ComboBox index
+ *   - Volume sliders now properly control system volume and bridge playback
+ *   - License parameter fixed in TimeAPI.cs (licenseId → key)
+ *   - LicenseForm falls back to offline launch on network error
+ *   - Meter sensitivity boosted, decay slowed
  */
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
@@ -28,13 +28,13 @@ namespace WindowsFormsApp1
     {
         // ── Brand colours ─────────────────────────────────────────────────────
         private static readonly Color ONE_RED      = Color.FromArgb(254, 1, 1);
-        private static readonly Color BG_DARK      = Color.FromArgb(18, 18, 18);
+        private static readonly Color BG_DARK      = Color.FromArgb(0, 0, 0);       // Pure black
         private static readonly Color BG_PANEL     = Color.FromArgb(28, 28, 28);
         private static readonly Color TEXT_WHITE   = Color.White;
         private static readonly Color ONE_BLUE_SEL = Color.FromArgb(0, 102, 204);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.6";
+        private const string APP_VERSION = "7.7";
 
         // Meter segment colours
         private static readonly Color SEG_OFF  = Color.FromArgb(0, 102, 204);
@@ -268,7 +268,7 @@ namespace WindowsFormsApp1
 
             // ── Window buttons — moved INWARD from border ─────────────────────
             int btnSz = (int)(34 * _scale);
-            int btnMargin = (int)(12 * _scale);  // inset from edge
+            int btnMargin = (int)(16 * _scale);  // inset from edge (was 12)
             int btnY  = btnMargin;
 
             _btnClose = new Button
@@ -387,13 +387,8 @@ namespace WindowsFormsApp1
                 FlatStyle     = FlatStyle.Flat,
                 Font          = new Font("Segoe UI", SF(16f), FontStyle.Bold)
             };
-            _cboHeadset.SelectedIndexChanged += (s, e) =>
-            {
-                _cboHeadset.BackColor = ONE_BLUE_SEL;
-                _cboHeadset.ForeColor = Color.White;
-                AppSettings.Instance.HeadsetDevice = _cboHeadset.Text;
-                AppSettings.Instance.Save();
-            };
+            // NOTE: SelectedIndexChanged handler is added in PopulateDevices()
+            // after the render device list is captured, so we can do name-based lookup.
             this.Controls.Add(_cboHeadset);
         }
 
@@ -479,8 +474,8 @@ namespace WindowsFormsApp1
         }
 
         // ── Side panel ────────────────────────────────────────────────────────
-        // Layout: Title → Subtitle → [evenly spaced: meter1 block, meter2 block] → hint
-        // No Auto Level-Match button — removed (non-functional)
+        // Layout: Title + Subtitle (centered between dropdown bottom and first meter label)
+        //         → meter1 block → meter2 block → hint at bottom
         private void BuildSidePanel(int x, int top, int w, int panelH, bool isLeft)
         {
             string title      = isLeft ? "AGENT AUDIO"          : "CUSTOMER OUTPUT";
@@ -505,26 +500,24 @@ namespace WindowsFormsApp1
             int trkH   = (int)(24 * _scale);
             int smallGap = (int)(4 * _scale);
 
-            // Fixed elements at top: title + subtitle
-            // Fixed element at bottom: hint text
-            // The two meter blocks go in between, evenly spaced
-
             // One meter block height = lblH + smallGap + barH + smallGap + volH + trkH
             int meterBlockH = lblH + smallGap + barH + smallGap + volH + trkH;
 
-            // Title + sub at top, hint at bottom
-            int headerZoneH = titleH + subH + (int)(4 * _scale);
+            // Title + sub height
+            int headerZoneH = titleH + subH;
             int footerZoneH = hintH;
 
-            // Available space for the two meter blocks
+            // Available space for the two meter blocks (after title/sub and hint)
             int availForMeters = panelH - headerZoneH - footerZoneH;
-            // We want the two blocks evenly distributed in this space
-            // gap = (availForMeters - 2 * meterBlockH) / 3  (top gap, middle gap, bottom gap)
+            // Gap between header zone and first meter, between meters, and after second meter
             int meterGap = Math.Max((int)(8 * _scale), (availForMeters - 2 * meterBlockH) / 3);
 
-            // ── Start laying out ──────────────────────────────────────────────
-            // Title positioned right below the dropdown (top of panel)
-            int cy = top;
+            // ── Title + Subtitle: centered between panel top and first meter label ──
+            // The first meter label starts at: top + headerZoneH + meterGap
+            // So center the title+sub in the space from 'top' to 'top + headerZoneH + meterGap'
+            int titleZoneAvail = headerZoneH + meterGap;
+            int titleBlockH = titleH + subH;
+            int titleStartY = top + (titleZoneAvail - titleBlockH) / 2;
 
             var lblTitle = new Label
             {
@@ -533,10 +526,9 @@ namespace WindowsFormsApp1
                 BackColor = Color.Transparent,
                 Font      = titleFont,
                 AutoSize  = true,
-                Location  = new Point(x, cy)
+                Location  = new Point(x, titleStartY)
             };
             this.Controls.Add(lblTitle);
-            cy += titleH;
 
             var lblSub = new Label
             {
@@ -545,13 +537,12 @@ namespace WindowsFormsApp1
                 BackColor = Color.Transparent,
                 Font      = subFont,
                 AutoSize  = true,
-                Location  = new Point(x, cy)
+                Location  = new Point(x, titleStartY + titleH)
             };
             this.Controls.Add(lblSub);
-            cy += subH + (int)(4 * _scale);
 
-            // ── Meter 1 ──────────────────────────────────────────────────────
-            cy += meterGap;
+            // ── Meter 1 starts after the header zone + first gap ──────────────
+            int cy = top + headerZoneH + meterGap;
 
             var lm1 = new Label
             {
@@ -580,7 +571,8 @@ namespace WindowsFormsApp1
             };
             this.Controls.Add(lv1);
 
-            int pctDefault1 = isLeft ? AppSettings.Instance.MicSystemVolume : 75;
+            int pctDefault1 = isLeft ? AppSettings.Instance.MicSystemVolume : AppSettings.Instance.SpeakerSystemVolume;
+            pctDefault1 = Math.Max(0, Math.Min(100, pctDefault1));
             var lp1 = new Label
             {
                 Text      = $"{pctDefault1}%",
@@ -598,7 +590,7 @@ namespace WindowsFormsApp1
             {
                 Minimum   = 0,
                 Maximum   = 100,
-                Value     = Math.Max(0, Math.Min(100, pctDefault1)),
+                Value     = pctDefault1,
                 TickStyle = TickStyle.None,
                 Bounds    = new Rectangle(x, cy, w, trkH),
                 BackColor = BG_DARK
@@ -890,30 +882,21 @@ namespace WindowsFormsApp1
         }
 
         // ── Meter timer ───────────────────────────────────────────────────────
-        // Decay is SLOW so meters stay visible during playback.
-        // The MeteringSampleProvider fires every ~46ms with real peak levels;
-        // this timer decays at 0.02/tick (50ms) so the bar drops smoothly
-        // between updates instead of snapping to zero.
         private void SetupMeterTimer()
         {
             _meterTimer = new System.Windows.Forms.Timer { Interval = 50 };
             _meterTimer.Tick += (s, e) =>
             {
-                // Mic level — decay slowly
                 if (_micLevel > 0)
                 {
                     _micLevel = Math.Max(0f, _micLevel - 0.02f);
                     _myMicMeterLeft?.Invalidate();
                 }
-
-                // Customer voice level — decay slowly
                 if (_customerVoiceLevel > 0)
                 {
                     _customerVoiceLevel = Math.Max(0f, _customerVoiceLevel - 0.02f);
                     _customerVoiceMeter?.Invalidate();
                 }
-
-                // Script levels — decay slowly
                 if (_agentScriptLevel > 0)
                 {
                     _agentScriptLevel = Math.Max(0f, _agentScriptLevel - 0.02f);
@@ -1032,11 +1015,16 @@ namespace WindowsFormsApp1
                     _cboHeadset.SelectedIndex = idx >= 0 ? idx : 0;
                     _cboHeadset.BackColor = ONE_BLUE_SEL;
                     _cboHeadset.ForeColor = Color.White;
+
+                    // Apply initial device selection
                     int selIdx = _cboHeadset.SelectedIndex;
                     if (selIdx >= 0 && selIdx < rends.Count)
                     {
                         _activeSpeakerDevice = rends[selIdx];
-                        LocalBridgeServer.Instance.SetOutputDevice(selIdx);
+                        // Use name-based lookup for WaveOut device number
+                        int waveOutNum = FindWaveOutDeviceNumber(rends[selIdx].FriendlyName);
+                        LocalBridgeServer.Instance.SetOutputDevice(waveOutNum);
+                        Log.Info($"[Audio] Initial speaker: {rends[selIdx].FriendlyName} → WaveOut #{waveOutNum}");
                         try
                         {
                             int savedPct = AppSettings.Instance.SpeakerSystemVolume;
@@ -1051,13 +1039,24 @@ namespace WindowsFormsApp1
                 if (_activeVBCableDevice != null)
                     Log.Info($"[Audio] VB-Cable output: {_activeVBCableDevice.FriendlyName}");
 
+                // ── Headset dropdown change handler ──────────────────────────
+                // Uses name-based WaveOut device lookup instead of ComboBox index
                 _cboHeadset.SelectedIndexChanged += (s2, e2) =>
                 {
+                    _cboHeadset.BackColor = ONE_BLUE_SEL;
+                    _cboHeadset.ForeColor = Color.White;
                     int si = _cboHeadset.SelectedIndex;
                     if (si >= 0 && si < rends.Count)
                     {
                         _activeSpeakerDevice = rends[si];
-                        LocalBridgeServer.Instance.SetOutputDevice(si);
+                        AppSettings.Instance.HeadsetDevice = _cboHeadset.Text;
+                        AppSettings.Instance.Save();
+
+                        // Name-based WaveOut device lookup (proven approach from AudioService)
+                        int waveOutNum = FindWaveOutDeviceNumber(rends[si].FriendlyName);
+                        LocalBridgeServer.Instance.SetOutputDevice(waveOutNum);
+                        Log.Info($"[Audio] Speaker changed: {rends[si].FriendlyName} → WaveOut #{waveOutNum}");
+
                         try
                         {
                             float cur = _activeSpeakerDevice.AudioEndpointVolume.MasterVolumeLevelScalar;
@@ -1071,6 +1070,29 @@ namespace WindowsFormsApp1
             catch (Exception ex) { Log.Warn($"[Audio] Device enum: {ex.Message}"); }
         }
 
+        /// <summary>
+        /// Find the WaveOut device number by matching the device name.
+        /// WaveOut device numbers are NOT the same as WASAPI device indices.
+        /// This is the proven approach from AudioService.cs.
+        /// </summary>
+        private int FindWaveOutDeviceNumber(string targetDeviceName)
+        {
+            if (string.IsNullOrEmpty(targetDeviceName)) return -1;
+            string target = targetDeviceName.ToLower();
+            for (int i = 0; i < WaveOut.DeviceCount; i++)
+            {
+                var capabilities = WaveOut.GetCapabilities(i);
+                // WaveOut.ProductName is truncated to 31 chars, so use Contains
+                if (target.Contains(capabilities.ProductName.ToLower()) ||
+                    capabilities.ProductName.ToLower().Contains(target.Substring(0, Math.Min(target.Length, 28))))
+                {
+                    return i;
+                }
+            }
+            Log.Warn($"[Audio] WaveOut device not found for: {targetDeviceName}, using default (-1)");
+            return -1; // Default device
+        }
+
         // ── Local Bridge Server ───────────────────────────────────────────────
         private void StartBridgeServer()
         {
@@ -1082,7 +1104,6 @@ namespace WindowsFormsApp1
                 {
                     if (channel == "agent")
                     {
-                        // Only update if new level is higher (peak hold between timer ticks)
                         if (level > _agentScriptLevel)
                             _agentScriptLevel = level;
                         _agentScriptMeter?.Invalidate();
