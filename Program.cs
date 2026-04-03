@@ -14,16 +14,84 @@ namespace WindowsFormsApp1
         /// The main entry point for the application.
         /// </summary>
         [STAThread]
-        static void Main()
+        static void Main(string[] args)
         {
             // Register the one-voice:// URI scheme so the member portal can launch this app.
             // This runs silently every startup so existing installs self-heal without a reinstall.
             RegisterUriScheme();
 
+            // ── Parse protocol URL for license key ──────────────────────────
+            // When launched via one-voice://launch?key=XXXX from the member
+            // portal, Windows passes the full URL as the first command-line arg.
+            // We extract the key and save it to the registry so the user never
+            // has to enter it manually.
+            ExtractAndSaveLicenseKey(args);
+
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             Application.Run(new LicenseForm());
-            //Application.Run(new MainForm(new LicenseForm()));
+        }
+
+        /// <summary>
+        /// Extracts the license key from the one-voice:// protocol URL passed
+        /// as a command-line argument and saves it to the registry.
+        /// Example URL: one-voice://launch?key=ABC-123-DEF
+        /// </summary>
+        private static void ExtractAndSaveLicenseKey(string[] args)
+        {
+            try
+            {
+                if (args == null || args.Length == 0)
+                    return;
+
+                // The full URL comes as the first argument, e.g.:
+                // "one-voice://launch?key=ABC-123-DEF"
+                string url = args[0];
+
+                if (string.IsNullOrWhiteSpace(url))
+                    return;
+
+                // Only process if it's our protocol
+                if (!url.StartsWith("one-voice://", StringComparison.OrdinalIgnoreCase))
+                    return;
+
+                // Parse the key parameter from the URL
+                string licenseKey = null;
+
+                int queryStart = url.IndexOf('?');
+                if (queryStart >= 0 && queryStart < url.Length - 1)
+                {
+                    string queryString = url.Substring(queryStart + 1);
+                    // Split on & to handle multiple params
+                    string[] pairs = queryString.Split('&');
+                    foreach (string pair in pairs)
+                    {
+                        string[] kv = pair.Split(new[] { '=' }, 2);
+                        if (kv.Length == 2 && kv[0].Equals("key", StringComparison.OrdinalIgnoreCase))
+                        {
+                            licenseKey = Uri.UnescapeDataString(kv[1]).Trim();
+                            break;
+                        }
+                    }
+                }
+
+                if (string.IsNullOrWhiteSpace(licenseKey))
+                    return;
+
+                // Save the license key to registry (encrypted, same as manual entry)
+                // This overwrites any existing key — the portal always has the
+                // authoritative key for this user.
+                RegistryUtils.SetRegistryValue(
+                    @"Software\OneApp3",
+                    "License",
+                    DataEncryption.EncryptString_Aes(licenseKey),
+                    RegistryValueKind.String);
+            }
+            catch
+            {
+                // Silently ignore — license extraction is best-effort.
+                // The user can still enter the key manually if this fails.
+            }
         }
 
         /// <summary>
