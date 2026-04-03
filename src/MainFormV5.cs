@@ -482,7 +482,7 @@ namespace WindowsFormsApp1
             string sub        = isLeft ? "(What You Hear)"       : "(What They Hear)";
             string m1Label    = isLeft ? "Customer Voice"        : "My Voice Level";
             string m2Label    = "Script Playback";
-            string volLblText = isLeft ? "Customer Voice Volume" : "Recordings";
+            string volLblText = isLeft ? "Customer Voice Volume" : "My Voice Volume";
 
             // ── Spacing ───────────────────────────────────────────────────────
             int gap      = (int)(6 * _scale);
