@@ -34,7 +34,7 @@ namespace WindowsFormsApp1
         private static readonly Color ONE_BLUE_SEL = Color.FromArgb(0, 102, 204);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.13";
+        private const string APP_VERSION = "7.14";
 
         // Meter segment colours
         private static readonly Color SEG_OFF  = Color.FromArgb(0, 102, 204);
@@ -571,7 +571,8 @@ namespace WindowsFormsApp1
             };
             this.Controls.Add(lv1);
 
-            int pctDefault1 = isLeft ? AppSettings.Instance.MicSystemVolume : AppSettings.Instance.SpeakerSystemVolume;
+            // LEFT = agent hears = speaker volume; RIGHT = customer hears = mic volume
+            int pctDefault1 = isLeft ? AppSettings.Instance.SpeakerSystemVolume : AppSettings.Instance.MicSystemVolume;
             pctDefault1 = Math.Max(0, Math.Min(100, pctDefault1));
             var lp1 = new Label
             {
@@ -601,13 +602,15 @@ namespace WindowsFormsApp1
                 int pw = TextRenderer.MeasureText(lp1.Text, lp1.Font).Width;
                 lp1.Location = new Point(x + w - pw, lp1.Location.Y);
                 try {
-                    if (isLeft && _activeMicDevice != null)
-                        _activeMicDevice.AudioEndpointVolume.MasterVolumeLevelScalar = trk1.Value / 100f;
-                    if (!isLeft && _activeSpeakerDevice != null)
+                    // LEFT column = Agent Audio = what agent hears = headset (speaker) volume
+                    // RIGHT column = Customer Output = what customer hears = mic input gain
+                    if (isLeft && _activeSpeakerDevice != null)
                         _activeSpeakerDevice.AudioEndpointVolume.MasterVolumeLevelScalar = trk1.Value / 100f;
+                    if (!isLeft && _activeMicDevice != null)
+                        _activeMicDevice.AudioEndpointVolume.MasterVolumeLevelScalar = trk1.Value / 100f;
                 } catch { }
-                if (isLeft) { AppSettings.Instance.MicSystemVolume = trk1.Value; }
-                else { AppSettings.Instance.SpeakerSystemVolume = trk1.Value; }
+                if (isLeft) { AppSettings.Instance.SpeakerSystemVolume = trk1.Value; }
+                else { AppSettings.Instance.MicSystemVolume = trk1.Value; }
                 AppSettings.Instance.Save();
             };
             this.Controls.Add(trk1);
