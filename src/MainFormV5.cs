@@ -1,13 +1,11 @@
 /*
- * MainFormV5.cs  —  ONE Voice Solution v7.20
+ * MainFormV5.cs  —  ONE Voice Solution v7.21
  *
- * v7.20 changes:
- *   - VB-Cable routing fix: skip cable WaveOut entirely when no VB-Cable found
- *     (previously fell back to device -1 = computer speakers, causing dual audio output)
- *   - Agent WaveOut: removed fallback to default device on failure
- *     (never route to computer speakers silently)
- *   - FindWaveOutDeviceNumber: improved matching with word-level scoring
- *     (fixes Realtek/Dell/Jabra device name matching when WaveOut name is truncated)
+ * v7.21 changes:
+ *   - Volume sliders now take effect from the FIRST playback, not just after moving them.
+ *     Previously the bridge started with hardcoded defaults (agent=80%, customer=100%)
+ *     regardless of saved slider positions. Now saved AppSettings values are pushed
+ *     to the bridge immediately on startup via SetInitialVolume().
  */
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
@@ -33,7 +31,7 @@ namespace WindowsFormsApp1
         private static readonly Color ONE_BLUE_SEL = Color.FromArgb(0, 102, 204);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.20";
+        private const string APP_VERSION = "7.21";
 
         // Meter segment colours
         private static readonly Color SEG_OFF  = Color.FromArgb(0, 102, 204);
@@ -107,8 +105,11 @@ namespace WindowsFormsApp1
         private Label    _lblAgentScriptVol;
         private Label    _lblCustomerScriptVol;
 
-        // Loopback capture for Customer Voice meter
-        private WasapiLoopbackCapture _loopbackCapture;
+        // Loopback capture for Customer Voice meter + monitor playback
+        private WasapiLoopbackCapture  _loopbackCapture;
+        private WaveOutEvent           _loopbackMonitor;      // plays scaled customer voice to headset
+        private BufferedWaveProvider   _loopbackBuffer;       // feeds _loopbackMonitor
+        private float                  _customerVoiceVolume = 1.0f; // 0.0–1.0, set by trk1 on left column
 
         [DllImport("user32.dll")]
         private static extern int SendMessage(IntPtr hWnd, int Msg, int wParam, int lParam);
@@ -601,15 +602,21 @@ namespace WindowsFormsApp1
                 int pw = TextRenderer.MeasureText(lp1.Text, lp1.Font).Width;
                 lp1.Location = new Point(x + w - pw, lp1.Location.Y);
                 try {
-                    // LEFT column = Agent Audio = what agent hears = headset (speaker) volume
-                    // RIGHT column = Customer Output = what customer hears = mic input gain
-                    if (isLeft && _activeSpeakerDevice != null)
-                        _activeSpeakerDevice.AudioEndpointVolume.MasterVolumeLevelScalar = trk1.Value / 100f;
-                    if (!isLeft && _activeMicDevice != null)
-                        _activeMicDevice.AudioEndpointVolume.MasterVolumeLevelScalar = trk1.Value / 100f;
+                    if (isLeft)
+                    {
+                        // Customer Voice Volume: scale the loopback monitor buffer
+                        // (same as original AudioService.incomingAudioVolume)
+                        _customerVoiceVolume = trk1.Value / 100f;
+                        AppSettings.Instance.SpeakerSystemVolume = trk1.Value;
+                    }
+                    else
+                    {
+                        // Mic Input Volume: Windows capture gain for the mic device
+                        if (_activeMicDevice != null)
+                            _activeMicDevice.AudioEndpointVolume.MasterVolumeLevelScalar = trk1.Value / 100f;
+                        AppSettings.Instance.MicSystemVolume = trk1.Value;
+                    }
                 } catch { }
-                if (isLeft) { AppSettings.Instance.SpeakerSystemVolume = trk1.Value; }
-                else { AppSettings.Instance.MicSystemVolume = trk1.Value; }
                 AppSettings.Instance.Save();
             };
             this.Controls.Add(trk1);
@@ -975,28 +982,71 @@ namespace WindowsFormsApp1
             catch (Exception ex) { Log.Warn($"[Audio] Capture failed: {ex.Message}"); }
         }
 
-        // ── Loopback capture for Customer Voice meter ─────────────────────────
+        // ── Loopback capture: Customer Voice meter + monitor playback ────────────
+        // Mirrors original AudioService.StartLoopbackCapture / OnLoopbackDataAvailable.
+        // Captures the softphone audio via WASAPI loopback, scales it by
+        // _customerVoiceVolume (set by the "Customer Voice Volume" slider), feeds it
+        // into a BufferedWaveProvider, and plays it back through the agent's headset
+        // WaveOut so the agent can independently control how loud the customer sounds.
         private void StartLoopbackCapture()
         {
             try
             {
+                // Stop any existing monitor
+                try { _loopbackMonitor?.Stop(); _loopbackMonitor?.Dispose(); } catch { }
+                try { _loopbackCapture?.StopRecording(); _loopbackCapture?.Dispose(); } catch { }
+                _loopbackMonitor = null; _loopbackBuffer = null; _loopbackCapture = null;
+
                 _loopbackCapture = new WasapiLoopbackCapture();
+                var fmt = _loopbackCapture.WaveFormat;
+
+                // Buffer: 100 ms of audio to match original
+                _loopbackBuffer  = new BufferedWaveProvider(fmt)
+                {
+                    BufferDuration       = TimeSpan.FromMilliseconds(200),
+                    DiscardOnBufferOverflow = true
+                };
+
+                // Play monitor through the agent's selected headset device
+                _loopbackMonitor = new WaveOutEvent
+                {
+                    DeviceNumber   = LocalBridgeServer.Instance.OutputDeviceNumber,
+                    DesiredLatency = 100
+                };
+                _loopbackMonitor.Init(_loopbackBuffer);
+                _loopbackMonitor.Play();
+
                 _loopbackCapture.DataAvailable += (s, e) =>
                 {
                     if (e.BytesRecorded < 4) return;
-                    float max = 0f;
-                    int stride = 4;
-                    for (int i = 0; i + stride <= e.BytesRecorded; i += stride)
+
+                    // Scale buffer by _customerVoiceVolume (same as original incomingAudioVolume)
+                    float vol = _customerVoiceVolume;
+                    byte[] scaled = new byte[e.BytesRecorded];
+                    for (int i = 0; i + 4 <= e.BytesRecorded; i += 4)
                     {
-                        float sample = Math.Abs(BitConverter.ToSingle(e.Buffer, i));
+                        float sample = BitConverter.ToSingle(e.Buffer, i) * vol;
+                        byte[] sb = BitConverter.GetBytes(sample);
+                        scaled[i] = sb[0]; scaled[i+1] = sb[1]; scaled[i+2] = sb[2]; scaled[i+3] = sb[3];
+                    }
+
+                    // Feed to monitor playback
+                    try { _loopbackBuffer?.AddSamples(scaled, 0, e.BytesRecorded); } catch { }
+
+                    // Update meter level
+                    float max = 0f;
+                    for (int i = 0; i + 4 <= e.BytesRecorded; i += 4)
+                    {
+                        float sample = Math.Abs(BitConverter.ToSingle(scaled, i));
                         if (sample > max) max = sample;
                     }
                     float level = Math.Min(1f, max * 3.5f);
                     if (level > _customerVoiceLevel)
                         _customerVoiceLevel = level;
                 };
+
                 _loopbackCapture.StartRecording();
-                Log.Info("[Audio] Loopback capture started for Customer Voice meter.");
+                Log.Info("[Audio] Loopback capture + monitor playback started.");
             }
             catch (Exception ex)
             {
@@ -1039,7 +1089,8 @@ namespace WindowsFormsApp1
                         try
                         {
                             int savedPct = AppSettings.Instance.SpeakerSystemVolume;
-                            _activeSpeakerDevice.AudioEndpointVolume.MasterVolumeLevelScalar = savedPct / 100f;
+                            // Restore Customer Voice Volume level (loopback monitor scale)
+                            _customerVoiceVolume = savedPct / 100f;
                             if (_trkSpeakerVol != null) { _trkSpeakerVol.Value = savedPct; if (_lblSpeakerVol != null) _lblSpeakerVol.Text = $"{savedPct}%"; }
                         }
                         catch { }
@@ -1192,6 +1243,16 @@ namespace WindowsFormsApp1
                 };
                 if (this.InvokeRequired) this.BeginInvoke(reset); else reset();
             };
+
+            // Push saved slider values into the bridge BEFORE first playback.
+            // Without this, the bridge uses hardcoded defaults (agent=80, customer=100)
+            // regardless of where the sliders are set.
+            int savedAgent    = (int)(AppSettings.Instance.GetVolume("agentScript",    0.48f) * 100);
+            int savedCustomer = (int)(AppSettings.Instance.GetVolume("customerScript", 0.55f) * 100);
+            bridge.SetInitialVolume("agent",    savedAgent);
+            bridge.SetInitialVolume("customer", savedCustomer);
+            Log.Info($"[Audio] Initial volumes pushed to bridge: agent={savedAgent}% customer={savedCustomer}%");
+
             bridge.Start();
         }
 
@@ -1286,6 +1347,7 @@ namespace WindowsFormsApp1
             _micCapture?.Dispose();
             try { _loopbackCapture?.StopRecording(); } catch { }
             try { _loopbackCapture?.Dispose(); } catch { }
+            try { _loopbackMonitor?.Stop(); _loopbackMonitor?.Dispose(); } catch { }
             _trayIcon?.Dispose();
             base.OnFormClosing(e);
         }
