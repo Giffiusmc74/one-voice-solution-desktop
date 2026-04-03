@@ -89,8 +89,7 @@ Name: "{autodesktop}\{#AppName}";  Filename: "{app}\{#AppExeName}";  IconFilenam
 ; Start Menu
 Name: "{group}\{#AppName}";        Filename: "{app}\{#AppExeName}";  IconFilename: "{app}\Resources\one_logo.ico"
 Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
-; Startup (optional)
-Name: "{userstartup}\{#AppName}";  Filename: "{app}\{#AppExeName}";  Tasks: startupicon
+; Startup shortcut removed — registry Run key (below) is used instead to prevent dual-launch
 
 [Run]
 ; ── Step 1: Silently install VB-Audio Virtual Cable ───────────────────────────
@@ -170,10 +169,18 @@ end;
 
 // ── Show progress message during VB-Audio install ─────────────────────────────
 procedure CurStepChanged(CurStep: TSetupStep);
+var
+  startupShortcut: String;
 begin
   if CurStep = ssInstall then
   begin
     if not IsVBAudioInstalled then
       WizardForm.StatusLabel.Caption := 'Setting up audio components — this may take a moment...';
+
+    // Remove old Startup folder shortcut that caused dual-instance launches.
+    // The registry Run key is used instead (single entry = single launch).
+    startupShortcut := ExpandConstant('{userstartup}\ONE Voice Solution.lnk');
+    if FileExists(startupShortcut) then
+      DeleteFile(startupShortcut);
   end;
 end;
