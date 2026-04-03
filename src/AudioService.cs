@@ -219,8 +219,9 @@ namespace WindowsFormsApp1.src
             bufferedWaveProvider.AddSamples(scaledBuffer, 0, e.BytesRecorded);
 
             // Calculate RMS with volume scaling applied for intensity meter
+            // Boosted multiplier (300) for better meter visibility at normal speech levels
             float rmsValue = CalculateRMS(scaledBuffer);
-            int intensityPercentage = (int)(rmsValue * 100);
+            int intensityPercentage = Math.Min((int)(rmsValue * 300), 100);
 
             // Assuming you have two separate controls: audioIntensityMeterSpeaker1 and audioIntensityMeterSpeaker2
             // Update UI controls safely from the background thread
@@ -426,7 +427,8 @@ namespace WindowsFormsApp1.src
                 _liveMicRms = liveMicRmsLinear * 0.1f + _liveMicRms * 0.9f; // Smooth with 90% EMA
 
             // Normalize RMS to a 0-100 scale and apply volume scaling to the display
-            int normalizedRMS = (int)(rms / 32768 * 100 * currentMicVolume);
+            // Boosted multiplier (300) for better meter visibility at normal speech levels
+            int normalizedRMS = (int)(rms / 32768 * 300 * currentMicVolume);
             normalizedRMS = Math.Min(normalizedRMS, 100); // Cap at 100
             
             try
@@ -557,7 +559,10 @@ namespace WindowsFormsApp1.src
                     double rms = CalculateRMS(buffer, samplesRead);
 
                     // Convert RMS to a suitable scale for your AudioIntensityMeter (e.g., 0-100)
-                    int intensity = (int)(rms * 100); // Adjust scale as needed
+                    // AudioFileReader returns float samples (-1.0 to 1.0), so RMS is typically 0.05-0.15
+                    // Multiply by 400 to get a visible meter range (20-60 for normal speech)
+                    int intensity = (int)(rms * 400); // Boosted for better meter visibility
+                    intensity = Math.Min(intensity, 100); // Cap at 100
 
                     AudioRecIntensityChanged?.Invoke(this,new AudioIntensityEventArgs(intensity));
 
