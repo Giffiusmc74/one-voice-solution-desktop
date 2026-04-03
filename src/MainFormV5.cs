@@ -1,5 +1,5 @@
 /*
- * MainFormV5.cs  —  ONE Voice Solution v7.23
+ * MainFormV5.cs  —  ONE Voice Solution v7.24
  *
  * v7.21 changes:
  *   - Volume sliders now take effect from the FIRST playback, not just after moving them.
@@ -31,7 +31,7 @@ namespace WindowsFormsApp1
         private static readonly Color ONE_BLUE_SEL = Color.FromArgb(0, 102, 204);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.23";
+        private const string APP_VERSION = "7.24";
 
         // Meter segment colours
         private static readonly Color SEG_OFF  = Color.FromArgb(0, 102, 204);
