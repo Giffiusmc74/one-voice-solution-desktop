@@ -11,8 +11,8 @@ namespace WindowsFormsApp1
 {
     /// <summary>
     /// Checks GitHub Releases for a newer version of ONE Voice Solution.
-    /// If found, silently downloads the installer and runs it with /VERYSILENT,
-    /// then exits the current process so the new version takes over.
+    /// If found, silently downloads the installer, exits the current process,
+    /// then launches the installer — preventing two windows from appearing.
     /// Runs entirely on a background thread — never blocks the UI.
     /// </summary>
     internal static class AutoUpdater
@@ -71,21 +71,65 @@ namespace WindowsFormsApp1
                             Path.GetTempPath(), "ONEVoiceSolution_Update.exe");
                         wc.DownloadFile(downloadUrl, tempPath);
 
-                        // Launch installer silently (InnoSetup /VERYSILENT flag)
-                        var psi = new ProcessStartInfo
-                        {
-                            FileName        = tempPath,
-                            Arguments       = "/VERYSILENT /NORESTART /CLOSEAPPLICATIONS",
-                            UseShellExecute = true,
-                            Verb            = "runas"   // request elevation if needed
-                        };
-                        Process.Start(psi);
-
-                        // Exit current instance from the UI thread
+                        // ── CRITICAL: Exit THIS process BEFORE launching the installer.
+                        // If we launch the installer first (with /CLOSEAPPLICATIONS), InnoSetup
+                        // closes our process AND then re-launches the new version = two windows.
+                        // Instead: exit cleanly first, then the installer runs unattended.
+                        string installerPath = tempPath;
                         var form = Application.OpenForms.Count > 0
                             ? Application.OpenForms[0] : null;
+
                         if (form != null && !form.IsDisposed)
-                            form.BeginInvoke(new Action(() => Application.Exit()));
+                        {
+                            form.BeginInvoke(new Action(() =>
+                            {
+                                // Show tray notification so user knows what's happening
+                                try
+                                {
+                                    var notify = new NotifyIcon
+                                    {
+                                        Icon    = System.Drawing.SystemIcons.Information,
+                                        Visible = true
+                                    };
+                                    notify.ShowBalloonTip(4000, "ONE Voice Solution",
+                                        "Updating to the latest version. The app will reopen automatically.",
+                                        ToolTipIcon.Info);
+                                    Thread.Sleep(1500);
+                                    notify.Visible = false;
+                                    notify.Dispose();
+                                }
+                                catch { }
+
+                                // Write a batch file that waits for this process to exit,
+                                // then launches the installer silently.
+                                // This guarantees zero overlap between old and new instances.
+                                try
+                                {
+                                    int pid = Process.GetCurrentProcess().Id;
+                                    string batPath = Path.Combine(Path.GetTempPath(), "one_voice_update.bat");
+                                    File.WriteAllText(batPath,
+                                        $"@echo off\r\n" +
+                                        $":wait\r\n" +
+                                        $"tasklist /FI \"PID eq {pid}\" 2>NUL | find /I \"{pid}\" >NUL\r\n" +
+                                        $"if not errorlevel 1 (timeout /t 1 /nobreak >NUL & goto wait)\r\n" +
+                                        $"\"{installerPath}\" /VERYSILENT /NORESTART\r\n");
+
+                                    Process.Start(new ProcessStartInfo
+                                    {
+                                        FileName        = "cmd.exe",
+                                        Arguments       = $"/C \"{batPath}\"",
+                                        UseShellExecute = true,
+                                        WindowStyle     = ProcessWindowStyle.Hidden,
+                                        Verb            = "runas"
+                                    });
+                                }
+                                catch { }
+
+                                // Exit this instance — the batch file will launch the installer
+                                // only after this process is fully gone.
+                                Application.Exit();
+                            }));
+                        }
                     }
                 }
                 catch (Exception ex)
