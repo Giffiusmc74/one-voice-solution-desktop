@@ -19,7 +19,7 @@
 ; ============================================================
 
 #define AppName      "ONE Voice Solution"
-#define AppVersion   "7.6"
+#define AppVersion   "7.7"
 #define AppPublisher "ONE United Global"
 #define AppURL       "https://www.onevoicesolution.com"
 #define AppExeName   "OneApp2025.exe"

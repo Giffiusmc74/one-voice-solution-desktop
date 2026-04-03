@@ -54,7 +54,7 @@ namespace WindowsFormsApp1.src
                 // Remove trailing slash if present to avoid double slash issues if we were appending path, 
                 // but here we assume baseUrl IS the endpoint.
                 
-                string url = $"{baseUrl}?licenseId={Uri.EscapeDataString(licenseKey)}";
+                string url = $"{baseUrl}?key={Uri.EscapeDataString(licenseKey)}";
                 
                 if (!string.IsNullOrEmpty(deviceId))
                 {
