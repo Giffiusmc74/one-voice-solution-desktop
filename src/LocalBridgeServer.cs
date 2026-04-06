@@ -1,5 +1,5 @@
 /*
- * LocalBridgeServer.cs  —  v7.27
+ * LocalBridgeServer.cs  —  v7.28
  * ONE Voice Solution
  *
  * Hosts a tiny HTTP server on localhost:9001 so the Script Dashboard

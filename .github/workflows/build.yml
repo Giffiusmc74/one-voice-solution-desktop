@@ -12,15 +12,15 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           lfs: true
       - name: Setup NuGet
-        uses: NuGet/setup-nuget@v2
+        uses: NuGet/setup-nuget@v3
       - name: Restore NuGet packages
         run: nuget restore OneApplication.csproj -PackagesDirectory packages
       - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@v2
+        uses: microsoft/setup-msbuild@v3
       - name: Build Release
         run: msbuild OneApplication.csproj /p:Configuration=Release /p:Platform=AnyCPU /p:OutputPath=bin\Release\
       - name: Download VB-Audio Cable
@@ -45,13 +45,13 @@ jobs:
           $ver  = $line.Matches[0].Groups[1].Value
           echo "VERSION=$ver" >> $env:GITHUB_OUTPUT
       - name: Upload Installer Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ONEVoiceSolution-v${{ steps.get_version.outputs.VERSION }}-Installer
           path: installer\output\ONEVoiceSolution_Setup.exe
           retention-days: 30
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.6.1
         with:
           tag_name: v${{ steps.get_version.outputs.VERSION }}
           name: ONE Voice Solution v${{ steps.get_version.outputs.VERSION }}
