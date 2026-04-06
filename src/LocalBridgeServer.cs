@@ -1,5 +1,5 @@
 /*
- * LocalBridgeServer.cs  —  v7.22
+ * LocalBridgeServer.cs  —  v7.26
  * ONE Voice Solution
  *
  * Hosts a tiny HTTP server on localhost:9001 so the Script Dashboard
@@ -64,6 +64,7 @@ namespace WindowsFormsApp1.src
         public bool IsPlaying => isAudioPlaying;
         private long   lastReadPosition;
         private CancellationTokenSource cancellationTokenSource;
+        private string _currentTmpPath;   // temp file for current playback — deleted on stop
 
         // ── Device numbers ────────────────────────────────────────────────────
         private int outputDeviceNumber = -1;   // headset (agent) — set by dropdown
@@ -222,6 +223,7 @@ namespace WindowsFormsApp1.src
             {
                 if (isAudioPlaying) StopAudioInternal();
 
+                _currentTmpPath  = tmpPath;
                 lastReadPosition = 0;
                 isAudioPlaying   = true;
                 cancellationTokenSource?.Cancel();
@@ -326,13 +328,31 @@ namespace WindowsFormsApp1.src
         private void OnPlaybackStopped_Cable(object sender, StoppedEventArgs e)
         {
             try { audioFileReader?.Dispose(); audioFileReader = null; waveOut?.Dispose(); waveOut = null; } catch { }
+            // Temp file cleanup is handled by OnPlaybackStopped_Agent (fires last)
         }
 
         private void OnPlaybackStopped_Agent(object sender, StoppedEventArgs e)
         {
             isAudioPlaying = false;
             try { audioFileReader2?.Dispose(); audioFileReader2 = null; waveO?.Dispose(); waveO = null; } catch { }
+            DeleteCurrentTmpFile();
             OnPlaybackStopped?.Invoke();
+        }
+
+        private void DeleteCurrentTmpFile()
+        {
+            string path = _currentTmpPath;
+            _currentTmpPath = null;
+            if (string.IsNullOrEmpty(path)) return;
+            try
+            {
+                if (File.Exists(path)) File.Delete(path);
+                _log.Info($"[Bridge] Deleted temp file: {path}");
+            }
+            catch (Exception ex)
+            {
+                _log.Warn($"[Bridge] Could not delete temp file '{path}': {ex.Message}");
+            }
         }
 
         // ── /volume ───────────────────────────────────────────────────────────
@@ -384,6 +404,8 @@ namespace WindowsFormsApp1.src
             try { waveO?.Dispose(); } catch { }
             try { audioFileReader2?.Dispose(); } catch { }
             waveO = null; audioFileReader2 = null;
+
+            DeleteCurrentTmpFile();
         }
 
         // ── Dispose ───────────────────────────────────────────────────────────
