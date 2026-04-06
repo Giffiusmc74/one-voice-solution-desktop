@@ -1,5 +1,10 @@
 /*
- * MainFormV5.cs  —  ONE Voice Solution v7.28
+ * MainFormV5.cs  —  ONE Voice Solution v7.29
+ *
+ * v7.29 changes:
+ *   - Mic pass-through WaveOut volume explicitly set to 1.0f (100%) after Play().
+ *     Windows was defaulting the new audio session to near-zero (volume 1/100),
+ *     causing the agent's mic to be nearly silent on the customer's end.
  *
  * v7.27 changes:
  *   - Mic pass-through: agent's live voice is now routed from the Jabra mic through
@@ -37,7 +42,7 @@ namespace WindowsFormsApp1
         private static readonly Color ONE_BLUE_SEL = Color.FromArgb(0, 102, 204);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.28";
+        private const string APP_VERSION = "7.29";
 
         // Meter segment colours
         private static readonly Color SEG_OFF  = Color.FromArgb(0, 102, 204);
@@ -1033,6 +1038,7 @@ namespace WindowsFormsApp1
 
                 _micPassWaveIn.StartRecording();
                 _micPassWaveOut.Play();
+                _micPassWaveOut.Volume = 1.0f;   // force 100% — Windows may default new audio sessions to near-zero
 
                 Log.Info($"[PassThrough] Mic pass-through ACTIVE: WaveIn #{waveInNum} ('{deviceFriendlyName}') → WaveOut #{cableNum} (CABLE Input)");
             }
