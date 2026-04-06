@@ -92,21 +92,32 @@ namespace WindowsFormsApp1.src
             _log.Info($"[Bridge] Cable device → #{deviceNumber}");
         }
 
-        /// <summary>
-        /// Called by MainFormV5 on startup to sync saved slider values into the bridge.
-        /// Ensures playback uses the correct volume from the very first recording.
-        /// </summary>
         public void SetInitialVolume(string channel, int volume)
+        {
+            SetVolume(channel, volume);
+            _log.Info($"[Bridge] Initial volume {channel} → {volume}%");
+        }
+
+        /// <summary>
+        /// Updates the volume for a channel in real-time. 
+        /// Called by MainFormV5 sliders for zero-latency updates.
+        /// </summary>
+        public void SetVolume(string channel, int volume)
         {
             volume = Math.Max(0, Math.Min(100, volume));
             lock (_playLock)
             {
                 if (channel == "customer")
+                {
                     _customerVol = volume;
+                    if (audioFileReader != null) audioFileReader.Volume = volume / 100f;
+                }
                 else
+                {
                     _agentVol = volume;
+                    if (audioFileReader2 != null) audioFileReader2.Volume = volume / 100f;
+                }
             }
-            _log.Info($"[Bridge] Initial volume {channel} → {volume}%");
         }
 
         // ── Start / Stop ──────────────────────────────────────────────────────

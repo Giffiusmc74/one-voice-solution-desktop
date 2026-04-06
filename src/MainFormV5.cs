@@ -1,5 +1,5 @@
 /*
- * MainFormV5.cs  —  ONE Voice Solution v7.24
+ * MainFormV5.cs  —  ONE Voice Solution v7.25
  *
  * v7.21 changes:
  *   - Volume sliders now take effect from the FIRST playback, not just after moving them.
@@ -31,7 +31,7 @@ namespace WindowsFormsApp1
         private static readonly Color ONE_BLUE_SEL = Color.FromArgb(0, 102, 204);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.24";
+        private const string APP_VERSION = "7.25";
 
         // Meter segment colours
         private static readonly Color SEG_OFF  = Color.FromArgb(0, 102, 204);
@@ -693,27 +693,7 @@ namespace WindowsFormsApp1
                 else
                     AppSettings.Instance.SetVolume("customerScript", vol);
                 AppSettings.Instance.Save();
-                try
-                {
-                    // Use a static shared client — do NOT dispose per-call
-                    float volSnapshot = trk2.Value;
-                    string chSnapshot = isLeft ? "agent" : "customer";
-                    System.Threading.Tasks.Task.Run(async () =>
-                    {
-                        try
-                        {
-                            using (var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(2) })
-                            {
-                                var content = new System.Net.Http.StringContent(
-                                    $"{{\"volume\":{volSnapshot},\"channel\":\"{chSnapshot}\"}}",
-                                    System.Text.Encoding.UTF8, "application/json");
-                                await http.PostAsync("http://localhost:9001/volume", content);
-                            }
-                        }
-                        catch { }
-                    });
-                }
-                catch { }
+                LocalBridgeServer.Instance.SetVolume(isLeft ? "agent" : "customer", trk2.Value);
             };
             this.Controls.Add(trk2);
             if (isLeft)  { _trkAgentScriptVol    = trk2; _lblAgentScriptVol    = lp2; }
@@ -1068,14 +1048,26 @@ namespace WindowsFormsApp1
                         catch { }
                     }
                 }
-                _activeVBCableDevice = rends.FirstOrDefault(d =>
-                    d.FriendlyName.Contains("CABLE") || d.FriendlyName.Contains("VB-Audio"));
+                // Diagnostic: Log ALL found render devices to identify the cable name
+                foreach (var d in rends) 
+                    Log.Info($"[Audio] Render Device: '{d.FriendlyName}' | State: {d.State} | ID: {d.ID}");
+
+                _activeVBCableDevice = rends.FirstOrDefault(d => 
+                    d.FriendlyName.IndexOf("CABLE", StringComparison.OrdinalIgnoreCase) >= 0 || 
+                    d.FriendlyName.IndexOf("VB-Audio", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    d.FriendlyName.IndexOf("Virtual", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    d.FriendlyName.IndexOf("Line ", StringComparison.OrdinalIgnoreCase) >= 0);
+
                 if (_activeVBCableDevice != null)
                 {
-                    Log.Info($"[Audio] VB-Cable output: {_activeVBCableDevice.FriendlyName}");
+                    Log.Info($"[Audio] VB-Cable identified: '{_activeVBCableDevice.FriendlyName}'");
                     int cableNum = FindWaveOutDeviceNumber(_activeVBCableDevice.FriendlyName);
                     LocalBridgeServer.Instance.SetCableDevice(cableNum);
                     Log.Info($"[Audio] VB-Cable WaveOut device #{cableNum} wired to bridge.");
+                }
+                else
+                {
+                    Log.Info("[Audio] No VB-Cable/Virtual device found. Customer-side script playback will be disabled on the desktop bridge.");
                 }
 
                 // ── Headset dropdown change handler ──────────────────────────
@@ -1117,65 +1109,69 @@ namespace WindowsFormsApp1
         private int FindWaveOutDeviceNumber(string targetDeviceName)
         {
             if (string.IsNullOrEmpty(targetDeviceName)) return -1;
-            // WaveOut.ProductName is truncated to 31 chars by Windows.
-            // Matching strategy (in priority order):
-            //   1. Exact substring match (either direction)
-            //   2. Scored prefix match (first N chars of WaveOut name appear in target)
-            //   3. First-word match (e.g. WaveOut "Speakers (Realtek" matches WASAPI "Speakers (Realtek High...")
             string target = targetDeviceName.ToLower().Trim();
-            int bestIdx   = -1;
-            int bestScore = 0;
+            
+            Log.Info($"[Audio] Finding WaveOut match for '{targetDeviceName}'");
 
             int count = WaveOut.DeviceCount;
+            int bestIdx = -1;
+            int bestScore = 0;
+
             for (int i = 0; i < count; i++)
             {
                 var capabilities = WaveOut.GetCapabilities(i);
                 string prod = capabilities.ProductName.ToLower().Trim();
-                Log.Info($"[Audio] WaveOut #{i}: '{capabilities.ProductName}'");
-
-                // 1. Exact substring match
+                
+                // 1. Exact or Substring match (Priority 1)
                 if (target.Contains(prod) || prod.Contains(target))
                 {
-                    Log.Info($"[Audio] Matched WaveOut #{i} ('{capabilities.ProductName}') for '{targetDeviceName}'");
+                    Log.Info($"[Audio] WaveOut #{i} ('{capabilities.ProductName}'): MATCH (Priority 1)");
                     return i;
                 }
 
-                // 2. Prefix score: how many leading chars of prod appear in target
-                int score = 0;
-                for (int c = Math.Min(prod.Length, 20); c >= 5; c--)
-                {
-                    if (target.Contains(prod.Substring(0, c))) { score = c; break; }
-                }
+                // 2. Alphanumeric Prefix Match (Priority 2)
+                string targetAlpha = new string(target.Where(char.IsLetterOrDigit).ToArray());
+                string prodAlpha   = new string(prod.Where(char.IsLetterOrDigit).ToArray());
 
-                // 3. Word-level match: split on spaces/parens and count matching words from start
-                //    e.g. WaveOut "speakers (realtek" → words ["speakers","realtek"]
-                //         WASAPI  "speakers (realtek high definition audio)" → words ["speakers","realtek",...]
-                //    Two matching leading words = score 8
-                char[] sep = new char[] { ' ', '(', ')', '-', '/' };
+                bool alphaMatch = targetAlpha.StartsWith(prodAlpha) || prodAlpha.StartsWith(targetAlpha);
+                int alphaScore = alphaMatch ? Math.Min(targetAlpha.Length, prodAlpha.Length) : 0;
+
+                // 3. Word-level similarity (Priority 3)
+                char[] sep = new char[] { ' ', '(', ')', '-', '/', '[', ']', ',', '.' };
                 string[] prodWords   = prod.Split(sep,   StringSplitOptions.RemoveEmptyEntries);
                 string[] targetWords = target.Split(sep, StringSplitOptions.RemoveEmptyEntries);
-                if (prodWords.Length > 0 && targetWords.Length > 0)
+                
+                int wordMatches = 0;
+                foreach (var pw in prodWords)
                 {
-                    int wordMatches = 0;
-                    int maxWords = Math.Min(prodWords.Length, targetWords.Length);
-                    for (int w = 0; w < maxWords; w++)
+                    if (pw.Length < 3)
                     {
-                        if (prodWords[w] == targetWords[w]) wordMatches++;
-                        else break;
+                        if (targetWords.Contains(pw)) wordMatches++;
+                        continue;
                     }
-                    int wordScore = wordMatches * 4;
-                    if (wordScore > score) score = wordScore;
+                    if (targetWords.Any(tw => tw.StartsWith(pw) || pw.StartsWith(tw)))
+                        wordMatches++;
                 }
 
-                if (score > bestScore) { bestScore = score; bestIdx = i; }
+                int wordScore = wordMatches * 5;
+                int currentScore = Math.Max(alphaScore, wordScore);
+                
+                Log.Info($"[Audio] WaveOut #{i} ('{capabilities.ProductName}'): WordMatch={wordMatches} AlphaMatch={alphaMatch} Score={currentScore}");
+
+                if (currentScore > bestScore)
+                {
+                    bestScore = currentScore;
+                    bestIdx = i;
+                }
             }
 
-            if (bestIdx >= 0 && bestScore >= 4)
+            if (bestIdx >= 0 && bestScore >= 5)
             {
-                Log.Info($"[Audio] Partial match WaveOut #{bestIdx} (score={bestScore}) for '{targetDeviceName}'");
+                Log.Info($"[Audio] SELECTED WaveOut #{bestIdx} (Score: {bestScore}) for '{targetDeviceName}'");
                 return bestIdx;
             }
-            Log.Warn($"[Audio] WaveOut device not found for: '{targetDeviceName}', using default (-1)");
+
+            Log.Warn($"[Audio] NO MATCH found for '{targetDeviceName}', using default (-1)");
             return -1;
         }
 
