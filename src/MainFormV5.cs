@@ -1,5 +1,5 @@
 /*
- * MainFormV5.cs  —  ONE Voice Solution v7.27
+ * MainFormV5.cs  —  ONE Voice Solution v7.28
  *
  * v7.27 changes:
  *   - Mic pass-through: agent's live voice is now routed from the Jabra mic through
@@ -37,7 +37,7 @@ namespace WindowsFormsApp1
         private static readonly Color ONE_BLUE_SEL = Color.FromArgb(0, 102, 204);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.27";
+        private const string APP_VERSION = "7.28";
 
         // Meter segment colours
         private static readonly Color SEG_OFF  = Color.FromArgb(0, 102, 204);
