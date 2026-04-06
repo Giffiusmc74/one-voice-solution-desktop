@@ -1,5 +1,11 @@
 /*
- * MainFormV5.cs  —  ONE Voice Solution v7.26
+ * MainFormV5.cs  —  ONE Voice Solution v7.27
+ *
+ * v7.27 changes:
+ *   - Mic pass-through: agent's live voice is now routed from the Jabra mic through
+ *     VB-Audio Cable Input so JustCall (and other VoIP apps) can pick it up.
+ *     Uses WaveInEvent → WaveInProvider → WaveOutEvent(CABLE) chain alongside the
+ *     existing WasapiCapture (which continues to handle the "My Voice Level" meter).
  *
  * v7.21 changes:
  *   - Volume sliders now take effect from the FIRST playback, not just after moving them.
@@ -31,7 +37,7 @@ namespace WindowsFormsApp1
         private static readonly Color ONE_BLUE_SEL = Color.FromArgb(0, 102, 204);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.26";
+        private const string APP_VERSION = "7.27";
 
         // Meter segment colours
         private static readonly Color SEG_OFF  = Color.FromArgb(0, 102, 204);
@@ -61,7 +67,9 @@ namespace WindowsFormsApp1
         private static readonly Logger Log = LogManager.GetCurrentClassLogger();
 
         // ── Audio ─────────────────────────────────────────────────────────────
-        private WasapiCapture      _micCapture;
+        private WasapiCapture      _micCapture;          // WASAPI capture → My Voice Level meter
+        private WaveInEvent        _micPassWaveIn;       // WaveIn capture → pass-through to CABLE
+        private WaveOutEvent       _micPassWaveOut;      // WaveOut → VB-Cable Input (JustCall mic)
         private MMDeviceEnumerator _deviceEnum = new MMDeviceEnumerator();
         private float _micLevel            = 0f;
         private float _customerVoiceLevel  = 0f;
@@ -912,11 +920,23 @@ namespace WindowsFormsApp1
         }
 
         // ── Audio capture (microphone) ────────────────────────────────────────
+        // Starts two parallel audio pipelines from the selected microphone:
+        //   1. WasapiCapture  → "My Voice Level" meter only (no routing)
+        //   2. WaveInEvent → WaveInProvider → WaveOutEvent(CABLE) → JustCall/Kixie mic input
+        //      This is the pass-through that makes the agent's voice reach the customer.
         private void StartAudioCapture(string deviceName = null)
         {
+            // ─ Stop and dispose existing captures ─────────────────────────────────
             try { _micCapture?.StopRecording(); } catch { }
             try { _micCapture?.Dispose(); }       catch { }
             _micCapture = null;
+            try { _micPassWaveIn?.StopRecording(); } catch { }
+            try { _micPassWaveIn?.Dispose(); }       catch { }
+            _micPassWaveIn = null;
+            try { _micPassWaveOut?.Stop(); }    catch { }
+            try { _micPassWaveOut?.Dispose(); } catch { }
+            _micPassWaveOut = null;
+
             try
             {
                 var devices = _deviceEnum.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active);
@@ -944,6 +964,8 @@ namespace WindowsFormsApp1
                     }
                     catch { }
                 }
+
+                // ─ Pipeline 1: WasapiCapture → "My Voice Level" meter ─────────────
                 _micCapture = new WasapiCapture(device, false);
                 _micCapture.DataAvailable += (s, e) =>
                 {
@@ -960,8 +982,107 @@ namespace WindowsFormsApp1
                     _micLevel = Math.Min(1f, max * 4.0f);
                 };
                 _micCapture.StartRecording();
+
+                // ─ Pipeline 2: WaveInEvent → WaveOutEvent(CABLE) pass-through ──────
+                // Routes agent's live mic audio to VB-Cable Input so JustCall/Kixie
+                // can pick it up as the microphone input and send it to the customer.
+                StartMicPassThrough(device.FriendlyName);
             }
             catch (Exception ex) { Log.Warn($"[Audio] Capture failed: {ex.Message}"); }
+        }
+
+        /// <summary>
+        /// Starts the mic pass-through: WaveInEvent → WaveInProvider → WaveOutEvent(CABLE).
+        /// Routes the agent's live voice to VB-Audio Cable Input so JustCall/Kixie
+        /// picks it up as the microphone and sends it to the customer.
+        /// </summary>
+        private void StartMicPassThrough(string deviceFriendlyName)
+        {
+            int cableNum = LocalBridgeServer.Instance.CableDeviceNumber;
+            if (cableNum < 0)
+            {
+                Log.Warn("[PassThrough] VB-Cable not found — mic pass-through disabled. Customer will NOT hear agent voice.");
+                return;
+            }
+
+            // Find the WaveIn device number that matches the WASAPI device friendly name.
+            // WaveIn.GetCapabilities().ProductName is truncated to 31 chars by Windows.
+            int waveInNum = FindWaveInDeviceNumber(deviceFriendlyName);
+            if (waveInNum < 0)
+            {
+                Log.Warn($"[PassThrough] Could not find WaveIn device for '{deviceFriendlyName}' — pass-through disabled.");
+                return;
+            }
+
+            try
+            {
+                _micPassWaveIn = new WaveInEvent
+                {
+                    DeviceNumber       = waveInNum,
+                    WaveFormat         = new WaveFormat(44100, 16, 1),
+                    BufferMilliseconds = 50
+                };
+                var provider = new WaveInProvider(_micPassWaveIn);
+
+                _micPassWaveOut = new WaveOutEvent
+                {
+                    DeviceNumber   = cableNum,
+                    DesiredLatency = 100
+                };
+                _micPassWaveOut.Init(provider);
+
+                _micPassWaveIn.StartRecording();
+                _micPassWaveOut.Play();
+
+                Log.Info($"[PassThrough] Mic pass-through ACTIVE: WaveIn #{waveInNum} ('{deviceFriendlyName}') → WaveOut #{cableNum} (CABLE Input)");
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"[PassThrough] Failed to start mic pass-through: {ex.Message}");
+                try { _micPassWaveIn?.StopRecording(); } catch { }
+                try { _micPassWaveIn?.Dispose(); }       catch { }
+                _micPassWaveIn = null;
+                try { _micPassWaveOut?.Stop(); }    catch { }
+                try { _micPassWaveOut?.Dispose(); } catch { }
+                _micPassWaveOut = null;
+            }
+        }
+
+        /// <summary>
+        /// Finds the WaveIn device number by matching against the WASAPI friendly name.
+        /// WaveIn.GetCapabilities().ProductName is truncated to 31 chars by Windows,
+        /// so we use prefix/substring matching (same approach as FindWaveOutDeviceNumber).
+        /// </summary>
+        private int FindWaveInDeviceNumber(string targetDeviceName)
+        {
+            if (string.IsNullOrEmpty(targetDeviceName)) return -1;
+            string target = targetDeviceName.ToLower().Trim();
+            Log.Info($"[PassThrough] Finding WaveIn match for '{targetDeviceName}'");
+            int count   = WaveIn.DeviceCount;
+            int bestIdx = -1;
+            int bestLen = 0;
+            for (int i = 0; i < count; i++)
+            {
+                string prod = WaveIn.GetCapabilities(i).ProductName.ToLower().Trim();
+                // Exact or substring match
+                if (target.Contains(prod) || prod.Contains(target))
+                {
+                    Log.Info($"[PassThrough] WaveIn #{i} ('{WaveIn.GetCapabilities(i).ProductName}'): MATCH");
+                    return i;
+                }
+                // Best prefix match (handles 31-char truncation)
+                int common = 0;
+                int minLen = Math.Min(target.Length, prod.Length);
+                for (int c = 0; c < minLen; c++) { if (target[c] == prod[c]) common++; else break; }
+                if (common > bestLen) { bestLen = common; bestIdx = i; }
+            }
+            if (bestIdx >= 0 && bestLen >= 8)
+            {
+                Log.Info($"[PassThrough] WaveIn #{bestIdx} selected by prefix match (len={bestLen}) for '{targetDeviceName}'");
+                return bestIdx;
+            }
+            Log.Warn($"[PassThrough] No WaveIn match found for '{targetDeviceName}'");
+            return -1;
         }
 
         // ── Loopback capture: Customer Voice meter + monitor playback ────────────
@@ -1313,6 +1434,10 @@ namespace WindowsFormsApp1
             _meterTimer?.Stop();
             _micCapture?.StopRecording();
             _micCapture?.Dispose();
+            try { _micPassWaveIn?.StopRecording(); } catch { }
+            try { _micPassWaveIn?.Dispose(); }       catch { }
+            try { _micPassWaveOut?.Stop(); }    catch { }
+            try { _micPassWaveOut?.Dispose(); } catch { }
             try { _loopbackCapture?.StopRecording(); } catch { }
             try { _loopbackCapture?.Dispose(); } catch { }
             _trayIcon?.Dispose();

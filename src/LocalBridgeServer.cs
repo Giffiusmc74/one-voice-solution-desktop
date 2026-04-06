@@ -1,5 +1,5 @@
 /*
- * LocalBridgeServer.cs  —  v7.26
+ * LocalBridgeServer.cs  —  v7.27
  * ONE Voice Solution
  *
  * Hosts a tiny HTTP server on localhost:9001 so the Script Dashboard
@@ -85,6 +85,9 @@ namespace WindowsFormsApp1.src
 
         /// <summary>Current headset WaveOut device number (-1 = default).</summary>
         public int OutputDeviceNumber => outputDeviceNumber;
+
+        /// <summary>VB-Cable WaveOut device number (-1 = not found).</summary>
+        public int CableDeviceNumber => _cableDeviceNumber;
 
         /// <summary>Called by MainFormV5 on startup after VB-Cable is found.</summary>
         public void SetCableDevice(int deviceNumber)
