@@ -1,5 +1,12 @@
 /*
- * MainFormV5.cs  —  ONE Voice Solution v7.29
+ * MainFormV5.cs  —  ONE Voice Solution v7.30
+ *
+ * v7.30 changes:
+ *   - Mic pass-through restarts automatically after each recording finishes.
+ *     Previously the WaveOut on CABLE Input was disrupted when the recording's
+ *     WaveOut was disposed, causing mic monitoring to disappear and a 1.5s delay.
+ *   - WaveFormat upgraded from 44100/16/mono to 48000/16/stereo for better
+ *     mic quality through CABLE Input (matches Jabra EVOLVE 20 native rate).
  *
  * v7.29 changes:
  *   - Mic pass-through WaveOut volume explicitly set to 1.0f (100%) after Play().
@@ -42,7 +49,7 @@ namespace WindowsFormsApp1
         private static readonly Color ONE_BLUE_SEL = Color.FromArgb(0, 102, 204);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.29";
+        private const string APP_VERSION = "7.30";
 
         // Meter segment colours
         private static readonly Color SEG_OFF  = Color.FromArgb(0, 102, 204);
@@ -1024,7 +1031,7 @@ namespace WindowsFormsApp1
                 _micPassWaveIn = new WaveInEvent
                 {
                     DeviceNumber       = waveInNum,
-                    WaveFormat         = new WaveFormat(44100, 16, 1),
+                    WaveFormat         = new WaveFormat(48000, 16, 2),  // 48kHz stereo — matches Jabra EVOLVE 20 native rate
                     BufferMilliseconds = 50
                 };
                 var provider = new WaveInProvider(_micPassWaveIn);
@@ -1335,6 +1342,21 @@ namespace WindowsFormsApp1
                     _customerScriptLevel = 0f;
                     _agentScriptMeter?.Invalidate();
                     _customerScriptMeter?.Invalidate();
+                    // Restart mic pass-through after recording ends.
+                    // The recording's WaveOut on CABLE Input is disposed when playback stops,
+                    // which disrupts the pass-through WaveOut on the same device.
+                    // Re-starting it clears the stale buffer and restores clean mic routing.
+                    if (_activeMicDevice != null)
+                    {
+                        try { _micPassWaveIn?.StopRecording(); }  catch { }
+                        try { _micPassWaveIn?.Dispose(); }        catch { }
+                        _micPassWaveIn = null;
+                        try { _micPassWaveOut?.Stop(); }    catch { }
+                        try { _micPassWaveOut?.Dispose(); } catch { }
+                        _micPassWaveOut = null;
+                        StartMicPassThrough(_activeMicDevice.FriendlyName);
+                        Log.Info("[PassThrough] Restarted mic pass-through after recording stopped.");
+                    }
                 };
                 if (this.InvokeRequired) this.BeginInvoke(reset); else reset();
             };
