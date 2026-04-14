@@ -1,29 +1,30 @@
 /*
- * MainFormV5.cs  —  ONE Voice Solution v7.30
+ * MainFormV5.cs  —  ONE Voice Solution v7.31
  *
- * v7.30 changes:
+ * UI REDESIGN v7.31:
+ *   - Complete visual overhaul to match design mock exactly.
+ *   - Dark space/nebula background with rounded dark card.
+ *   - ONE logo (top-left) + "The Geniusness Is In The Simplicity" tagline centered in header.
+ *   - 4 circular VU dial meters: Customer Voice (RED), Customer Recordings (BLUE),
+ *     Agent Voice (PURPLE), Agent Recordings (GREEN).
+ *   - Section dividers: "WHAT THE AGENT HEARS" / "WHAT THE CUSTOMER HEARS".
+ *   - [–] [dB value] [+] volume controls below each meter label.
+ *   - Two large device buttons: SELECT MICROPHONE (red glow) / SELECT SPEAKER (blue glow).
+ *   - Footer: "One United Global LLC 2026. V 7.31"
+ *   - ALL audio logic, routing, and meter data connections unchanged.
+ *
+ * v7.30 changes (audio):
  *   - Mic pass-through restarts automatically after each recording finishes.
- *     Previously the WaveOut on CABLE Input was disrupted when the recording's
- *     WaveOut was disposed, causing mic monitoring to disappear and a 1.5s delay.
- *   - WaveFormat upgraded from 44100/16/mono to 48000/16/stereo for better
- *     mic quality through CABLE Input (matches Jabra EVOLVE 20 native rate).
+ *   - WaveFormat upgraded to 48000/16/stereo.
  *
- * v7.29 changes:
- *   - Mic pass-through WaveOut volume explicitly set to 1.0f (100%) after Play().
- *     Windows was defaulting the new audio session to near-zero (volume 1/100),
- *     causing the agent's mic to be nearly silent on the customer's end.
+ * v7.29 changes (audio):
+ *   - Mic pass-through WaveOut volume explicitly set to 1.0f after Play().
  *
- * v7.27 changes:
- *   - Mic pass-through: agent's live voice is now routed from the Jabra mic through
- *     VB-Audio Cable Input so JustCall (and other VoIP apps) can pick it up.
- *     Uses WaveInEvent → WaveInProvider → WaveOutEvent(CABLE) chain alongside the
- *     existing WasapiCapture (which continues to handle the "My Voice Level" meter).
+ * v7.27 changes (audio):
+ *   - Mic pass-through: agent's live voice routed from Jabra mic through VB-Audio Cable Input.
  *
- * v7.21 changes:
- *   - Volume sliders now take effect from the FIRST playback, not just after moving them.
- *     Previously the bridge started with hardcoded defaults (agent=80%, customer=100%)
- *     regardless of saved slider positions. Now saved AppSettings values are pushed
- *     to the bridge immediately on startup via SetInitialVolume().
+ * v7.21 changes (audio):
+ *   - Volume sliders take effect from the FIRST playback.
  */
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
@@ -42,29 +43,24 @@ namespace WindowsFormsApp1
     public partial class MainFormV5 : Form
     {
         // ── Brand colours ─────────────────────────────────────────────────────
-        private static readonly Color ONE_RED      = Color.FromArgb(254, 1, 1);
-        private static readonly Color BG_DARK      = Color.FromArgb(0, 0, 0);       // Pure black
-        private static readonly Color BG_PANEL     = Color.FromArgb(28, 28, 28);
-        private static readonly Color TEXT_WHITE   = Color.White;
-        private static readonly Color ONE_BLUE_SEL = Color.FromArgb(0, 102, 204);
+        private static readonly Color ONE_RED       = Color.FromArgb(254, 1, 1);
+        private static readonly Color BG_DARK       = Color.FromArgb(5, 5, 18);        // Deep space black-blue
+        private static readonly Color BG_CARD       = Color.FromArgb(14, 14, 30);      // Dark card background
+        private static readonly Color BG_PANEL      = Color.FromArgb(28, 28, 28);
+        private static readonly Color TEXT_WHITE     = Color.White;
+        private static readonly Color ONE_BLUE_SEL   = Color.FromArgb(0, 102, 204);
+
+        // Meter colours per channel
+        private static readonly Color METER_RED     = Color.FromArgb(254, 1, 1);
+        private static readonly Color METER_BLUE    = Color.FromArgb(0, 160, 255);
+        private static readonly Color METER_PURPLE  = Color.FromArgb(160, 32, 240);
+        private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.30";
-
-        // Meter segment colours
-        private static readonly Color SEG_OFF  = Color.FromArgb(0, 102, 204);
-        private static readonly Color SEG_ON   = Color.FromArgb(254, 1, 1);
-        private static readonly Color SEG_PEAK = Color.FromArgb(255, 80, 80);
+        private const string APP_VERSION = "7.31";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
-        private int HEADER_H     => (int)(130 * _scale);
-        private int DEVICE_ROW_H => (int)(90  * _scale);
-        private int FOOTER_H     => (int)(52  * _scale);
-        private int SIDE_PAD     => (int)(30  * _scale);
-        private int VIDEO_GAP    => (int)(12  * _scale);
-        private int METER_H      => (int)(26  * _scale);
-        private const int METER_SEGS = 24;
         private float SF(float pt) => Math.Max(7f, (float)Math.Round(pt * _scale, 1));
 
         // DPI helper
@@ -79,9 +75,9 @@ namespace WindowsFormsApp1
         private static readonly Logger Log = LogManager.GetCurrentClassLogger();
 
         // ── Audio ─────────────────────────────────────────────────────────────
-        private WasapiCapture      _micCapture;          // WASAPI capture → My Voice Level meter
-        private WaveInEvent        _micPassWaveIn;       // WaveIn capture → pass-through to CABLE
-        private WaveOutEvent       _micPassWaveOut;      // WaveOut → VB-Cable Input (JustCall mic)
+        private WasapiCapture      _micCapture;
+        private WaveInEvent        _micPassWaveIn;
+        private WaveOutEvent       _micPassWaveOut;
         private MMDeviceEnumerator _deviceEnum = new MMDeviceEnumerator();
         private float _micLevel            = 0f;
         private float _customerVoiceLevel  = 0f;
@@ -90,32 +86,45 @@ namespace WindowsFormsApp1
 
         // ── UI Controls ───────────────────────────────────────────────────────
         private PictureBox  _logoBox;
-        private Label       _lblVoiceSolution;
-        private Label       _lblAudioDashboard;
+        private Label       _lblTagline;
         private Label       _lblAgentName;
         private ComboBox    _cboMic;
         private ComboBox    _cboHeadset;
-        private Label       _lblMicLabel;
-        private Label       _lblHeadsetLabel;
-        private Panel       _videoPanel;
-        private AxWMPLib.AxWindowsMediaPlayer _videoPlayer;
-        private Panel       _myMicMeterLeft;
-        private Panel       _agentScriptMeter;
-        private Panel       _customerVoiceMeter;
-        private Panel       _customerScriptMeter;
-        private Label       _lblTagline;
-        private Label       _lblFooterLeft;
+        // Meter panels (used for real-time invalidation)
+        private Panel       _myMicMeterLeft;       // Agent Voice (purple) — right side
+        private Panel       _agentScriptMeter;     // Agent Recordings (green) — right side
+        private Panel       _customerVoiceMeter;   // Customer Voice (red) — left side
+        private Panel       _customerScriptMeter;  // Customer Recordings (blue) — left side
         private Label       _lblFooterCenter;
         private NotifyIcon  _trayIcon;
         private ContextMenuStrip _trayMenu;
         private System.Windows.Forms.Timer _meterTimer;
         private Button _btnClose;
         private Button _btnMinimize;
-        private string _videoFilePath;
-        private int    _wmpExtraH = 80;
         private MMDevice _activeMicDevice;
         private MMDevice _activeSpeakerDevice;
         private MMDevice _activeVBCableDevice;
+
+        // Volume gain values (0.0–2.0, default 1.0 = 0 dB)
+        // These are the per-channel gain scalars used by the meter display and bridge.
+        private float _volCustomerVoice      = 1.0f;
+        private float _volCustomerScript     = 1.0f;
+        private float _volAgentVoice         = 1.0f;
+        private float _volAgentScript        = 1.0f;
+
+        // dB display values (integer, shown in the [–][val][+] controls)
+        private int _dbCustomerVoice     = -3;
+        private int _dbCustomerScript    = -3;
+        private int _dbAgentVoice        = -3;
+        private int _dbAgentScript       = -3;
+
+        // dB display labels
+        private Label _lblDbCustomerVoice;
+        private Label _lblDbCustomerScript;
+        private Label _lblDbAgentVoice;
+        private Label _lblDbAgentScript;
+
+        // TrackBar fields kept for audio logic compatibility (hidden)
         private TrackBar _trkMicVol;
         private TrackBar _trkSpeakerVol;
         private TrackBar _trkAgentScriptVol;
@@ -125,12 +134,9 @@ namespace WindowsFormsApp1
         private Label    _lblAgentScriptVol;
         private Label    _lblCustomerScriptVol;
 
-        // Loopback capture for Customer Voice meter only (no monitor playback)
-        // Customer Voice Volume slider scales the meter display only — same as original
-        // incomingAudioVolume which scaled the loopback buffer for meter and waveOutSecond.
-        // It does NOT change Windows system volume (that would affect recording playback too).
+        // Loopback capture for Customer Voice meter
         private WasapiLoopbackCapture  _loopbackCapture;
-        private float                  _customerVoiceVolume = 1.0f; // 0.0-1.0, set by trk1 left
+        private float                  _customerVoiceVolume = 1.0f;
 
         [DllImport("user32.dll")]
         private static extern int SendMessage(IntPtr hWnd, int Msg, int wParam, int lParam);
@@ -157,7 +163,6 @@ namespace WindowsFormsApp1
                 _lblAgentName.Text = "Agent: " + agentNameOverride;
             this.Shown += (s, e) =>
             {
-                StartVideoPlayback();
                 AutoUpdater.CheckAndUpdate(APP_VERSION);
             };
         }
@@ -194,11 +199,11 @@ namespace WindowsFormsApp1
             }
             catch { }
 
-            int w = Math.Max((int)(wa.Width  * 0.88), 860);
-            int h = Math.Max((int)(wa.Height * 0.88), 560);
+            int w = Math.Max((int)(wa.Width  * 0.92), 960);
+            int h = Math.Max((int)(wa.Height * 0.88), 600);
 
-            float sizeScale = Math.Min((float)w / 1280f, (float)h / 900f);
-            _scale = Math.Max(0.48f, Math.Min(sizeScale, 1.20f));
+            float sizeScale = Math.Min((float)w / 1400f, (float)h / 820f);
+            _scale = Math.Max(0.55f, Math.Min(sizeScale, 1.20f));
 
             this.ClientSize = new Size(w, h);
             int cx = wa.Left + (wa.Width - w) / 2;
@@ -210,10 +215,55 @@ namespace WindowsFormsApp1
             Log.Info($"[UI] Screen={screen.DeviceName} DPI={dpi} WA={wa} FormSize={w}x{h} Scale={_scale:F2}");
         }
 
+        // ── Paint: space background + dark card + subtle border ───────────────
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
-            DrawRedBorder(e.Graphics);
+            var g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+
+            int W = this.ClientSize.Width;
+            int H = this.ClientSize.Height;
+
+            // Outer form: deep space gradient
+            using (var bg = new LinearGradientBrush(
+                new Rectangle(0, 0, W, H),
+                Color.FromArgb(5, 5, 18),
+                Color.FromArgb(10, 5, 25),
+                LinearGradientMode.Vertical))
+            {
+                g.FillRectangle(bg, 0, 0, W, H);
+            }
+
+            // Subtle red glow at top-center (nebula effect)
+            int glowR = (int)(W * 0.35f);
+            using (var gp = new GraphicsPath())
+            {
+                gp.AddEllipse(W / 2 - glowR, -glowR / 2, glowR * 2, glowR);
+                using (var pgb = new PathGradientBrush(gp))
+                {
+                    pgb.CenterColor    = Color.FromArgb(60, 180, 0, 0);
+                    pgb.SurroundColors = new[] { Color.Transparent };
+                    g.FillPath(pgb, gp);
+                }
+            }
+
+            // Dark card with rounded corners
+            int cardPad = (int)(18 * _scale);
+            var cardRect = new Rectangle(cardPad, cardPad, W - cardPad * 2, H - cardPad * 2);
+            int radius   = (int)(22 * _scale);
+            using (var cardPath = RoundedRect(cardRect, radius))
+            using (var cardBrush = new SolidBrush(Color.FromArgb(210, 12, 12, 28)))
+            {
+                g.FillPath(cardBrush, cardPath);
+            }
+
+            // Card border: subtle dark grey with slight glow
+            using (var cardPath = RoundedRect(cardRect, radius))
+            using (var borderPen = new Pen(Color.FromArgb(80, 80, 100, 130), 1.5f))
+            {
+                g.DrawPath(borderPen, cardPath);
+            }
         }
 
         // ── Build UI ──────────────────────────────────────────────────────────
@@ -221,23 +271,28 @@ namespace WindowsFormsApp1
         {
             int W = this.ClientSize.Width;
             int H = this.ClientSize.Height;
-            BuildHeader(W);
-            BuildDeviceRow(W);
-            int contentTop = HEADER_H + DEVICE_ROW_H + (int)(4 * _scale);
-            BuildContentArea(W, H, contentTop);
-            BuildFooter(W, H);
+            int cardPad = (int)(18 * _scale);
+
+            BuildHeader(W, cardPad);
+            BuildMeterSection(W, H, cardPad);
+            BuildDeviceButtons(W, H, cardPad);
+            BuildFooter(W, H, cardPad);
+            BuildWindowButtons(W, cardPad);
+            BuildHiddenTrackBars(); // keep audio logic wired
         }
 
         // ── Header ────────────────────────────────────────────────────────────
-        private void BuildHeader(int W)
+        private void BuildHeader(int W, int cardPad)
         {
-            int logoSz = (int)(120 * _scale);
-            int logoY  = (HEADER_H - logoSz) / 2;
-            int logoX  = SIDE_PAD;
+            int headerH = (int)(90 * _scale);
+            int logoH   = (int)(64 * _scale);
+            int logoW   = (int)(160 * _scale);
+            int logoX   = cardPad + (int)(28 * _scale);
+            int logoY   = cardPad + (headerH - logoH) / 2;
 
             _logoBox = new PictureBox
             {
-                Bounds    = new Rectangle(logoX, logoY, logoSz, logoSz),
+                Bounds    = new Rectangle(logoX, logoY, logoW, logoH),
                 SizeMode  = PictureBoxSizeMode.Zoom,
                 BackColor = Color.Transparent
             };
@@ -245,66 +300,54 @@ namespace WindowsFormsApp1
             this.Controls.Add(_logoBox);
             AttachDrag(_logoBox);
 
-            _lblVoiceSolution = new Label
+            // Tagline centered in header
+            _lblTagline = new Label
             {
-                Text      = "Voice Solution",
+                Text      = "The Geniusness Is In The Simplicity",
                 ForeColor = Color.White,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(18f), FontStyle.Bold),
-                AutoSize  = true,
-                Location  = new Point(logoX + logoSz + (int)(8 * _scale), logoY + (logoSz / 2) - (int)(12 * _scale))
-            };
-            this.Controls.Add(_lblVoiceSolution);
-            AttachDrag(_lblVoiceSolution);
-
-            _lblAudioDashboard = new Label
-            {
-                Text      = "Audio Dashboard",
-                ForeColor = TEXT_WHITE,
-                BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(28f), FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(22f), FontStyle.Bold),
                 AutoSize  = true
             };
-            this.Controls.Add(_lblAudioDashboard);
-            int dashW = TextRenderer.MeasureText(_lblAudioDashboard.Text, _lblAudioDashboard.Font).Width;
-            int dashH = TextRenderer.MeasureText(_lblAudioDashboard.Text, _lblAudioDashboard.Font).Height;
-            int dashX = (W - dashW) / 2;
-            int dashY = (HEADER_H / 2) - (int)(24 * _scale);
-            _lblAudioDashboard.Location = new Point(dashX, dashY);
-            AttachDrag(_lblAudioDashboard);
+            this.Controls.Add(_lblTagline);
+            AttachDrag(_lblTagline);
+            int tagW = TextRenderer.MeasureText(_lblTagline.Text, _lblTagline.Font).Width;
+            int tagH = TextRenderer.MeasureText(_lblTagline.Text, _lblTagline.Font).Height;
+            _lblTagline.Location = new Point((W - tagW) / 2, cardPad + (headerH - tagH) / 2);
 
+            // Agent name (hidden, kept for heartbeat logic)
             _lblAgentName = new Label
             {
                 Text      = "Agent: " + AppSettings.Instance.AgentName,
-                ForeColor = TEXT_WHITE,
+                ForeColor = Color.Transparent,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(14f), FontStyle.Bold),
-                AutoSize  = true
+                Font      = new Font("Segoe UI", SF(11f), FontStyle.Regular),
+                AutoSize  = true,
+                Location  = new Point(-500, -500)
             };
             this.Controls.Add(_lblAgentName);
-            int agentW = TextRenderer.MeasureText(_lblAgentName.Text, _lblAgentName.Font).Width;
-            int agentY = dashY + dashH + (int)(6 * _scale);
-            _lblAgentName.Location = new Point((W - agentW) / 2, agentY);
-            AttachDrag(_lblAgentName);
+        }
 
-            // ── Window buttons — moved INWARD from border ─────────────────────
-            int btnSz = (int)(34 * _scale);
-            int btnMargin = (int)(16 * _scale);  // inset from edge (was 12)
-            int btnY  = btnMargin;
+        // ── Window buttons ────────────────────────────────────────────────────
+        private void BuildWindowButtons(int W, int cardPad)
+        {
+            int btnSz     = (int)(30 * _scale);
+            int btnMargin = cardPad + (int)(10 * _scale);
+            int btnY      = cardPad + (int)(10 * _scale);
 
             _btnClose = new Button
             {
                 Text      = "\u2715",
                 FlatStyle = FlatStyle.Flat,
                 ForeColor = Color.White,
-                BackColor = Color.FromArgb(55, 55, 55),
-                Font      = new Font("Segoe UI", SF(12f), FontStyle.Bold),
+                BackColor = Color.FromArgb(55, 55, 65),
+                Font      = new Font("Segoe UI", SF(11f), FontStyle.Bold),
                 Bounds    = new Rectangle(W - btnSz - btnMargin, btnY, btnSz, btnSz),
                 Cursor    = Cursors.Hand,
                 TabStop   = false
             };
             _btnClose.FlatAppearance.BorderSize = 0;
-            _btnClose.FlatAppearance.MouseOverBackColor = Color.FromArgb(180, 0, 0);
+            _btnClose.FlatAppearance.MouseOverBackColor = Color.FromArgb(200, 0, 0);
             _btnClose.Click += (s, e) => Application.Exit();
             this.Controls.Add(_btnClose);
 
@@ -313,20 +356,20 @@ namespace WindowsFormsApp1
                 Text      = "\u2212",
                 FlatStyle = FlatStyle.Flat,
                 ForeColor = Color.White,
-                BackColor = Color.FromArgb(55, 55, 55),
-                Font      = new Font("Segoe UI", SF(12f), FontStyle.Bold),
-                Bounds    = new Rectangle(W - btnSz * 2 - btnMargin - (int)(6 * _scale), btnY, btnSz, btnSz),
+                BackColor = Color.FromArgb(55, 55, 65),
+                Font      = new Font("Segoe UI", SF(11f), FontStyle.Bold),
+                Bounds    = new Rectangle(W - btnSz * 2 - btnMargin - (int)(8 * _scale), btnY, btnSz, btnSz),
                 Cursor    = Cursors.Hand,
                 TabStop   = false
             };
             _btnMinimize.FlatAppearance.BorderSize = 0;
-            _btnMinimize.FlatAppearance.MouseOverBackColor = Color.FromArgb(90, 90, 90);
+            _btnMinimize.FlatAppearance.MouseOverBackColor = Color.FromArgb(80, 80, 90);
             _btnMinimize.Click += (s, e) => { this.WindowState = FormWindowState.Minimized; };
             this.Controls.Add(_btnMinimize);
 
             this.MouseDown += (s, e) =>
             {
-                if (e.Button == MouseButtons.Left && e.Y < HEADER_H)
+                if (e.Button == MouseButtons.Left && e.Y < (int)(90 * _scale) + (int)(18 * _scale))
                 {
                     ReleaseCapture();
                     SendMessage(this.Handle, WM_NCLBUTTONDOWN, HTCAPTION, 0);
@@ -334,500 +377,695 @@ namespace WindowsFormsApp1
             };
         }
 
-        private void AttachDrag(Control c)
+        // ── Meter section ─────────────────────────────────────────────────────
+        private void BuildMeterSection(int W, int H, int cardPad)
         {
-            c.MouseDown += (s, e) =>
+            int headerH    = (int)(90 * _scale);
+            int sectionTop = cardPad + headerH + (int)(18 * _scale);
+
+            // Separator line under header
+            var sepLine = new Panel
             {
-                if (e.Button == MouseButtons.Left)
+                Bounds    = new Rectangle(cardPad + (int)(40 * _scale), cardPad + headerH + (int)(4 * _scale),
+                                          W - cardPad * 2 - (int)(80 * _scale), 1),
+                BackColor = Color.FromArgb(60, 80, 100, 130)
+            };
+            this.Controls.Add(sepLine);
+
+            // Meter diameter
+            int meterDiam = (int)(Math.Min(W * 0.17f, 200 * _scale));
+            if (meterDiam < 120) meterDiam = 120;
+
+            // Footer + button area height
+            int footerH  = (int)(44 * _scale);
+            int btnAreaH = (int)(90 * _scale);
+            int dbCtrlH  = (int)(38 * _scale);
+            int lblH     = (int)(28 * _scale);
+
+            // Available height for meter section
+            int availH   = H - sectionTop - btnAreaH - footerH - (int)(30 * _scale);
+
+            // Section label heights
+            int sectionLblH = (int)(24 * _scale);
+            int dividerH    = (int)(20 * _scale);
+
+            // Meter top within section
+            int meterTop = sectionTop + sectionLblH + dividerH + (int)(16 * _scale);
+
+            // Total width for 4 meters
+            int totalW   = W - cardPad * 2 - (int)(60 * _scale);
+            int meterSpacing = totalW / 4;
+            int meterX0  = cardPad + (int)(30 * _scale) + (meterSpacing - meterDiam) / 2;
+
+            // ── Section divider labels ─────────────────────────────────────────
+            // Left section: "WHAT THE AGENT HEARS"
+            // Right section: "WHAT THE CUSTOMER HEARS"
+            int midX = W / 2;
+
+            BuildSectionLabel(cardPad + (int)(30 * _scale), sectionTop,
+                              midX - cardPad - (int)(30 * _scale),
+                              "WHAT THE ", "AGENT", " HEARS",
+                              Color.FromArgb(200, 200, 200), ONE_RED);
+
+            BuildSectionLabel(midX + (int)(10 * _scale), sectionTop,
+                              W - midX - cardPad - (int)(30 * _scale),
+                              "WHAT THE ", "CUSTOMER", " HEARS",
+                              Color.FromArgb(200, 200, 200), METER_GREEN);
+
+            // Vertical divider line between sections
+            var vDiv = new Panel
+            {
+                Bounds    = new Rectangle(midX - 1, sectionTop, 2, meterDiam + lblH + dbCtrlH + (int)(50 * _scale)),
+                BackColor = Color.FromArgb(50, 80, 100, 130)
+            };
+            this.Controls.Add(vDiv);
+
+            // ── 4 Meters ──────────────────────────────────────────────────────
+            // 0: Customer Voice (RED)
+            // 1: Customer Recordings (BLUE)
+            // 2: Agent Voice (PURPLE)
+            // 3: Agent Recordings (GREEN)
+            string[] labels = { "CUSTOMER VOICE", "CUSTOMER RECORDINGS", "AGENT VOICE", "AGENT RECORDINGS" };
+            Color[]  colors = { METER_RED, METER_BLUE, METER_PURPLE, METER_GREEN };
+            string[] keys   = { "customerVoice", "agentScript_left", "myMicLevel", "agentScript" };
+
+            for (int i = 0; i < 4; i++)
+            {
+                int mx = cardPad + (int)(30 * _scale) + i * meterSpacing + (meterSpacing - meterDiam) / 2;
+                int my = meterTop;
+
+                // Circular meter panel
+                var meter = BuildCircularMeter(mx, my, meterDiam, colors[i], keys[i]);
+
+                // Label below meter
+                int labelY = my + meterDiam + (int)(12 * _scale);
+                var lbl = new Label
                 {
-                    ReleaseCapture();
-                    SendMessage(this.Handle, WM_NCLBUTTONDOWN, HTCAPTION, 0);
-                }
-            };
-        }
-
-        // ── Device row ────────────────────────────────────────────────────────
-        private void BuildDeviceRow(int W)
-        {
-            int top   = HEADER_H + (int)(8 * _scale);
-            int dropW = (int)(W * 0.42f);
-            int labelH = (int)(28 * _scale);
-            int cboH   = (int)(40 * _scale);
-            int cboGap = (int)(6 * _scale);
-
-            _lblMicLabel = new Label
-            {
-                Text      = "Microphone",
-                ForeColor = TEXT_WHITE,
-                BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(18f), FontStyle.Bold),
-                AutoSize  = true
-            };
-            this.Controls.Add(_lblMicLabel);
-            int micLblW = TextRenderer.MeasureText(_lblMicLabel.Text, _lblMicLabel.Font).Width;
-            _lblMicLabel.Location = new Point(SIDE_PAD + (dropW - micLblW) / 2, top);
-
-            _cboMic = new ComboBox
-            {
-                Bounds        = new Rectangle(SIDE_PAD, top + labelH + cboGap, dropW, cboH),
-                DropDownStyle = ComboBoxStyle.DropDownList,
-                BackColor     = ONE_BLUE_SEL,
-                ForeColor     = Color.White,
-                FlatStyle     = FlatStyle.Flat,
-                Font          = new Font("Segoe UI", SF(16f), FontStyle.Bold)
-            };
-            _cboMic.SelectedIndexChanged += (s, e) =>
-            {
-                _cboMic.BackColor = ONE_BLUE_SEL;
-                _cboMic.ForeColor = Color.White;
-                AppSettings.Instance.MicDevice = _cboMic.Text;
-                AppSettings.Instance.Save();
-                StartAudioCapture(_cboMic.Text);
-            };
-            this.Controls.Add(_cboMic);
-
-            int rightX = W - SIDE_PAD - dropW;
-            _lblHeadsetLabel = new Label
-            {
-                Text      = "Headset / Speaker",
-                ForeColor = TEXT_WHITE,
-                BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(18f), FontStyle.Bold),
-                AutoSize  = true
-            };
-            this.Controls.Add(_lblHeadsetLabel);
-            int hsLblW = TextRenderer.MeasureText(_lblHeadsetLabel.Text, _lblHeadsetLabel.Font).Width;
-            _lblHeadsetLabel.Location = new Point(rightX + (dropW - hsLblW) / 2, top);
-
-            _cboHeadset = new ComboBox
-            {
-                Bounds        = new Rectangle(rightX, top + labelH + cboGap, dropW, cboH),
-                DropDownStyle = ComboBoxStyle.DropDownList,
-                BackColor     = ONE_BLUE_SEL,
-                ForeColor     = Color.White,
-                FlatStyle     = FlatStyle.Flat,
-                Font          = new Font("Segoe UI", SF(16f), FontStyle.Bold)
-            };
-            // NOTE: SelectedIndexChanged handler is added in PopulateDevices()
-            // after the render device list is captured, so we can do name-based lookup.
-            this.Controls.Add(_cboHeadset);
-        }
-
-        // ── Content area ──────────────────────────────────────────────────────
-        private void BuildContentArea(int W, int H, int top)
-        {
-            int footerTop = H - FOOTER_H - (int)(10 * _scale);
-            int taglineH  = (int)(30 * _scale);
-            int taglineGap = (int)(10 * _scale);
-            int availH    = footerTop - top - taglineH - taglineGap;
-
-            int videoW    = (int)(W * 0.38f);
-            int sideW     = (W - SIDE_PAD * 2 - VIDEO_GAP * 2 - videoW) / 2;
-            if (sideW < 160) sideW = 160;
-            int videoLeft = SIDE_PAD + sideW + VIDEO_GAP;
-
-            int videoH   = (int)(availH * 0.85f);
-            if (videoH < 160) videoH = 160;
-            int videoTop = top + (int)(6 * _scale);
-
-            int panelTop = top + (int)(6 * _scale);
-            int panelH   = videoH;
-
-            _videoPanel = new Panel
-            {
-                Bounds    = new Rectangle(videoLeft, videoTop, videoW, videoH),
-                BackColor = Color.Black
-            };
-            this.Controls.Add(_videoPanel);
-
-            try
-            {
-                int wmpExtraH = 80;
-                _videoPlayer = new AxWMPLib.AxWindowsMediaPlayer
-                {
-                    Bounds = new Rectangle(0, 0, videoW, videoH + wmpExtraH)
+                    Text      = labels[i],
+                    ForeColor = Color.White,
+                    BackColor = Color.Transparent,
+                    Font      = new Font("Segoe UI", SF(11f), FontStyle.Bold),
+                    AutoSize  = false,
+                    TextAlign = ContentAlignment.MiddleCenter,
+                    Bounds    = new Rectangle(mx - (int)(10 * _scale), labelY,
+                                              meterDiam + (int)(20 * _scale), lblH)
                 };
-                _videoPanel.Controls.Add(_videoPlayer);
-                _videoPanel.AutoScroll = false;
-                _videoPanel.AutoSize   = false;
+                this.Controls.Add(lbl);
 
-                string videoPath = Path.Combine(
-                    AppDomain.CurrentDomain.BaseDirectory, "Resources", "1ONEDigitalVideo.mp4");
-                if (File.Exists(videoPath))
-                {
-                    _videoFilePath = videoPath;
-                    _wmpExtraH     = wmpExtraH;
-                    _videoPlayer.PlayStateChange += (s2, e2) =>
-                    {
-                        Action fix = () =>
-                        {
-                            try { if (_videoPlayer.uiMode != "none") _videoPlayer.uiMode = "none"; } catch { }
-                            if (e2.newState == 1) { try { _videoPlayer.Ctlcontrols.play(); } catch { } }
-                        };
-                        if (this.InvokeRequired) this.BeginInvoke(fix); else fix();
-                    };
-                }
-                else
-                {
-                    Log.Warn($"[Video] File not found: {videoPath}");
-                }
+                // [–] [dB] [+] controls
+                int ctrlY = labelY + lblH + (int)(4 * _scale);
+                BuildDbControl(mx, ctrlY, meterDiam, colors[i], i);
             }
-            catch (Exception ex) { Log.Warn($"[Video] WMP failed: {ex.Message}"); }
-
-            // Side panels
-            BuildSidePanel(SIDE_PAD, panelTop, sideW, panelH, isLeft: true);
-            int rightX = videoLeft + videoW + VIDEO_GAP;
-            BuildSidePanel(rightX, panelTop, sideW, panelH, isLeft: false);
-
-            // Tagline below video
-            int tagY = videoTop + videoH + taglineGap;
-            _lblTagline = new Label
-            {
-                Text      = "\u201c The Geniusness Is In The Simplicity \u201d",
-                ForeColor = ONE_RED,
-                BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(16f), FontStyle.Bold),
-                AutoSize  = true
-            };
-            this.Controls.Add(_lblTagline);
-            int tagW = TextRenderer.MeasureText(_lblTagline.Text, _lblTagline.Font).Width;
-            _lblTagline.Location = new Point(videoLeft + (videoW - tagW) / 2, tagY);
         }
 
-        // ── Side panel ────────────────────────────────────────────────────────
-        // Layout: Title + Subtitle (centered between dropdown bottom and first meter label)
-        //         → meter1 block → meter2 block → hint at bottom
-        private void BuildSidePanel(int x, int top, int w, int panelH, bool isLeft)
+        // ── Section label with colored keyword ────────────────────────────────
+        private void BuildSectionLabel(int x, int y, int w,
+                                       string prefix, string keyword, string suffix,
+                                       Color baseColor, Color keyColor)
         {
-            string title      = isLeft ? "AGENT AUDIO"          : "CUSTOMER OUTPUT";
-            string sub        = isLeft ? "(What You Hear)"       : "(What They Hear)";
-            string m1Label    = isLeft ? "Customer Voice"        : "My Voice Level";
-            string m2Label    = "Script Playback";
-            string volLblText = isLeft ? "Customer Voice Volume" : "My Voice Volume";
+            // We render this as a single owner-draw panel for exact color control
+            var font     = new Font("Segoe UI", SF(11f), FontStyle.Bold);
+            int prefW    = TextRenderer.MeasureText(prefix,  font).Width;
+            int keyW     = TextRenderer.MeasureText(keyword, font).Width;
+            int sufW     = TextRenderer.MeasureText(suffix,  font).Width;
+            int totalTW  = prefW + keyW + sufW;
+            int textH    = TextRenderer.MeasureText(keyword, font).Height;
 
-            // ── Font sizes for measurement ────────────────────────────────────
-            var titleFont = new Font("Segoe UI", SF(19f), FontStyle.Bold);
-            var subFont   = new Font("Segoe UI", SF(15f), FontStyle.Bold);
-            var lblFont   = new Font("Segoe UI", SF(15f), FontStyle.Bold);
-            var volFont   = new Font("Segoe UI", SF(14f), FontStyle.Bold);
-            var hintFont  = new Font("Segoe UI", SF(12f), FontStyle.Regular);
-
-            int titleH = TextRenderer.MeasureText(title, titleFont).Height;
-            int subH   = TextRenderer.MeasureText(sub, subFont).Height;
-            int lblH   = TextRenderer.MeasureText(m1Label, lblFont).Height;
-            int volH   = TextRenderer.MeasureText("Volume", volFont).Height;
-            int hintH  = TextRenderer.MeasureText("hint", hintFont).Height;
-            int barH   = METER_H;
-            int trkH   = (int)(24 * _scale);
-            int smallGap = (int)(4 * _scale);
-
-            // One meter block height = lblH + smallGap + barH + smallGap + volH + trkH
-            int meterBlockH = lblH + smallGap + barH + smallGap + volH + trkH;
-
-            // Title + sub height
-            int headerZoneH = titleH + subH;
-            int footerZoneH = hintH;
-
-            // Available space for the two meter blocks (after title/sub and hint)
-            int availForMeters = panelH - headerZoneH - footerZoneH;
-            // Gap between header zone and first meter, between meters, and after second meter
-            int meterGap = Math.Max((int)(8 * _scale), (availForMeters - 2 * meterBlockH) / 3);
-
-            // ── Title + Subtitle: centered between panel top and first meter label ──
-            // The first meter label starts at: top + headerZoneH + meterGap
-            // So center the title+sub in the space from 'top' to 'top + headerZoneH + meterGap'
-            int titleZoneAvail = headerZoneH + meterGap;
-            int titleBlockH = titleH + subH;
-            int titleStartY = top + (titleZoneAvail - titleBlockH) / 2;
-
-            var lblTitle = new Label
+            // Left divider line + text + right divider line
+            var panel = new Panel
             {
-                Text      = title,
-                ForeColor = ONE_RED,
-                BackColor = Color.Transparent,
-                Font      = titleFont,
-                AutoSize  = true,
-                Location  = new Point(x, titleStartY)
+                Bounds    = new Rectangle(x, y, w, textH + (int)(8 * _scale)),
+                BackColor = Color.Transparent
             };
-            this.Controls.Add(lblTitle);
-
-            var lblSub = new Label
+            string pref = prefix, kw = keyword, suf = suffix;
+            Color bc = baseColor, kc = keyColor;
+            panel.Paint += (s, e) =>
             {
-                Text      = sub,
-                ForeColor = TEXT_WHITE,
-                BackColor = Color.Transparent,
-                Font      = subFont,
-                AutoSize  = true,
-                Location  = new Point(x, titleStartY + titleH)
+                var g = e.Graphics;
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                int pw = panel.Width;
+                int ph = panel.Height;
+                int textY = (ph - textH) / 2;
+
+                // Center text block
+                int startX = (pw - totalTW) / 2;
+
+                // Left line
+                int lineY = ph / 2;
+                using (var pen = new Pen(Color.FromArgb(80, 150, 150, 170), 1f))
+                {
+                    g.DrawLine(pen, 0, lineY, startX - (int)(8 * _scale), lineY);
+                    g.DrawLine(pen, startX + totalTW + (int)(8 * _scale), lineY, pw, lineY);
+                }
+
+                // Text segments
+                TextRenderer.DrawText(g, pref, font, new Point(startX, textY), bc);
+                TextRenderer.DrawText(g, kw,   font, new Point(startX + prefW, textY), kc);
+                TextRenderer.DrawText(g, suf,  font, new Point(startX + prefW + keyW, textY), bc);
             };
-            this.Controls.Add(lblSub);
-
-            // ── Meter 1 starts after the header zone + first gap ──────────────
-            int cy = top + headerZoneH + meterGap;
-
-            var lm1 = new Label
-            {
-                Text      = m1Label,
-                ForeColor = TEXT_WHITE,
-                BackColor = Color.Transparent,
-                Font      = lblFont,
-                AutoSize  = true,
-                Location  = new Point(x, cy)
-            };
-            this.Controls.Add(lm1);
-            cy += lblH + smallGap;
-
-            MakeMeterBar(x, cy, w, isLeft ? "customerVoice" : "myMicLevel");
-            cy += barH + smallGap;
-
-            // Volume label + % + slider
-            var lv1 = new Label
-            {
-                Text      = volLblText,
-                ForeColor = TEXT_WHITE,
-                BackColor = Color.Transparent,
-                Font      = volFont,
-                AutoSize  = true,
-                Location  = new Point(x, cy)
-            };
-            this.Controls.Add(lv1);
-
-            // LEFT = agent hears = speaker volume; RIGHT = customer hears = mic volume
-            int pctDefault1 = isLeft ? AppSettings.Instance.SpeakerSystemVolume : AppSettings.Instance.MicSystemVolume;
-            pctDefault1 = Math.Max(0, Math.Min(100, pctDefault1));
-            var lp1 = new Label
-            {
-                Text      = $"{pctDefault1}%",
-                ForeColor = ONE_RED,
-                BackColor = Color.Transparent,
-                Font      = volFont,
-                AutoSize  = true
-            };
-            this.Controls.Add(lp1);
-            int pctW1 = TextRenderer.MeasureText(lp1.Text, lp1.Font).Width;
-            lp1.Location = new Point(x + w - pctW1, cy);
-            cy += volH;
-
-            var trk1 = new TrackBar
-            {
-                Minimum   = 0,
-                Maximum   = 100,
-                Value     = pctDefault1,
-                TickStyle = TickStyle.None,
-                Bounds    = new Rectangle(x, cy, w, trkH),
-                BackColor = BG_DARK
-            };
-            trk1.ValueChanged += (s, e) =>
-            {
-                lp1.Text = $"{trk1.Value}%";
-                int pw = TextRenderer.MeasureText(lp1.Text, lp1.Font).Width;
-                lp1.Location = new Point(x + w - pw, lp1.Location.Y);
-                try {
-                    if (isLeft)
-                    {
-                        // Customer Voice Volume: scales the loopback meter display only.
-                        // Same as original AudioService.incomingAudioVolume — does NOT
-                        // change Windows system volume (which would also affect recordings).
-                        _customerVoiceVolume = trk1.Value / 100f;
-                        AppSettings.Instance.SpeakerSystemVolume = trk1.Value;
-                    }
-                    else
-                    {
-                        // Mic Input Volume: Windows capture gain for the mic device
-                        if (_activeMicDevice != null)
-                            _activeMicDevice.AudioEndpointVolume.MasterVolumeLevelScalar = trk1.Value / 100f;
-                        AppSettings.Instance.MicSystemVolume = trk1.Value;
-                    }
-                } catch { }
-                AppSettings.Instance.Save();
-            };
-            this.Controls.Add(trk1);
-            if (isLeft) { _trkSpeakerVol = trk1; _lblSpeakerVol = lp1; }
-            else { _trkMicVol = trk1; _lblMicVol = lp1; }
-            cy += trkH;
-
-            // ── Meter 2 ──────────────────────────────────────────────────────
-            cy += meterGap;
-
-            var lm2 = new Label
-            {
-                Text      = m2Label,
-                ForeColor = TEXT_WHITE,
-                BackColor = Color.Transparent,
-                Font      = lblFont,
-                AutoSize  = true,
-                Location  = new Point(x, cy)
-            };
-            this.Controls.Add(lm2);
-            cy += lblH + smallGap;
-
-            MakeMeterBar(x, cy, w, isLeft ? "agentScript" : "customerScript");
-            cy += barH + smallGap;
-
-            var lv2 = new Label
-            {
-                Text      = "Script Playback Volume",
-                ForeColor = TEXT_WHITE,
-                BackColor = Color.Transparent,
-                Font      = volFont,
-                AutoSize  = true,
-                Location  = new Point(x, cy)
-            };
-            this.Controls.Add(lv2);
-
-            int trk2Default = isLeft
-                ? (int)(AppSettings.Instance.GetVolume("agentScript", 0.48f) * 100)
-                : (int)(AppSettings.Instance.GetVolume("customerScript", 0.55f) * 100);
-            trk2Default = Math.Max(0, Math.Min(100, trk2Default));
-
-            var lp2 = new Label
-            {
-                Text      = $"{trk2Default}%",
-                ForeColor = ONE_RED,
-                BackColor = Color.Transparent,
-                Font      = volFont,
-                AutoSize  = true
-            };
-            this.Controls.Add(lp2);
-            int pctW2 = TextRenderer.MeasureText(lp2.Text, lp2.Font).Width;
-            lp2.Location = new Point(x + w - pctW2, cy);
-            cy += volH;
-
-            var trk2 = new TrackBar
-            {
-                Minimum   = 0,
-                Maximum   = 100,
-                Value     = trk2Default,
-                TickStyle = TickStyle.None,
-                Bounds    = new Rectangle(x, cy, w, trkH),
-                BackColor = BG_DARK
-            };
-            trk2.ValueChanged += (s, e) =>
-            {
-                lp2.Text = $"{trk2.Value}%";
-                int pw = TextRenderer.MeasureText(lp2.Text, lp2.Font).Width;
-                lp2.Location = new Point(x + w - pw, lp2.Location.Y);
-                float vol = trk2.Value / 100f;
-                if (isLeft)
-                    AppSettings.Instance.SetVolume("agentScript", vol);
-                else
-                    AppSettings.Instance.SetVolume("customerScript", vol);
-                AppSettings.Instance.Save();
-                LocalBridgeServer.Instance.SetVolume(isLeft ? "agent" : "customer", trk2.Value);
-            };
-            this.Controls.Add(trk2);
-            if (isLeft)  { _trkAgentScriptVol    = trk2; _lblAgentScriptVol    = lp2; }
-            else         { _trkCustomerScriptVol = trk2; _lblCustomerScriptVol = lp2; }
-            cy += trkH;
-
-            // ── Hint at bottom of panel ───────────────────────────────────────
-            int hintY = top + panelH - hintH - (int)(4 * _scale);
-            var lblHint = new Label
-            {
-                Text      = "Adjust sliders to control volume levels",
-                ForeColor = Color.FromArgb(160, 160, 160),
-                BackColor = Color.Transparent,
-                Font      = hintFont,
-                AutoSize  = true
-            };
-            this.Controls.Add(lblHint);
-            int hintW = TextRenderer.MeasureText(lblHint.Text, lblHint.Font).Width;
-            lblHint.Location = new Point(x + (w - hintW) / 2, hintY);
+            this.Controls.Add(panel);
         }
 
-        private Panel MakeMeterBar(int x, int y, int w, string key)
+        // ── Circular meter panel ──────────────────────────────────────────────
+        private Panel BuildCircularMeter(int x, int y, int diam, Color meterColor, string key)
         {
             var panel = new Panel
             {
-                Bounds    = new Rectangle(x, y, w, METER_H),
+                Bounds    = new Rectangle(x, y, diam, diam),
                 BackColor = Color.Transparent,
                 Tag       = key
             };
-            panel.Paint += (s, e) => DrawVUMeter(e.Graphics, (Panel)s, key);
+
+            Color mc = meterColor;
+            panel.Paint += (s, e) => DrawDialMeter(e.Graphics, (Panel)s, mc, key);
             this.Controls.Add(panel);
+
             switch (key)
             {
-                case "myMicLevel":    _myMicMeterLeft      = panel; break;
-                case "customerVoice": _customerVoiceMeter  = panel; break;
-                case "agentScript":   _agentScriptMeter    = panel; break;
-                case "customerScript":_customerScriptMeter = panel; break;
+                case "myMicLevel":      _myMicMeterLeft      = panel; break;
+                case "customerVoice":   _customerVoiceMeter  = panel; break;
+                case "agentScript":     _agentScriptMeter    = panel; break;
+                case "agentScript_left":_customerScriptMeter = panel; break;
             }
             return panel;
         }
 
-        // ── Segmented VU bar ──────────────────────────────────────────────────
-        private void DrawVUMeter(Graphics g, Panel panel, string key)
+        // ── Draw circular dial VU meter ───────────────────────────────────────
+        private void DrawDialMeter(Graphics g, Panel panel, Color meterColor, string key)
         {
-            int w    = panel.Width;
-            int h    = panel.Height;
-            int segs = METER_SEGS;
-            int gap  = 2;
-            int segW = Math.Max(2, (w - gap * (segs - 1)) / segs);
-            float level  = GetLevel(key);
-            int   litCnt = (int)(level * segs);
-            for (int i = 0; i < segs; i++)
+            g.SmoothingMode     = SmoothingMode.AntiAlias;
+            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+
+            int W    = panel.Width;
+            int H    = panel.Height;
+            int cx   = W / 2;
+            int cy   = H / 2;
+            int r    = Math.Min(W, H) / 2 - 4;
+
+            float level = GetLevel(key);
+
+            // ── Outer ring: dark metallic ──────────────────────────────────────
+            using (var outerBrush = new SolidBrush(Color.FromArgb(30, 30, 40)))
+                g.FillEllipse(outerBrush, cx - r, cy - r, r * 2, r * 2);
+
+            // Outer ring gradient (metallic rim)
+            using (var rimPath = new GraphicsPath())
             {
-                int   sx   = i * (segW + gap);
-                bool  lit  = i < litCnt;
-                bool  peak = lit && i >= (int)(segs * 0.85f);
-                Color fill = lit ? (peak ? SEG_PEAK : SEG_ON) : SEG_OFF;
-                using (var b = new SolidBrush(fill))
-                    g.FillRectangle(b, sx, 0, segW, h);
+                rimPath.AddEllipse(cx - r, cy - r, r * 2, r * 2);
+                using (var pgb = new PathGradientBrush(rimPath))
+                {
+                    pgb.CenterPoint  = new PointF(cx, cy);
+                    pgb.CenterColor  = Color.Transparent;
+                    pgb.SurroundColors = new[] { Color.FromArgb(120, 60, 60, 70) };
+                    g.FillPath(pgb, rimPath);
+                }
             }
-            using (var pen = new Pen(Color.FromArgb(20, 20, 40), 1f))
-                g.DrawRectangle(pen, 0, 0, w - 1, h - 1);
+
+            // ── Tick marks (arc from ~210° to ~330° = 300° sweep) ─────────────
+            float startAngle = 135f;   // bottom-left
+            float sweepAngle = 270f;   // 270° sweep
+            int   numTicks   = 36;
+            int   rTick      = r - 2;
+            int   rTickIn    = r - (int)(r * 0.14f);
+
+            for (int t = 0; t <= numTicks; t++)
+            {
+                float angle = startAngle + (sweepAngle / numTicks) * t;
+                float rad   = (float)(angle * Math.PI / 180.0);
+                float fx1   = cx + rTick * (float)Math.Cos(rad);
+                float fy1   = cy + rTick * (float)Math.Sin(rad);
+                float fx2   = cx + rTickIn * (float)Math.Cos(rad);
+                float fy2   = cy + rTickIn * (float)Math.Sin(rad);
+
+                // Lit ticks glow in meter color, unlit are dark
+                float tickFrac = (float)t / numTicks;
+                bool  lit      = tickFrac <= level;
+                Color tickCol  = lit
+                    ? Color.FromArgb(220, meterColor)
+                    : Color.FromArgb(50, 60, 65, 75);
+
+                bool isMajor = (t % 6 == 0);
+                float tickW  = isMajor ? 2.5f : 1.2f;
+                if (lit && isMajor) tickW = 3f;
+
+                using (var pen = new Pen(tickCol, tickW))
+                    g.DrawLine(pen, fx1, fy1, fx2, fy2);
+            }
+
+            // ── Glow arc (lit portion) ─────────────────────────────────────────
+            if (level > 0.01f)
+            {
+                int arcR = r - (int)(r * 0.08f);
+                var arcRect = new RectangleF(cx - arcR, cy - arcR, arcR * 2, arcR * 2);
+                float litSweep = sweepAngle * level;
+                using (var glowPen = new Pen(Color.FromArgb(180, meterColor), 3.5f))
+                {
+                    glowPen.LineJoin = LineJoin.Round;
+                    g.DrawArc(glowPen, arcRect, startAngle, litSweep);
+                }
+                // Outer soft glow
+                using (var glowPen2 = new Pen(Color.FromArgb(60, meterColor), 7f))
+                    g.DrawArc(glowPen2, arcRect, startAngle, litSweep);
+            }
+
+            // ── Inner dark circle ──────────────────────────────────────────────
+            int innerR = (int)(r * 0.72f);
+            using (var innerBrush = new LinearGradientBrush(
+                new Rectangle(cx - innerR, cy - innerR, innerR * 2, innerR * 2),
+                Color.FromArgb(22, 22, 35),
+                Color.FromArgb(10, 10, 20),
+                LinearGradientMode.ForwardDiagonal))
+            {
+                g.FillEllipse(innerBrush, cx - innerR, cy - innerR, innerR * 2, innerR * 2);
+            }
+
+            // Inner ring subtle glow
+            using (var innerRimPen = new Pen(Color.FromArgb(60, meterColor), 1.5f))
+                g.DrawEllipse(innerRimPen, cx - innerR, cy - innerR, innerR * 2, innerR * 2);
+
+            // ── dB value text ──────────────────────────────────────────────────
+            // Convert level (0–1) to dB for display: 0 = –∞, 1 = 0 dB
+            float dbVal = level > 0.001f
+                ? (float)(20.0 * Math.Log10(level))
+                : -60f;
+            dbVal = Math.Max(-60f, Math.Min(0f, dbVal));
+            string dbStr = dbVal <= -59f ? "–∞" : ((int)dbVal).ToString();
+
+            // Large number
+            float numSize = SF(28f) * (innerR / 60f);
+            numSize = Math.Max(SF(14f), Math.Min(SF(32f), numSize));
+            using (var numFont = new Font("Segoe UI", numSize, FontStyle.Bold))
+            {
+                var numSz  = TextRenderer.MeasureText(dbStr, numFont);
+                int numX   = cx - numSz.Width / 2 - (int)(numSize * 0.3f);
+                int numY   = cy - numSz.Height / 2 - (int)(2 * _scale);
+                Color numCol = level > 0.01f ? meterColor : Color.FromArgb(120, 120, 140);
+                TextRenderer.DrawText(g, dbStr, numFont,
+                    new Point(numX, numY), numCol);
+
+                // "dB" subscript
+                float subSize = SF(10f);
+                using (var subFont = new Font("Segoe UI", subSize, FontStyle.Bold))
+                {
+                    int subX = numX + numSz.Width - (int)(numSize * 0.2f);
+                    int subY = numY + (int)(numSize * 0.3f);
+                    TextRenderer.DrawText(g, "dB", subFont, new Point(subX, subY),
+                        Color.FromArgb(180, numCol));
+                }
+            }
+
+            // "dB" label below center
+            float lblSize = SF(9f);
+            using (var lblFont2 = new Font("Segoe UI", lblSize, FontStyle.Regular))
+            {
+                var lblSz = TextRenderer.MeasureText("dB", lblFont2);
+                TextRenderer.DrawText(g, "dB", lblFont2,
+                    new Point(cx - lblSz.Width / 2, cy + innerR / 3),
+                    Color.FromArgb(140, 150, 155));
+            }
+
+            // ── Needle ────────────────────────────────────────────────────────
+            float needleAngle = startAngle + sweepAngle * level;
+            float needleRad   = (float)(needleAngle * Math.PI / 180.0);
+            int   needleLen   = (int)(innerR * 0.78f);
+            float nx2 = cx + needleLen * (float)Math.Cos(needleRad);
+            float ny2 = cy + needleLen * (float)Math.Sin(needleRad);
+
+            using (var needlePen = new Pen(Color.FromArgb(220, meterColor), 2.0f))
+                g.DrawLine(needlePen, cx, cy, nx2, ny2);
+
+            // Needle pivot dot
+            int pivotR = (int)(3 * _scale);
+            using (var pivotBrush = new SolidBrush(Color.FromArgb(200, meterColor)))
+                g.FillEllipse(pivotBrush, cx - pivotR, cy - pivotR, pivotR * 2, pivotR * 2);
         }
 
-        private float GetLevel(string key)
+        // ── [–] [dB] [+] control row ──────────────────────────────────────────
+        private void BuildDbControl(int meterX, int y, int meterW, Color accentColor, int channelIndex)
         {
-            switch (key)
+            // Sizing — slightly smaller than original to be subtle
+            int btnW  = (int)(28 * _scale);   // ~10% smaller than 32
+            int btnH  = (int)(28 * _scale);
+            int valW  = (int)(54 * _scale);
+            int totalW = btnW + valW + btnW + (int)(6 * _scale);
+            int startX = meterX + (meterW - totalW) / 2;
+            int gap    = (int)(3 * _scale);
+
+            // [–] button
+            var btnMinus = new Button
             {
-                case "myMicLevel":    return _micLevel;
-                case "customerVoice": return _customerVoiceLevel;
-                case "agentScript":   return _agentScriptLevel;
-                case "customerScript":return _customerScriptLevel;
-                default: return 0f;
+                Text      = "–",
+                FlatStyle = FlatStyle.Flat,
+                ForeColor = Color.White,
+                BackColor = Color.FromArgb(28, 28, 42),
+                Font      = new Font("Segoe UI", SF(13f), FontStyle.Bold),
+                Bounds    = new Rectangle(startX, y, btnW, btnH),
+                Cursor    = Cursors.Hand,
+                TabStop   = false
+            };
+            btnMinus.FlatAppearance.BorderColor = Color.FromArgb(80, accentColor);
+            btnMinus.FlatAppearance.BorderSize  = 1;
+            // Idle: low glow; Hover: strong glow
+            btnMinus.FlatAppearance.MouseOverBackColor = Color.FromArgb(60, accentColor);
+            ApplyButtonGlow(btnMinus, accentColor, idle: true);
+
+            // Value label
+            var lblVal = new Label
+            {
+                Text      = GetDbText(channelIndex),
+                ForeColor = Color.White,
+                BackColor = Color.FromArgb(20, 20, 35),
+                Font      = new Font("Segoe UI", SF(12f), FontStyle.Bold),
+                TextAlign = ContentAlignment.MiddleCenter,
+                Bounds    = new Rectangle(startX + btnW + gap, y, valW, btnH)
+            };
+
+            // [+] button
+            var btnPlus = new Button
+            {
+                Text      = "+",
+                FlatStyle = FlatStyle.Flat,
+                ForeColor = Color.White,
+                BackColor = Color.FromArgb(28, 28, 42),
+                Font      = new Font("Segoe UI", SF(13f), FontStyle.Bold),
+                Bounds    = new Rectangle(startX + btnW + gap + valW + gap, y, btnW, btnH),
+                Cursor    = Cursors.Hand,
+                TabStop   = false
+            };
+            btnPlus.FlatAppearance.BorderColor = Color.FromArgb(80, accentColor);
+            btnPlus.FlatAppearance.BorderSize  = 1;
+            btnPlus.FlatAppearance.MouseOverBackColor = Color.FromArgb(60, accentColor);
+            ApplyButtonGlow(btnPlus, accentColor, idle: true);
+
+            // Store dB label reference
+            switch (channelIndex)
+            {
+                case 0: _lblDbCustomerVoice   = lblVal; break;
+                case 1: _lblDbCustomerScript  = lblVal; break;
+                case 2: _lblDbAgentVoice      = lblVal; break;
+                case 3: _lblDbAgentScript     = lblVal; break;
             }
+
+            // Wire up click handlers
+            int ch = channelIndex;
+            Label lv = lblVal;
+            btnMinus.Click += (s, e) => AdjustDb(ch, -1, lv);
+            btnPlus.Click  += (s, e) => AdjustDb(ch, +1, lv);
+
+            // Hover glow effect
+            AttachHoverGlow(btnMinus, accentColor);
+            AttachHoverGlow(btnPlus,  accentColor);
+
+            this.Controls.Add(btnMinus);
+            this.Controls.Add(lblVal);
+            this.Controls.Add(btnPlus);
+        }
+
+        private string GetDbText(int channelIndex)
+        {
+            int db;
+            switch (channelIndex)
+            {
+                case 0:  db = _dbCustomerVoice;  break;
+                case 1:  db = _dbCustomerScript; break;
+                case 2:  db = _dbAgentVoice;     break;
+                case 3:  db = _dbAgentScript;    break;
+                default: db = -3;                break;
+            }
+            return db.ToString();
+        }
+
+        private void AdjustDb(int channelIndex, int delta, Label lblVal)
+        {
+            switch (channelIndex)
+            {
+                case 0:
+                    _dbCustomerVoice = Math.Max(-20, Math.Min(6, _dbCustomerVoice + delta));
+                    lblVal.Text = _dbCustomerVoice.ToString();
+                    _customerVoiceVolume = DbToLinear(_dbCustomerVoice);
+                    AppSettings.Instance.SpeakerSystemVolume = DbToPercent(_dbCustomerVoice);
+                    break;
+                case 1:
+                    _dbCustomerScript = Math.Max(-20, Math.Min(6, _dbCustomerScript + delta));
+                    lblVal.Text = _dbCustomerScript.ToString();
+                    AppSettings.Instance.SetVolume("agentScript", DbToLinear(_dbCustomerScript));
+                    LocalBridgeServer.Instance.SetVolume("agent", DbToPercent(_dbCustomerScript));
+                    break;
+                case 2:
+                    _dbAgentVoice = Math.Max(-20, Math.Min(6, _dbAgentVoice + delta));
+                    lblVal.Text = _dbAgentVoice.ToString();
+                    if (_activeMicDevice != null)
+                        try { _activeMicDevice.AudioEndpointVolume.MasterVolumeLevelScalar = DbToLinear(_dbAgentVoice); } catch { }
+                    AppSettings.Instance.MicSystemVolume = DbToPercent(_dbAgentVoice);
+                    break;
+                case 3:
+                    _dbAgentScript = Math.Max(-20, Math.Min(6, _dbAgentScript + delta));
+                    lblVal.Text = _dbAgentScript.ToString();
+                    AppSettings.Instance.SetVolume("customerScript", DbToLinear(_dbAgentScript));
+                    LocalBridgeServer.Instance.SetVolume("customer", DbToPercent(_dbAgentScript));
+                    break;
+            }
+            AppSettings.Instance.Save();
+        }
+
+        private static float DbToLinear(int db) => (float)Math.Pow(10.0, db / 20.0);
+        private static int   DbToPercent(int db) => (int)(DbToLinear(db) * 100f);
+
+        private void ApplyButtonGlow(Button btn, Color accent, bool idle)
+        {
+            // Idle: very subtle border glow only
+            int alpha = idle ? 55 : 160;
+            btn.FlatAppearance.BorderColor = Color.FromArgb(alpha, accent);
+        }
+
+        private void AttachHoverGlow(Button btn, Color accent)
+        {
+            btn.MouseEnter += (s, e) =>
+            {
+                btn.FlatAppearance.BorderColor = Color.FromArgb(200, accent);
+                btn.BackColor = Color.FromArgb(45, accent);
+            };
+            btn.MouseLeave += (s, e) =>
+            {
+                btn.FlatAppearance.BorderColor = Color.FromArgb(55, accent);
+                btn.BackColor = Color.FromArgb(28, 28, 42);
+            };
+        }
+
+        // ── Device buttons ────────────────────────────────────────────────────
+        private void BuildDeviceButtons(int W, int H, int cardPad)
+        {
+            int footerH  = (int)(44 * _scale);
+            int btnAreaH = (int)(90 * _scale);
+            int btnH     = (int)(58 * _scale);
+            int btnW     = (int)(Math.Min(W * 0.30f, 340 * _scale));
+            int btnY     = H - footerH - btnAreaH + (btnAreaH - btnH) / 2;
+            int gap      = (int)(30 * _scale);
+            int totalBtnW = btnW * 2 + gap;
+            int btnX0    = (W - totalBtnW) / 2;
+
+            // SELECT MICROPHONE — red glow
+            var btnMic = new Button
+            {
+                FlatStyle = FlatStyle.Flat,
+                ForeColor = Color.White,
+                BackColor = Color.FromArgb(18, 18, 30),
+                Font      = new Font("Segoe UI", SF(14f), FontStyle.Bold),
+                Bounds    = new Rectangle(btnX0, btnY, btnW, btnH),
+                Cursor    = Cursors.Hand,
+                TabStop   = false,
+                Text      = "  \uD83C\uDF99  SELECT MICROPHONE   \u2304"
+            };
+            btnMic.FlatAppearance.BorderColor = METER_RED;
+            btnMic.FlatAppearance.BorderSize  = 2;
+            btnMic.FlatAppearance.MouseOverBackColor = Color.FromArgb(40, 180, 0, 0);
+            AttachDeviceButtonHover(btnMic, METER_RED);
+            btnMic.Click += (s, e) => ShowMicDropdown(btnMic);
+            this.Controls.Add(btnMic);
+
+            // SELECT SPEAKER — blue glow
+            var btnSpk = new Button
+            {
+                FlatStyle = FlatStyle.Flat,
+                ForeColor = Color.White,
+                BackColor = Color.FromArgb(18, 18, 30),
+                Font      = new Font("Segoe UI", SF(14f), FontStyle.Bold),
+                Bounds    = new Rectangle(btnX0 + btnW + gap, btnY, btnW, btnH),
+                Cursor    = Cursors.Hand,
+                TabStop   = false,
+                Text      = "  \uD83D\uDD0A  SELECT SPEAKER   \u2304"
+            };
+            btnSpk.FlatAppearance.BorderColor = METER_BLUE;
+            btnSpk.FlatAppearance.BorderSize  = 2;
+            btnSpk.FlatAppearance.MouseOverBackColor = Color.FromArgb(40, 0, 120, 200);
+            AttachDeviceButtonHover(btnSpk, METER_BLUE);
+            btnSpk.Click += (s, e) => ShowSpeakerDropdown(btnSpk);
+            this.Controls.Add(btnSpk);
+
+            // Store references for PopulateDevices
+            _cboMic     = new ComboBox { Visible = false, Location = new Point(-500, -500), Width = 1 };
+            _cboHeadset = new ComboBox { Visible = false, Location = new Point(-500, -500), Width = 1 };
+            this.Controls.Add(_cboMic);
+            this.Controls.Add(_cboHeadset);
+
+            // Keep button text updated after device selection
+            _cboMic.SelectedIndexChanged += (s, e) =>
+            {
+                if (_cboMic.SelectedIndex >= 0)
+                    btnMic.Text = "  \uD83C\uDF99  " + TruncateDevice(_cboMic.Text, 22) + "   \u2304";
+            };
+            _cboHeadset.SelectedIndexChanged += (s, e) =>
+            {
+                if (_cboHeadset.SelectedIndex >= 0)
+                    btnSpk.Text = "  \uD83D\uDD0A  " + TruncateDevice(_cboHeadset.Text, 22) + "   \u2304";
+            };
+        }
+
+        private string TruncateDevice(string name, int maxLen)
+        {
+            if (string.IsNullOrEmpty(name)) return name;
+            return name.Length > maxLen ? name.Substring(0, maxLen) + "…" : name;
+        }
+
+        private void AttachDeviceButtonHover(Button btn, Color accent)
+        {
+            btn.MouseEnter += (s, e) =>
+            {
+                btn.FlatAppearance.BorderColor = Color.FromArgb(255, accent);
+                btn.BackColor = Color.FromArgb(30, accent);
+            };
+            btn.MouseLeave += (s, e) =>
+            {
+                btn.FlatAppearance.BorderColor = accent;
+                btn.BackColor = Color.FromArgb(18, 18, 30);
+            };
+        }
+
+        private void ShowMicDropdown(Button anchor)
+        {
+            var ctx = new ContextMenuStrip();
+            ctx.BackColor = Color.FromArgb(22, 22, 38);
+            ctx.ForeColor = Color.White;
+            ctx.Font      = new Font("Segoe UI", SF(11f), FontStyle.Regular);
+            foreach (string item in _cboMic.Items)
+            {
+                string it = item;
+                var mi = new ToolStripMenuItem(it)
+                {
+                    ForeColor = Color.White,
+                    BackColor = Color.FromArgb(22, 22, 38)
+                };
+                mi.Click += (s, e) =>
+                {
+                    int idx = _cboMic.Items.IndexOf(it);
+                    if (idx >= 0) _cboMic.SelectedIndex = idx;
+                };
+                ctx.Items.Add(mi);
+            }
+            ctx.Show(anchor, new Point(0, anchor.Height));
+        }
+
+        private void ShowSpeakerDropdown(Button anchor)
+        {
+            var ctx = new ContextMenuStrip();
+            ctx.BackColor = Color.FromArgb(22, 22, 38);
+            ctx.ForeColor = Color.White;
+            ctx.Font      = new Font("Segoe UI", SF(11f), FontStyle.Regular);
+            foreach (string item in _cboHeadset.Items)
+            {
+                string it = item;
+                var mi = new ToolStripMenuItem(it)
+                {
+                    ForeColor = Color.White,
+                    BackColor = Color.FromArgb(22, 22, 38)
+                };
+                mi.Click += (s, e) =>
+                {
+                    int idx = _cboHeadset.Items.IndexOf(it);
+                    if (idx >= 0) _cboHeadset.SelectedIndex = idx;
+                };
+                ctx.Items.Add(mi);
+            }
+            ctx.Show(anchor, new Point(0, anchor.Height));
         }
 
         // ── Footer ────────────────────────────────────────────────────────────
-        private void BuildFooter(int W, int H)
+        private void BuildFooter(int W, int H, int cardPad)
         {
-            int fy = H - FOOTER_H - (int)(8 * _scale);
-            _lblFooterLeft = new Label
-            {
-                Text      = $"ONE United Global  \u2022  2026  \u2022  v{APP_VERSION}",
-                ForeColor = TEXT_WHITE,
-                BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(13f), FontStyle.Bold),
-                AutoSize  = true,
-                Location  = new Point(SIDE_PAD, fy + (FOOTER_H / 2) - (int)(10 * _scale))
-            };
-            this.Controls.Add(_lblFooterLeft);
+            int footerH = (int)(44 * _scale);
+            int fy      = H - cardPad - footerH;
 
             _lblFooterCenter = new Label
             {
-                Text      = "This App Can Be Minimized  \u2022  Settings Are Auto-Saved",
-                ForeColor = TEXT_WHITE,
+                Text      = "One United Global LLC 2026.  V 7.31",
+                ForeColor = Color.FromArgb(160, 165, 175),
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(13f), FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(11f), FontStyle.Regular),
                 AutoSize  = true
             };
             this.Controls.Add(_lblFooterCenter);
             int fcW = TextRenderer.MeasureText(_lblFooterCenter.Text, _lblFooterCenter.Font).Width;
-            _lblFooterCenter.Location = new Point((W - fcW) / 2, fy + (FOOTER_H / 2) - (int)(10 * _scale));
+            int fcH = TextRenderer.MeasureText(_lblFooterCenter.Text, _lblFooterCenter.Font).Height;
+            _lblFooterCenter.Location = new Point((W - fcW) / 2, fy + (footerH - fcH) / 2);
         }
 
-        // ── Red border — 5px ──────────────────────────────────────────────────
-        private void DrawRedBorder(Graphics g)
+        // ── Hidden TrackBars (audio logic compatibility) ───────────────────────
+        private void BuildHiddenTrackBars()
         {
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            int W = this.ClientSize.Width, H = this.ClientSize.Height;
-            float penW = 5f;
-            float half = penW / 2f;
-            using (var pen = new Pen(ONE_RED, penW))
+            // These are required by the audio logic (StartAudioCapture, PopulateDevices).
+            // They are hidden off-screen and never shown.
+            _trkMicVol = new TrackBar
             {
-                g.DrawRectangle(pen, half, half, W - penW, H - penW);
+                Minimum = 0, Maximum = 100,
+                Value   = Math.Max(0, Math.Min(100, AppSettings.Instance.MicSystemVolume)),
+                Bounds  = new Rectangle(-2000, -2000, 100, 20),
+                Visible = false
+            };
+            _lblMicVol = new Label { Bounds = new Rectangle(-2000, -2000, 60, 20), Visible = false };
+            _trkSpeakerVol = new TrackBar
+            {
+                Minimum = 0, Maximum = 100,
+                Value   = Math.Max(0, Math.Min(100, AppSettings.Instance.SpeakerSystemVolume)),
+                Bounds  = new Rectangle(-2000, -2000, 100, 20),
+                Visible = false
+            };
+            _lblSpeakerVol = new Label { Bounds = new Rectangle(-2000, -2000, 60, 20), Visible = false };
+
+            int agentDefault    = (int)(AppSettings.Instance.GetVolume("agentScript",    0.48f) * 100);
+            int customerDefault = (int)(AppSettings.Instance.GetVolume("customerScript", 0.55f) * 100);
+            agentDefault    = Math.Max(0, Math.Min(100, agentDefault));
+            customerDefault = Math.Max(0, Math.Min(100, customerDefault));
+
+            _trkAgentScriptVol = new TrackBar
+            {
+                Minimum = 0, Maximum = 100, Value = agentDefault,
+                Bounds  = new Rectangle(-2000, -2000, 100, 20), Visible = false
+            };
+            _lblAgentScriptVol = new Label { Bounds = new Rectangle(-2000, -2000, 60, 20), Visible = false };
+            _trkCustomerScriptVol = new TrackBar
+            {
+                Minimum = 0, Maximum = 100, Value = customerDefault,
+                Bounds  = new Rectangle(-2000, -2000, 100, 20), Visible = false
+            };
+            _lblCustomerScriptVol = new Label { Bounds = new Rectangle(-2000, -2000, 60, 20), Visible = false };
+
+            this.Controls.AddRange(new Control[] {
+                _trkMicVol, _lblMicVol, _trkSpeakerVol, _lblSpeakerVol,
+                _trkAgentScriptVol, _lblAgentScriptVol,
+                _trkCustomerScriptVol, _lblCustomerScriptVol
+            });
+        }
+
+        // ── Level getter ──────────────────────────────────────────────────────
+        private float GetLevel(string key)
+        {
+            switch (key)
+            {
+                case "myMicLevel":      return _micLevel;
+                case "customerVoice":   return _customerVoiceLevel;
+                case "agentScript":     return _agentScriptLevel;
+                case "agentScript_left":return _customerScriptLevel;
+                default: return 0f;
             }
         }
 
@@ -853,7 +1091,7 @@ namespace WindowsFormsApp1
                 {
                     this.ShowInTaskbar = false;
                     _trayIcon.ShowBalloonTip(2000, "ONE Voice Solution",
-                        "Minimized to tray \u2014 double-click to restore.", ToolTipIcon.Info);
+                        "Minimized to tray — double-click to restore.", ToolTipIcon.Info);
                 }
             };
         }
@@ -864,41 +1102,6 @@ namespace WindowsFormsApp1
             this.WindowState   = FormWindowState.Normal;
             this.BringToFront();
             this.Activate();
-        }
-
-        // ── Video playback ────────────────────────────────────────────────────
-        private void StartVideoPlayback()
-        {
-            if (_videoPlayer == null || string.IsNullOrEmpty(_videoFilePath)) return;
-            var t = new System.Windows.Forms.Timer { Interval = 500 };
-            t.Tick += (ts, te) =>
-            {
-                t.Stop();
-                try
-                {
-                    _videoPlayer.settings.volume    = 0;
-                    _videoPlayer.settings.autoStart = true;
-                    _videoPlayer.settings.setMode("loop", true);
-                    _videoPlayer.stretchToFit       = true;
-                    _videoPlayer.uiMode             = "none";
-                    _videoPlayer.URL                = _videoFilePath;
-                    var t2 = new System.Windows.Forms.Timer { Interval = 700 };
-                    t2.Tick += (ts2, te2) =>
-                    {
-                        t2.Stop();
-                        try
-                        {
-                            _videoPlayer.uiMode = "none";
-                            if (_videoPlayer.playState != WMPLib.WMPPlayState.wmppsPlaying)
-                                _videoPlayer.Ctlcontrols.play();
-                        }
-                        catch (Exception ex2) { Log.Warn("[Video] play() failed: " + ex2.Message); }
-                    };
-                    t2.Start();
-                }
-                catch (Exception ex) { Log.Warn("[Video] StartVideoPlayback failed: " + ex.Message); }
-            };
-            t.Start();
         }
 
         // ── Meter timer ───────────────────────────────────────────────────────
@@ -919,7 +1122,7 @@ namespace WindowsFormsApp1
                 }
                 if (_agentScriptLevel > 0)
                 {
-                    _agentScriptLevel = Math.Max(0f, _agentScriptLevel - 0.008f); // slow decay — meter loop fires every 75ms
+                    _agentScriptLevel = Math.Max(0f, _agentScriptLevel - 0.008f);
                     _agentScriptMeter?.Invalidate();
                 }
                 if (_customerScriptLevel > 0)
@@ -932,13 +1135,8 @@ namespace WindowsFormsApp1
         }
 
         // ── Audio capture (microphone) ────────────────────────────────────────
-        // Starts two parallel audio pipelines from the selected microphone:
-        //   1. WasapiCapture  → "My Voice Level" meter only (no routing)
-        //   2. WaveInEvent → WaveInProvider → WaveOutEvent(CABLE) → JustCall/Kixie mic input
-        //      This is the pass-through that makes the agent's voice reach the customer.
         private void StartAudioCapture(string deviceName = null)
         {
-            // ─ Stop and dispose existing captures ─────────────────────────────────
             try { _micCapture?.StopRecording(); } catch { }
             try { _micCapture?.Dispose(); }       catch { }
             _micCapture = null;
@@ -977,7 +1175,6 @@ namespace WindowsFormsApp1
                     catch { }
                 }
 
-                // ─ Pipeline 1: WasapiCapture → "My Voice Level" meter ─────────────
                 _micCapture = new WasapiCapture(device, false);
                 _micCapture.DataAvailable += (s, e) =>
                 {
@@ -994,35 +1191,24 @@ namespace WindowsFormsApp1
                     _micLevel = Math.Min(1f, max * 4.0f);
                 };
                 _micCapture.StartRecording();
-
-                // ─ Pipeline 2: WaveInEvent → WaveOutEvent(CABLE) pass-through ──────
-                // Routes agent's live mic audio to VB-Cable Input so JustCall/Kixie
-                // can pick it up as the microphone input and send it to the customer.
                 StartMicPassThrough(device.FriendlyName);
             }
             catch (Exception ex) { Log.Warn($"[Audio] Capture failed: {ex.Message}"); }
         }
 
-        /// <summary>
-        /// Starts the mic pass-through: WaveInEvent → WaveInProvider → WaveOutEvent(CABLE).
-        /// Routes the agent's live voice to VB-Audio Cable Input so JustCall/Kixie
-        /// picks it up as the microphone and sends it to the customer.
-        /// </summary>
         private void StartMicPassThrough(string deviceFriendlyName)
         {
             int cableNum = LocalBridgeServer.Instance.CableDeviceNumber;
             if (cableNum < 0)
             {
-                Log.Warn("[PassThrough] VB-Cable not found — mic pass-through disabled. Customer will NOT hear agent voice.");
+                Log.Warn("[PassThrough] VB-Cable not found — mic pass-through disabled.");
                 return;
             }
 
-            // Find the WaveIn device number that matches the WASAPI device friendly name.
-            // WaveIn.GetCapabilities().ProductName is truncated to 31 chars by Windows.
             int waveInNum = FindWaveInDeviceNumber(deviceFriendlyName);
             if (waveInNum < 0)
             {
-                Log.Warn($"[PassThrough] Could not find WaveIn device for '{deviceFriendlyName}' — pass-through disabled.");
+                Log.Warn($"[PassThrough] Could not find WaveIn device for '{deviceFriendlyName}'.");
                 return;
             }
 
@@ -1031,7 +1217,7 @@ namespace WindowsFormsApp1
                 _micPassWaveIn = new WaveInEvent
                 {
                     DeviceNumber       = waveInNum,
-                    WaveFormat         = new WaveFormat(48000, 16, 2),  // 48kHz stereo — matches Jabra EVOLVE 20 native rate
+                    WaveFormat         = new WaveFormat(48000, 16, 2),
                     BufferMilliseconds = 50
                 };
                 var provider = new WaveInProvider(_micPassWaveIn);
@@ -1042,16 +1228,15 @@ namespace WindowsFormsApp1
                     DesiredLatency = 100
                 };
                 _micPassWaveOut.Init(provider);
-
                 _micPassWaveIn.StartRecording();
                 _micPassWaveOut.Play();
-                _micPassWaveOut.Volume = 1.0f;   // force 100% — Windows may default new audio sessions to near-zero
+                _micPassWaveOut.Volume = 1.0f;
 
-                Log.Info($"[PassThrough] Mic pass-through ACTIVE: WaveIn #{waveInNum} ('{deviceFriendlyName}') → WaveOut #{cableNum} (CABLE Input)");
+                Log.Info($"[PassThrough] ACTIVE: WaveIn #{waveInNum} ('{deviceFriendlyName}') → WaveOut #{cableNum} (CABLE)");
             }
             catch (Exception ex)
             {
-                Log.Warn($"[PassThrough] Failed to start mic pass-through: {ex.Message}");
+                Log.Warn($"[PassThrough] Failed: {ex.Message}");
                 try { _micPassWaveIn?.StopRecording(); } catch { }
                 try { _micPassWaveIn?.Dispose(); }       catch { }
                 _micPassWaveIn = null;
@@ -1061,11 +1246,6 @@ namespace WindowsFormsApp1
             }
         }
 
-        /// <summary>
-        /// Finds the WaveIn device number by matching against the WASAPI friendly name.
-        /// WaveIn.GetCapabilities().ProductName is truncated to 31 chars by Windows,
-        /// so we use prefix/substring matching (same approach as FindWaveOutDeviceNumber).
-        /// </summary>
         private int FindWaveInDeviceNumber(string targetDeviceName)
         {
             if (string.IsNullOrEmpty(targetDeviceName)) return -1;
@@ -1077,49 +1257,33 @@ namespace WindowsFormsApp1
             for (int i = 0; i < count; i++)
             {
                 string prod = WaveIn.GetCapabilities(i).ProductName.ToLower().Trim();
-                // Exact or substring match
                 if (target.Contains(prod) || prod.Contains(target))
                 {
-                    Log.Info($"[PassThrough] WaveIn #{i} ('{WaveIn.GetCapabilities(i).ProductName}'): MATCH");
+                    Log.Info($"[PassThrough] WaveIn #{i}: MATCH");
                     return i;
                 }
-                // Best prefix match (handles 31-char truncation)
                 int common = 0;
                 int minLen = Math.Min(target.Length, prod.Length);
                 for (int c = 0; c < minLen; c++) { if (target[c] == prod[c]) common++; else break; }
                 if (common > bestLen) { bestLen = common; bestIdx = i; }
             }
-            if (bestIdx >= 0 && bestLen >= 8)
-            {
-                Log.Info($"[PassThrough] WaveIn #{bestIdx} selected by prefix match (len={bestLen}) for '{targetDeviceName}'");
-                return bestIdx;
-            }
-            Log.Warn($"[PassThrough] No WaveIn match found for '{targetDeviceName}'");
+            if (bestIdx >= 0 && bestLen >= 8) return bestIdx;
+            Log.Warn($"[PassThrough] No WaveIn match for '{targetDeviceName}'");
             return -1;
         }
 
-        // ── Loopback capture: Customer Voice meter + monitor playback ────────────
-        // Loopback capture: meter-only. No monitor WaveOut playback.
-        // The original AudioService.waveOutSecond was for a SECOND separate speaker device.
-        // With a single headset, playing loopback back to the same device causes double voice.
-        // Customer Voice Volume controls Windows system volume (SetSpeakerVolume equivalent).
+        // ── Loopback capture ──────────────────────────────────────────────────
         private void StartLoopbackCapture()
         {
             try
             {
                 try { _loopbackCapture?.StopRecording(); _loopbackCapture?.Dispose(); } catch { }
                 _loopbackCapture = null;
-
                 _loopbackCapture = new WasapiLoopbackCapture();
-
                 _loopbackCapture.DataAvailable += (s, e) =>
                 {
                     if (e.BytesRecorded < 4) return;
-                    // Suppress meter during recording playback — loopback captures ALL system
-                    // audio including recordings, so we zero it out while a script is playing
-                    // to avoid the recording showing on the Customer Voice meter.
                     if (LocalBridgeServer.Instance.IsPlaying) { _customerVoiceLevel = 0f; return; }
-                    // Scale by _customerVoiceVolume (same as original incomingAudioVolume)
                     float max = 0f;
                     for (int i = 0; i + 4 <= e.BytesRecorded; i += 4)
                     {
@@ -1127,17 +1291,12 @@ namespace WindowsFormsApp1
                         if (sample > max) max = sample;
                     }
                     float level = Math.Min(1f, max * 3.5f);
-                    if (level > _customerVoiceLevel)
-                        _customerVoiceLevel = level;
+                    if (level > _customerVoiceLevel) _customerVoiceLevel = level;
                 };
-
                 _loopbackCapture.StartRecording();
-                Log.Info("[Audio] Loopback capture started (meter-only).");
+                Log.Info("[Audio] Loopback capture started.");
             }
-            catch (Exception ex)
-            {
-                Log.Warn($"[Audio] Loopback capture failed: {ex.Message}");
-            }
+            catch (Exception ex) { Log.Warn($"[Audio] Loopback failed: {ex.Message}"); }
         }
 
         // ── Device population ─────────────────────────────────────────────────
@@ -1163,49 +1322,42 @@ namespace WindowsFormsApp1
                     _cboHeadset.BackColor = ONE_BLUE_SEL;
                     _cboHeadset.ForeColor = Color.White;
 
-                    // Apply initial device selection
                     int selIdx = _cboHeadset.SelectedIndex;
                     if (selIdx >= 0 && selIdx < rends.Count)
                     {
                         _activeSpeakerDevice = rends[selIdx];
-                        // Use name-based lookup for WaveOut device number
                         int waveOutNum = FindWaveOutDeviceNumber(rends[selIdx].FriendlyName);
                         LocalBridgeServer.Instance.SetOutputDevice(waveOutNum);
                         Log.Info($"[Audio] Initial speaker: {rends[selIdx].FriendlyName} → WaveOut #{waveOutNum}");
                         try
                         {
                             int savedPct = AppSettings.Instance.SpeakerSystemVolume;
-                            // Restore Customer Voice Volume: meter scale factor only
                             _customerVoiceVolume = savedPct / 100f;
                             if (_trkSpeakerVol != null) { _trkSpeakerVol.Value = savedPct; if (_lblSpeakerVol != null) _lblSpeakerVol.Text = $"{savedPct}%"; }
                         }
                         catch { }
                     }
                 }
-                // Diagnostic: Log ALL found render devices to identify the cable name
-                foreach (var d in rends) 
+                foreach (var d in rends)
                     Log.Info($"[Audio] Render Device: '{d.FriendlyName}' | State: {d.State} | ID: {d.ID}");
 
-                _activeVBCableDevice = rends.FirstOrDefault(d => 
-                    d.FriendlyName.IndexOf("CABLE", StringComparison.OrdinalIgnoreCase) >= 0 || 
+                _activeVBCableDevice = rends.FirstOrDefault(d =>
+                    d.FriendlyName.IndexOf("CABLE",    StringComparison.OrdinalIgnoreCase) >= 0 ||
                     d.FriendlyName.IndexOf("VB-Audio", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    d.FriendlyName.IndexOf("Virtual", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    d.FriendlyName.IndexOf("Line ", StringComparison.OrdinalIgnoreCase) >= 0);
+                    d.FriendlyName.IndexOf("Virtual",  StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    d.FriendlyName.IndexOf("Line ",    StringComparison.OrdinalIgnoreCase) >= 0);
 
                 if (_activeVBCableDevice != null)
                 {
-                    Log.Info($"[Audio] VB-Cable identified: '{_activeVBCableDevice.FriendlyName}'");
+                    Log.Info($"[Audio] VB-Cable: '{_activeVBCableDevice.FriendlyName}'");
                     int cableNum = FindWaveOutDeviceNumber(_activeVBCableDevice.FriendlyName);
                     LocalBridgeServer.Instance.SetCableDevice(cableNum);
-                    Log.Info($"[Audio] VB-Cable WaveOut device #{cableNum} wired to bridge.");
                 }
                 else
                 {
-                    Log.Info("[Audio] No VB-Cable/Virtual device found. Customer-side script playback will be disabled on the desktop bridge.");
+                    Log.Info("[Audio] No VB-Cable found.");
                 }
 
-                // ── Headset dropdown change handler ──────────────────────────
-                // Uses name-based WaveOut device lookup instead of ComboBox index
                 _cboHeadset.SelectedIndexChanged += (s2, e2) =>
                 {
                     _cboHeadset.BackColor = ONE_BLUE_SEL;
@@ -1216,12 +1368,9 @@ namespace WindowsFormsApp1
                         _activeSpeakerDevice = rends[si];
                         AppSettings.Instance.HeadsetDevice = _cboHeadset.Text;
                         AppSettings.Instance.Save();
-
-                        // Name-based WaveOut device lookup (proven approach from AudioService)
                         int waveOutNum = FindWaveOutDeviceNumber(rends[si].FriendlyName);
                         LocalBridgeServer.Instance.SetOutputDevice(waveOutNum);
                         Log.Info($"[Audio] Speaker changed: {rends[si].FriendlyName} → WaveOut #{waveOutNum}");
-
                         try
                         {
                             float cur = _activeSpeakerDevice.AudioEndpointVolume.MasterVolumeLevelScalar;
@@ -1235,77 +1384,42 @@ namespace WindowsFormsApp1
             catch (Exception ex) { Log.Warn($"[Audio] Device enum: {ex.Message}"); }
         }
 
-        /// <summary>
-        /// Find the WaveOut device number by matching the device name.
-        /// WaveOut device numbers are NOT the same as WASAPI device indices.
-        /// This is the proven approach from AudioService.cs.
-        /// </summary>
         private int FindWaveOutDeviceNumber(string targetDeviceName)
         {
             if (string.IsNullOrEmpty(targetDeviceName)) return -1;
             string target = targetDeviceName.ToLower().Trim();
-            
             Log.Info($"[Audio] Finding WaveOut match for '{targetDeviceName}'");
-
             int count = WaveOut.DeviceCount;
             int bestIdx = -1;
             int bestScore = 0;
-
             for (int i = 0; i < count; i++)
             {
                 var capabilities = WaveOut.GetCapabilities(i);
                 string prod = capabilities.ProductName.ToLower().Trim();
-                
-                // 1. Exact or Substring match (Priority 1)
                 if (target.Contains(prod) || prod.Contains(target))
                 {
-                    Log.Info($"[Audio] WaveOut #{i} ('{capabilities.ProductName}'): MATCH (Priority 1)");
+                    Log.Info($"[Audio] WaveOut #{i}: MATCH");
                     return i;
                 }
-
-                // 2. Alphanumeric Prefix Match (Priority 2)
                 string targetAlpha = new string(target.Where(char.IsLetterOrDigit).ToArray());
                 string prodAlpha   = new string(prod.Where(char.IsLetterOrDigit).ToArray());
-
-                bool alphaMatch = targetAlpha.StartsWith(prodAlpha) || prodAlpha.StartsWith(targetAlpha);
-                int alphaScore = alphaMatch ? Math.Min(targetAlpha.Length, prodAlpha.Length) : 0;
-
-                // 3. Word-level similarity (Priority 3)
-                char[] sep = new char[] { ' ', '(', ')', '-', '/', '[', ']', ',', '.' };
+                bool alphaMatch    = targetAlpha.StartsWith(prodAlpha) || prodAlpha.StartsWith(targetAlpha);
+                int alphaScore     = alphaMatch ? Math.Min(targetAlpha.Length, prodAlpha.Length) : 0;
+                char[] sep         = new char[] { ' ', '(', ')', '-', '/', '[', ']', ',', '.' };
                 string[] prodWords   = prod.Split(sep,   StringSplitOptions.RemoveEmptyEntries);
                 string[] targetWords = target.Split(sep, StringSplitOptions.RemoveEmptyEntries);
-                
                 int wordMatches = 0;
                 foreach (var pw in prodWords)
                 {
-                    if (pw.Length < 3)
-                    {
-                        if (targetWords.Contains(pw)) wordMatches++;
-                        continue;
-                    }
-                    if (targetWords.Any(tw => tw.StartsWith(pw) || pw.StartsWith(tw)))
-                        wordMatches++;
+                    if (pw.Length < 3) { if (targetWords.Contains(pw)) wordMatches++; continue; }
+                    if (targetWords.Any(tw => tw.StartsWith(pw) || pw.StartsWith(tw))) wordMatches++;
                 }
-
-                int wordScore = wordMatches * 5;
+                int wordScore    = wordMatches * 5;
                 int currentScore = Math.Max(alphaScore, wordScore);
-                
-                Log.Info($"[Audio] WaveOut #{i} ('{capabilities.ProductName}'): WordMatch={wordMatches} AlphaMatch={alphaMatch} Score={currentScore}");
-
-                if (currentScore > bestScore)
-                {
-                    bestScore = currentScore;
-                    bestIdx = i;
-                }
+                if (currentScore > bestScore) { bestScore = currentScore; bestIdx = i; }
             }
-
-            if (bestIdx >= 0 && bestScore >= 5)
-            {
-                Log.Info($"[Audio] SELECTED WaveOut #{bestIdx} (Score: {bestScore}) for '{targetDeviceName}'");
-                return bestIdx;
-            }
-
-            Log.Warn($"[Audio] NO MATCH found for '{targetDeviceName}', using default (-1)");
+            if (bestIdx >= 0 && bestScore >= 5) return bestIdx;
+            Log.Warn($"[Audio] No WaveOut match for '{targetDeviceName}'");
             return -1;
         }
 
@@ -1320,14 +1434,12 @@ namespace WindowsFormsApp1
                 {
                     if (channel == "agent")
                     {
-                        if (level > _agentScriptLevel)
-                            _agentScriptLevel = level;
+                        if (level > _agentScriptLevel) _agentScriptLevel = level;
                         _agentScriptMeter?.Invalidate();
                     }
                     else
                     {
-                        if (level > _customerScriptLevel)
-                            _customerScriptLevel = level;
+                        if (level > _customerScriptLevel) _customerScriptLevel = level;
                         _customerScriptMeter?.Invalidate();
                     }
                 };
@@ -1342,10 +1454,6 @@ namespace WindowsFormsApp1
                     _customerScriptLevel = 0f;
                     _agentScriptMeter?.Invalidate();
                     _customerScriptMeter?.Invalidate();
-                    // Restart mic pass-through after recording ends.
-                    // The recording's WaveOut on CABLE Input is disposed when playback stops,
-                    // which disrupts the pass-through WaveOut on the same device.
-                    // Re-starting it clears the stale buffer and restores clean mic routing.
                     if (_activeMicDevice != null)
                     {
                         try { _micPassWaveIn?.StopRecording(); }  catch { }
@@ -1355,21 +1463,17 @@ namespace WindowsFormsApp1
                         try { _micPassWaveOut?.Dispose(); } catch { }
                         _micPassWaveOut = null;
                         StartMicPassThrough(_activeMicDevice.FriendlyName);
-                        Log.Info("[PassThrough] Restarted mic pass-through after recording stopped.");
+                        Log.Info("[PassThrough] Restarted after recording stopped.");
                     }
                 };
                 if (this.InvokeRequired) this.BeginInvoke(reset); else reset();
             };
 
-            // Push saved slider values into the bridge BEFORE first playback.
-            // Without this, the bridge uses hardcoded defaults (agent=80, customer=100)
-            // regardless of where the sliders are set.
             int savedAgent    = (int)(AppSettings.Instance.GetVolume("agentScript",    0.48f) * 100);
             int savedCustomer = (int)(AppSettings.Instance.GetVolume("customerScript", 0.55f) * 100);
             bridge.SetInitialVolume("agent",    savedAgent);
             bridge.SetInitialVolume("customer", savedCustomer);
-            Log.Info($"[Audio] Initial volumes pushed to bridge: agent={savedAgent}% customer={savedCustomer}%");
-
+            Log.Info($"[Audio] Initial volumes: agent={savedAgent}% customer={savedCustomer}%");
             bridge.Start();
         }
 
@@ -1381,7 +1485,7 @@ namespace WindowsFormsApp1
             if (string.Equals(machineId, OWNER_UUID, StringComparison.OrdinalIgnoreCase))
             {
                 if (_lblAgentName != null) _lblAgentName.Text = "Agent: Owner";
-                Log.Info("[License] Owner machine \u2014 bypassed.");
+                Log.Info("[License] Owner machine — bypassed.");
                 return;
             }
             string key = AppSettings.Instance.LicenseKey;
@@ -1394,12 +1498,7 @@ namespace WindowsFormsApp1
                 {
                     AppSettings.Instance.AgentName = name;
                     AppSettings.Instance.Save();
-                    if (_lblAgentName != null)
-                    {
-                        _lblAgentName.Text = "Agent: " + name;
-                        int agentW = TextRenderer.MeasureText(_lblAgentName.Text, _lblAgentName.Font).Width;
-                        _lblAgentName.Location = new Point((this.ClientSize.Width - agentW) / 2, _lblAgentName.Location.Y);
-                    }
+                    if (_lblAgentName != null) _lblAgentName.Text = "Agent: " + name;
                 }
                 HeartbeatService.Instance.Start();
             }
@@ -1429,6 +1528,22 @@ namespace WindowsFormsApp1
         private void LoadSettings()
         {
             var s = AppSettings.Instance;
+            // Restore dB values from saved volume percentages
+            int micPct     = Math.Max(1, Math.Min(200, s.MicSystemVolume));
+            int spkPct     = Math.Max(1, Math.Min(200, s.SpeakerSystemVolume));
+            int agentPct   = Math.Max(1, (int)(s.GetVolume("agentScript",    0.48f) * 100));
+            int custPct    = Math.Max(1, (int)(s.GetVolume("customerScript", 0.55f) * 100));
+            _dbAgentVoice      = LinearToDb(micPct   / 100f);
+            _dbCustomerVoice   = LinearToDb(spkPct   / 100f);
+            _dbCustomerScript  = LinearToDb(agentPct / 100f);
+            _dbAgentScript     = LinearToDb(custPct  / 100f);
+        }
+
+        private static int LinearToDb(float linear)
+        {
+            if (linear <= 0.001f) return -20;
+            int db = (int)Math.Round(20.0 * Math.Log10(linear));
+            return Math.Max(-20, Math.Min(6, db));
         }
 
         // ── Logo ──────────────────────────────────────────────────────────────
@@ -1438,8 +1553,21 @@ namespace WindowsFormsApp1
             string oneLogo    = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "one_logo.png");
             string logoPath   = (!string.IsNullOrEmpty(agencyLogo) && File.Exists(agencyLogo))
                 ? agencyLogo : oneLogo;
-            if (File.Exists(logoPath))
+            if (File.Exists(logoPath) && _logoBox != null)
                 _logoBox.Image = Image.FromFile(logoPath);
+        }
+
+        // ── Drag support ──────────────────────────────────────────────────────
+        private void AttachDrag(Control c)
+        {
+            c.MouseDown += (s, e) =>
+            {
+                if (e.Button == MouseButtons.Left)
+                {
+                    ReleaseCapture();
+                    SendMessage(this.Handle, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+                }
+            };
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────
