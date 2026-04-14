@@ -215,7 +215,7 @@ namespace WindowsFormsApp1
             Log.Info($"[UI] Screen={screen.DeviceName} DPI={dpi} WA={wa} FormSize={w}x{h} Scale={_scale:F2}");
         }
 
-        // ── Paint: space background + dark card + subtle border ───────────────
+        // ── Paint: space background + dark card + horizontal glow flare ─────────
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
@@ -225,45 +225,93 @@ namespace WindowsFormsApp1
             int W = this.ClientSize.Width;
             int H = this.ClientSize.Height;
 
-            // Outer form: deep space gradient
-            using (var bg = new LinearGradientBrush(
-                new Rectangle(0, 0, W, H),
-                Color.FromArgb(5, 5, 18),
-                Color.FromArgb(10, 5, 25),
-                LinearGradientMode.Vertical))
-            {
-                g.FillRectangle(bg, 0, 0, W, H);
-            }
+            // ── Outer form: pure deep space black ─────────────────────────────
+            g.FillRectangle(new SolidBrush(Color.FromArgb(4, 4, 10)), 0, 0, W, H);
 
-            // Subtle red glow at top-center (nebula effect)
-            int glowR = (int)(W * 0.35f);
+            // ── Dark card with rounded corners ────────────────────────────────
+            int cardPad  = (int)(18 * _scale);
+            var cardRect = new Rectangle(cardPad, cardPad, W - cardPad * 2, H - cardPad * 2);
+            int radius   = (int)(22 * _scale);
+
+            // Card fill: very dark navy
+            using (var cardPath = RoundedRect(cardRect, radius))
+            using (var cardBrush = new SolidBrush(Color.FromArgb(235, 10, 10, 24)))
+                g.FillPath(cardBrush, cardPath);
+
+            // ── Top-center red radial glow (nebula behind header) ─────────────
+            int topGlowW = (int)(W * 0.55f);
+            int topGlowH = (int)(H * 0.28f);
             using (var gp = new GraphicsPath())
             {
-                gp.AddEllipse(W / 2 - glowR, -glowR / 2, glowR * 2, glowR);
+                gp.AddEllipse(W / 2 - topGlowW / 2, cardPad - topGlowH / 3,
+                              topGlowW, topGlowH);
                 using (var pgb = new PathGradientBrush(gp))
                 {
-                    pgb.CenterColor    = Color.FromArgb(60, 180, 0, 0);
+                    pgb.CenterColor    = Color.FromArgb(75, 200, 10, 10);
                     pgb.SurroundColors = new[] { Color.Transparent };
                     g.FillPath(pgb, gp);
                 }
             }
 
-            // Dark card with rounded corners
-            int cardPad = (int)(18 * _scale);
-            var cardRect = new Rectangle(cardPad, cardPad, W - cardPad * 2, H - cardPad * 2);
-            int radius   = (int)(22 * _scale);
-            using (var cardPath = RoundedRect(cardRect, radius))
-            using (var cardBrush = new SolidBrush(Color.FromArgb(210, 12, 12, 28)))
+            // ── Bottom-right subtle blue/teal ambient glow ────────────────────
+            int brGlowW = (int)(W * 0.45f);
+            int brGlowH = (int)(H * 0.35f);
+            using (var gp2 = new GraphicsPath())
             {
-                g.FillPath(cardBrush, cardPath);
+                gp2.AddEllipse(W - brGlowW + (int)(20 * _scale),
+                               H - brGlowH + (int)(20 * _scale),
+                               brGlowW, brGlowH);
+                using (var pgb2 = new PathGradientBrush(gp2))
+                {
+                    pgb2.CenterColor    = Color.FromArgb(35, 0, 80, 140);
+                    pgb2.SurroundColors = new[] { Color.Transparent };
+                    g.FillPath(pgb2, gp2);
+                }
             }
 
-            // Card border: subtle dark grey with slight glow
-            using (var cardPath = RoundedRect(cardRect, radius))
-            using (var borderPen = new Pen(Color.FromArgb(80, 80, 100, 130), 1.5f))
+            // ── Horizontal center glow line (light flare) ─────────────────────
+            // Positioned at ~28% from top of card — just below header
+            int headerH  = (int)(90 * _scale);
+            int flareY   = cardPad + headerH + (int)(10 * _scale);
+            int flareX1  = cardPad + (int)(30 * _scale);
+            int flareX2  = cardPad + (W - cardPad * 2) - (int)(30 * _scale);
+
+            // Wide soft outer halo (very transparent)
+            for (int pass = 0; pass < 3; pass++)
             {
-                g.DrawPath(borderPen, cardPath);
+                int alpha  = new int[] { 12, 22, 35 }[pass];
+                float wid  = new float[] { 28f, 14f, 5f }[pass];
+                using (var haloPen = new Pen(Color.FromArgb(alpha, 220, 80, 40), wid))
+                {
+                    haloPen.StartCap = System.Drawing.Drawing2D.LineCap.Round;
+                    haloPen.EndCap   = System.Drawing.Drawing2D.LineCap.Round;
+                    g.DrawLine(haloPen, flareX1, flareY, flareX2, flareY);
+                }
             }
+            // Bright core line
+            using (var corePen = new Pen(Color.FromArgb(200, 255, 120, 80), 1.5f))
+            {
+                corePen.StartCap = System.Drawing.Drawing2D.LineCap.Round;
+                corePen.EndCap   = System.Drawing.Drawing2D.LineCap.Round;
+                g.DrawLine(corePen, flareX1, flareY, flareX2, flareY);
+            }
+            // Bright center hotspot
+            int hotW = (int)(W * 0.18f);
+            using (var gph = new GraphicsPath())
+            {
+                gph.AddEllipse(W / 2 - hotW, flareY - (int)(8 * _scale), hotW * 2, (int)(16 * _scale));
+                using (var pgbh = new PathGradientBrush(gph))
+                {
+                    pgbh.CenterColor    = Color.FromArgb(90, 255, 140, 80);
+                    pgbh.SurroundColors = new[] { Color.Transparent };
+                    g.FillPath(pgbh, gph);
+                }
+            }
+
+            // ── Card border: subtle rounded rect ──────────────────────────────
+            using (var cardPath = RoundedRect(cardRect, radius))
+            using (var borderPen = new Pen(Color.FromArgb(70, 80, 95, 120), 1.5f))
+                g.DrawPath(borderPen, cardPath);
         }
 
         // ── Build UI ──────────────────────────────────────────────────────────
@@ -300,20 +348,27 @@ namespace WindowsFormsApp1
             this.Controls.Add(_logoBox);
             AttachDrag(_logoBox);
 
-            // Tagline centered in header
+            // Tagline: positioned to the RIGHT of the logo, vertically centered in header
+            // (matches mock: logo left, tagline fills remaining space to the right)
             _lblTagline = new Label
             {
                 Text      = "The Geniusness Is In The Simplicity",
                 ForeColor = Color.White,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(22f), FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(21f), FontStyle.Bold),
                 AutoSize  = true
             };
             this.Controls.Add(_lblTagline);
             AttachDrag(_lblTagline);
-            int tagW = TextRenderer.MeasureText(_lblTagline.Text, _lblTagline.Font).Width;
-            int tagH = TextRenderer.MeasureText(_lblTagline.Text, _lblTagline.Font).Height;
-            _lblTagline.Location = new Point((W - tagW) / 2, cardPad + (headerH - tagH) / 2);
+            int tagW  = TextRenderer.MeasureText(_lblTagline.Text, _lblTagline.Font).Width;
+            int tagH  = TextRenderer.MeasureText(_lblTagline.Text, _lblTagline.Font).Height;
+            // Center tagline in the space between logo-right-edge and window-right (minus close buttons)
+            int logoRight  = logoX + logoW + (int)(16 * _scale);
+            int rightEdge  = W - (int)(90 * _scale); // leave room for close/min buttons
+            int availSpace = rightEdge - logoRight;
+            int tagX       = logoRight + (availSpace - tagW) / 2;
+            if (tagX < logoRight) tagX = logoRight;
+            _lblTagline.Location = new Point(tagX, cardPad + (headerH - tagH) / 2);
 
             // Agent name (hidden, kept for heartbeat logic)
             _lblAgentName = new Label
@@ -381,84 +436,58 @@ namespace WindowsFormsApp1
         private void BuildMeterSection(int W, int H, int cardPad)
         {
             int headerH    = (int)(90 * _scale);
-            int sectionTop = cardPad + headerH + (int)(18 * _scale);
+            // sectionTop: just below the horizontal glow flare
+            int sectionTop = cardPad + headerH + (int)(28 * _scale);
 
-            // Separator line under header
-            var sepLine = new Panel
-            {
-                Bounds    = new Rectangle(cardPad + (int)(40 * _scale), cardPad + headerH + (int)(4 * _scale),
-                                          W - cardPad * 2 - (int)(80 * _scale), 1),
-                BackColor = Color.FromArgb(60, 80, 100, 130)
-            };
-            this.Controls.Add(sepLine);
+            // Sizing constants
+            int footerH     = (int)(44 * _scale);
+            int btnAreaH    = (int)(90 * _scale);
+            int dbCtrlH     = (int)(34 * _scale);
+            int lblH        = (int)(26 * _scale);
+            int sectionLblH = (int)(28 * _scale);
 
-            // Meter diameter
-            int meterDiam = (int)(Math.Min(W * 0.17f, 200 * _scale));
-            if (meterDiam < 120) meterDiam = 120;
+            // Meter diameter: fill available width evenly across 4 slots
+            int innerPad    = cardPad + (int)(24 * _scale);
+            int usableW     = W - innerPad * 2;
+            int meterSpacing = usableW / 4;
+            int meterDiam   = (int)(meterSpacing * 0.88f);
+            meterDiam = Math.Max(120, Math.Min((int)(200 * _scale), meterDiam));
 
-            // Footer + button area height
-            int footerH  = (int)(44 * _scale);
-            int btnAreaH = (int)(90 * _scale);
-            int dbCtrlH  = (int)(38 * _scale);
-            int lblH     = (int)(28 * _scale);
+            // Meter top: below section label row
+            int meterTop = sectionTop + sectionLblH + (int)(14 * _scale);
 
-            // Available height for meter section
-            int availH   = H - sectionTop - btnAreaH - footerH - (int)(30 * _scale);
-
-            // Section label heights
-            int sectionLblH = (int)(24 * _scale);
-            int dividerH    = (int)(20 * _scale);
-
-            // Meter top within section
-            int meterTop = sectionTop + sectionLblH + dividerH + (int)(16 * _scale);
-
-            // Total width for 4 meters
-            int totalW   = W - cardPad * 2 - (int)(60 * _scale);
-            int meterSpacing = totalW / 4;
-            int meterX0  = cardPad + (int)(30 * _scale) + (meterSpacing - meterDiam) / 2;
-
-            // ── Section divider labels ─────────────────────────────────────────
-            // Left section: "WHAT THE AGENT HEARS"
-            // Right section: "WHAT THE CUSTOMER HEARS"
-            int midX = W / 2;
-
-            BuildSectionLabel(cardPad + (int)(30 * _scale), sectionTop,
-                              midX - cardPad - (int)(30 * _scale),
+            // ── Section labels ──────────────────────────────────────────────────
+            // Left label spans over meters 0+1, right label spans over meters 2+3
+            BuildSectionLabel(innerPad, sectionTop, meterSpacing * 2,
                               "WHAT THE ", "AGENT", " HEARS",
-                              Color.FromArgb(200, 200, 200), ONE_RED);
+                              Color.FromArgb(195, 195, 205), ONE_RED);
 
-            BuildSectionLabel(midX + (int)(10 * _scale), sectionTop,
-                              W - midX - cardPad - (int)(30 * _scale),
+            BuildSectionLabel(innerPad + meterSpacing * 2, sectionTop, meterSpacing * 2,
                               "WHAT THE ", "CUSTOMER", " HEARS",
-                              Color.FromArgb(200, 200, 200), METER_GREEN);
+                              Color.FromArgb(195, 195, 205), METER_GREEN);
 
-            // Vertical divider line between sections
-            var vDiv = new Panel
-            {
-                Bounds    = new Rectangle(midX - 1, sectionTop, 2, meterDiam + lblH + dbCtrlH + (int)(50 * _scale)),
-                BackColor = Color.FromArgb(50, 80, 100, 130)
-            };
-            this.Controls.Add(vDiv);
+            // NO vertical divider line — sections separated by natural spacing only
 
-            // ── 4 Meters ──────────────────────────────────────────────────────
-            // 0: Customer Voice (RED)
-            // 1: Customer Recordings (BLUE)
-            // 2: Agent Voice (PURPLE)
-            // 3: Agent Recordings (GREEN)
+            // ── 4 Meters ─────────────────────────────────────────────────────────────
+            // 0: Customer Voice (RED)       — left side (AGENT HEARS)
+            // 1: Customer Recordings (BLUE) — left side
+            // 2: Agent Voice (PURPLE)       — right side (CUSTOMER HEARS)
+            // 3: Agent Recordings (GREEN)   — right side
             string[] labels = { "CUSTOMER VOICE", "CUSTOMER RECORDINGS", "AGENT VOICE", "AGENT RECORDINGS" };
             Color[]  colors = { METER_RED, METER_BLUE, METER_PURPLE, METER_GREEN };
             string[] keys   = { "customerVoice", "agentScript_left", "myMicLevel", "agentScript" };
 
             for (int i = 0; i < 4; i++)
             {
-                int mx = cardPad + (int)(30 * _scale) + i * meterSpacing + (meterSpacing - meterDiam) / 2;
+                // Center each meter within its equal slot
+                int mx = innerPad + i * meterSpacing + (meterSpacing - meterDiam) / 2;
                 int my = meterTop;
 
                 // Circular meter panel
-                var meter = BuildCircularMeter(mx, my, meterDiam, colors[i], keys[i]);
+                BuildCircularMeter(mx, my, meterDiam, colors[i], keys[i]);
 
                 // Label below meter
-                int labelY = my + meterDiam + (int)(12 * _scale);
+                int labelY = my + meterDiam + (int)(10 * _scale);
                 var lbl = new Label
                 {
                     Text      = labels[i],
@@ -467,13 +496,13 @@ namespace WindowsFormsApp1
                     Font      = new Font("Segoe UI", SF(11f), FontStyle.Bold),
                     AutoSize  = false,
                     TextAlign = ContentAlignment.MiddleCenter,
-                    Bounds    = new Rectangle(mx - (int)(10 * _scale), labelY,
-                                              meterDiam + (int)(20 * _scale), lblH)
+                    Bounds    = new Rectangle(mx - (int)(8 * _scale), labelY,
+                                              meterDiam + (int)(16 * _scale), lblH)
                 };
                 this.Controls.Add(lbl);
 
                 // [–] [dB] [+] controls
-                int ctrlY = labelY + lblH + (int)(4 * _scale);
+                int ctrlY = labelY + lblH + (int)(3 * _scale);
                 BuildDbControl(mx, ctrlY, meterDiam, colors[i], i);
             }
         }
