@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   build:
@@ -44,12 +45,28 @@ jobs:
           $line = Select-String -Path "src\MainFormV5.cs" -Pattern 'APP_VERSION = "([^"]+)"' | Select-Object -First 1
           $ver  = $line.Matches[0].Groups[1].Value
           echo "VERSION=$ver" >> $env:GITHUB_OUTPUT
+      - name: Delete old artifacts to prevent quota exhaustion
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const artifacts = await github.paginate(
+              github.rest.actions.listArtifactsForRepo,
+              { owner: context.repo.owner, repo: context.repo.repo, per_page: 100 }
+            );
+            for (const artifact of artifacts) {
+              console.log(`Deleting old artifact: ${artifact.name} (${artifact.id})`);
+              await github.rest.actions.deleteArtifact({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                artifact_id: artifact.id,
+              });
+            }
       - name: Upload Installer Artifact
         uses: actions/upload-artifact@v7
         with:
           name: ONEVoiceSolution-v${{ steps.get_version.outputs.VERSION }}-Installer
           path: installer\output\ONEVoiceSolution_Setup.exe
-          retention-days: 30
+          retention-days: 3
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2.6.1
         with:
