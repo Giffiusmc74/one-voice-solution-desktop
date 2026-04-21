@@ -672,61 +672,55 @@ namespace WindowsFormsApp1
             using (var innerRimPen = new Pen(Color.FromArgb(60, meterColor), 1.5f))
                 g.DrawEllipse(innerRimPen, cx - innerR, cy - innerR, innerR * 2, innerR * 2);
 
-            // ── dB value text ──────────────────────────────────────────────────
-            // Convert level (0–1) to dB for display: 0 = –∞, 1 = 0 dB
-            float dbVal = level > 0.001f
-                ? (float)(20.0 * Math.Log10(level))
-                : -60f;
-            dbVal = Math.Max(-60f, Math.Min(0f, dbVal));
-            string dbStr = dbVal <= -59f ? "–∞" : ((int)dbVal).ToString();
+            // ── Percentage value text (centered) ──────────────────────────────
+            // Convert level (0–1) to percentage: 0% = silent, 100% = full
+            int pctVal   = (int)Math.Round(level * 100f);
+            string pctStr = pctVal.ToString() + "%";
 
-            // Large number
             float numSize = SF(28f) * (innerR / 60f);
             numSize = Math.Max(SF(14f), Math.Min(SF(32f), numSize));
             using (var numFont = new Font("Segoe UI", numSize, FontStyle.Bold))
             {
-                var numSz  = TextRenderer.MeasureText(dbStr, numFont);
-                int numX   = cx - numSz.Width / 2 - (int)(numSize * 0.3f);
-                int numY   = cy - numSz.Height / 2 - (int)(2 * _scale);
+                var numSz = TextRenderer.MeasureText(pctStr, numFont);
+                int numX  = cx - numSz.Width / 2;
+                int numY  = cy - numSz.Height / 2;
                 Color numCol = level > 0.01f ? meterColor : Color.FromArgb(120, 120, 140);
-                TextRenderer.DrawText(g, dbStr, numFont,
-                    new Point(numX, numY), numCol);
-
-                // "dB" subscript
-                float subSize = SF(10f);
-                using (var subFont = new Font("Segoe UI", subSize, FontStyle.Bold))
-                {
-                    int subX = numX + numSz.Width - (int)(numSize * 0.2f);
-                    int subY = numY + (int)(numSize * 0.3f);
-                    TextRenderer.DrawText(g, "dB", subFont, new Point(subX, subY),
-                        Color.FromArgb(180, numCol));
-                }
+                TextRenderer.DrawText(g, pctStr, numFont, new Point(numX, numY), numCol);
             }
 
-            // "dB" label below center
-            float lblSize = SF(9f);
-            using (var lblFont2 = new Font("Segoe UI", lblSize, FontStyle.Regular))
+            // ── Clockwise arc fill ring (replaces needle) ─────────────────────
+            if (level > 0.005f)
             {
-                var lblSz = TextRenderer.MeasureText("dB", lblFont2);
-                TextRenderer.DrawText(g, "dB", lblFont2,
-                    new Point(cx - lblSz.Width / 2, cy + innerR / 3),
-                    Color.FromArgb(140, 150, 155));
+                int   arcR    = (int)(innerR * 1.22f);
+                float arcSweep = 360f * level;
+                // Start from top (-90 degrees)
+                float arcStart = -90f;
+                var   arcRect  = new RectangleF(cx - arcR, cy - arcR, arcR * 2, arcR * 2);
+
+                // Outer soft glow layer
+                using (var glowPen = new Pen(Color.FromArgb(50, meterColor), (int)(12 * _scale)))
+                {
+                    glowPen.LineJoin = System.Drawing.Drawing2D.LineJoin.Round;
+                    g.DrawArc(glowPen, arcRect, arcStart, arcSweep);
+                }
+                // Mid glow layer
+                using (var midPen = new Pen(Color.FromArgb(120, meterColor), (int)(7 * _scale)))
+                    g.DrawArc(midPen, arcRect, arcStart, arcSweep);
+                // Bright core arc
+                using (var corePen = new Pen(Color.FromArgb(240, meterColor), (int)(3 * _scale)))
+                    g.DrawArc(corePen, arcRect, arcStart, arcSweep);
+
+                // Tip dot at arc endpoint
+                float tipAngleRad = (float)((arcStart + arcSweep) * Math.PI / 180.0);
+                float tipX = cx + arcR * (float)Math.Cos(tipAngleRad);
+                float tipY = cy + arcR * (float)Math.Sin(tipAngleRad);
+                int   tipR = (int)(5 * _scale);
+                using (var tipBrush = new SolidBrush(Color.FromArgb(255, meterColor)))
+                    g.FillEllipse(tipBrush, tipX - tipR, tipY - tipR, tipR * 2, tipR * 2);
+                using (var tipGlow = new Pen(Color.FromArgb(80, meterColor), (int)(8 * _scale)))
+                    g.DrawEllipse(tipGlow, tipX - tipR - 3, tipY - tipR - 3,
+                                  (tipR + 3) * 2, (tipR + 3) * 2);
             }
-
-            // ── Needle ────────────────────────────────────────────────────────
-            float needleAngle = startAngle + sweepAngle * level;
-            float needleRad   = (float)(needleAngle * Math.PI / 180.0);
-            int   needleLen   = (int)(innerR * 0.78f);
-            float nx2 = cx + needleLen * (float)Math.Cos(needleRad);
-            float ny2 = cy + needleLen * (float)Math.Sin(needleRad);
-
-            using (var needlePen = new Pen(Color.FromArgb(220, meterColor), 2.0f))
-                g.DrawLine(needlePen, cx, cy, nx2, ny2);
-
-            // Needle pivot dot
-            int pivotR = (int)(3 * _scale);
-            using (var pivotBrush = new SolidBrush(Color.FromArgb(200, meterColor)))
-                g.FillEllipse(pivotBrush, cx - pivotR, cy - pivotR, pivotR * 2, pivotR * 2);
         }
 
         // ── [–] [dB] [+] control row ──────────────────────────────────────────
