@@ -362,3 +362,39 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsdOutput/
 packages/
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LARGE FILE PROTECTION — never commit binary media or build outputs to git
+# These caused 24.7 MB MP4 to bloat history and break GitHub Actions builds.
+# ══════════════════════════════════════════════════════════════════════════════
+
+# Video / Audio media (use CDN or LFS instead)
+*.mp4
+*.mov
+*.avi
+*.wmv
+*.mkv
+*.flv
+*.webm
+*.mp3
+*.wav
+*.ogg
+*.m4a
+
+# Large image assets (use CDN or LFS instead)
+*.psd
+*.ai
+*.tiff
+*.tif
+
+# Build outputs — never commit these
+bin/
+obj/
+[Bb]in/
+[Oo]bj/
+installer/output/
+*.exe
+!redist/*.exe
+
+# Installer intermediate files
+installer/vbcable/

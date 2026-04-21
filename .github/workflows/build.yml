@@ -1,4 +1,5 @@
 name: Build ONE Voice Solution Installer
+
 on:
   push:
     branches: [ main, master ]
@@ -11,19 +12,54 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+
+    # Increase default runner memory for MSBuild + Inno Setup
+    env:
+      DOTNET_GCHeapHardLimit: "0"
+      MSBUILD_VERBOSITY: minimal
+
     steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────────────
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
-          lfs: true
+          fetch-depth: 0   # full history needed for version tagging
+          lfs: false        # no LFS objects should exist; set true only if LFS is re-enabled
+
+      # ── 2. Guard: fail fast if any large file (>5 MB) was accidentally committed ──
+      - name: Check for large files in repo
+        shell: powershell
+        run: |
+          $limit = 5MB
+          $large = Get-ChildItem -Recurse -File | Where-Object { $_.Length -gt $limit -and $_.FullName -notmatch '\\\.git\\' }
+          if ($large) {
+            Write-Error "Large files detected in repo (should be in .gitignore):"
+            $large | ForEach-Object { Write-Error "  $($_.FullName) ($([math]::Round($_.Length/1MB,1)) MB)" }
+            exit 1
+          }
+          Write-Host "No large files found. Proceeding."
+
+      # ── 3. NuGet + MSBuild ───────────────────────────────────────────────────
       - name: Setup NuGet
-        uses: NuGet/setup-nuget@v3
+        uses: NuGet/setup-nuget@v2
+
       - name: Restore NuGet packages
         run: nuget restore OneApplication.csproj -PackagesDirectory packages
+
       - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@v3
+        uses: microsoft/setup-msbuild@v2
+
       - name: Build Release
-        run: msbuild OneApplication.csproj /p:Configuration=Release /p:Platform=AnyCPU /p:OutputPath=bin\Release\
+        run: >
+          msbuild OneApplication.csproj
+          /p:Configuration=Release
+          /p:Platform=AnyCPU
+          /p:OutputPath=bin\Release\
+          /m
+          /nodeReuse:false
+          /verbosity:minimal
+
+      # ── 4. Download VB-Audio Cable at build time (never commit it) ───────────
       - name: Download VB-Audio Cable
         shell: powershell
         run: |
@@ -33,11 +69,16 @@ jobs:
           Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
           Expand-Archive -Path $zip -DestinationPath installer\vbcable -Force
           Remove-Item $zip
+
+      # ── 5. Inno Setup ────────────────────────────────────────────────────────
       - name: Install Inno Setup
         run: choco install innosetup --yes --no-progress
+
       - name: Build Installer
         run: |
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\ONEVoiceSolution_Setup.iss
+
+      # ── 6. Extract version ───────────────────────────────────────────────────
       - name: Extract app version
         id: get_version
         shell: powershell
@@ -45,8 +86,10 @@ jobs:
           $line = Select-String -Path "src\MainFormV5.cs" -Pattern 'APP_VERSION = "([^"]+)"' | Select-Object -First 1
           $ver  = $line.Matches[0].Groups[1].Value
           echo "VERSION=$ver" >> $env:GITHUB_OUTPUT
+
+      # ── 7. Create GitHub Release ─────────────────────────────────────────────
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2.6.1
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.get_version.outputs.VERSION }}
           name: ONE Voice Solution v${{ steps.get_version.outputs.VERSION }}
@@ -54,7 +97,9 @@ jobs:
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Delete old artifacts to prevent quota exhaustion
+
+      # ── 8. Clean up old artifacts to prevent quota exhaustion ────────────────
+      - name: Delete old artifacts
         continue-on-error: true
         uses: actions/github-script@v7
         with:
@@ -64,7 +109,7 @@ jobs:
               { owner: context.repo.owner, repo: context.repo.repo, per_page: 100 }
             );
             for (const artifact of artifacts) {
-              console.log(`Deleting old artifact: ${artifact.name} (${artifact.id})`);
+              console.log(`Deleting artifact: ${artifact.name} (${artifact.id})`);
               try {
                 await github.rest.actions.deleteArtifact({
                   owner: context.repo.owner,
@@ -73,10 +118,13 @@ jobs:
                 });
               } catch(e) { console.log(`Failed to delete ${artifact.id}: ${e.message}`); }
             }
+
+      # ── 9. Upload installer as artifact (short retention) ────────────────────
       - name: Upload Installer Artifact
         continue-on-error: true
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: ONEVoiceSolution-v${{ steps.get_version.outputs.VERSION }}-Installer
           path: installer\output\ONEVoiceSolution_Setup.exe
           retention-days: 3
+          compression-level: 0   # exe is already compressed; skip re-compression to save memory
