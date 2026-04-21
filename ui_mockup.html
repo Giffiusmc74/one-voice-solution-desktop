@@ -6,170 +6,188 @@
 <title>One Voice</title>
 
 <style>
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-  font-family: Arial, sans-serif;
-}
+* { margin:0; padding:0; box-sizing:border-box; font-family:Segoe UI, Arial, sans-serif; }
 
 body {
-  background: #05060a;
-  color: white;
-}
-
-.app {
-  width: 100%;
-  height: 100vh;
-  padding: 20px;
+  background: radial-gradient(circle at center, #070812 0%, #02030a 100%);
+  color:white;
 }
 
 /* HEADER */
 .header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+  display:grid;
+  grid-template-columns:1fr auto 1fr;
+  align-items:center;
+  padding:18px 30px;
 }
 
 .logo {
-  font-size: 32px;
-  font-weight: bold;
-  color: #ff2a2a;
-}
-
-.logo span {
-  font-size: 16px;
-  color: #aaa;
+  color:#ff2a2a;
+  font-weight:bold;
+  font-size:26px;
 }
 
 .title {
-  font-size: 28px;
-  color: #ff4a4a;
+  background:#ff3b3b;
+  padding:10px 40px;
+  font-size:20px;
+  font-weight:600;
+  box-shadow:0 0 18px rgba(255,0,0,0.7);
 }
 
 /* DIVIDER */
 .divider {
-  height: 2px;
-  background: linear-gradient(to right, transparent, red, transparent);
-  margin: 20px 0;
+  height:4px;
+  background:linear-gradient(to right, transparent, #ff3b3b, transparent);
+  box-shadow:0 0 18px rgba(255,0,0,0.9);
+  margin:10px 0 25px;
 }
 
-/* GRID */
-.grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 40px;
+/* SECTION TITLES */
+.section-row {
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  padding:0 60px;
+  margin-bottom:5px;
+  font-size:13px;
+  letter-spacing:1px;
 }
 
-/* COLUMN */
-.column h3 {
-  margin-bottom: 20px;
-  text-align: center;
+.section-row span.red { color:#ff3b3b; }
+.section-row span.green { color:#2cff88; }
+
+/* METERS */
+.meters {
+  display:grid;
+  grid-template-columns:repeat(4, 1fr);
+  padding:0 60px;
+  align-items:start;
 }
 
-.red { color: #ff3b3b; }
-.blue { color: #3ba3ff; }
-.green { color: #2cff88; }
-.purple { color: #b26bff; }
-
-/* GAUGES */
-.gauges {
-  display: flex;
-  justify-content: space-around;
-  margin-bottom: 20px;
+/* RING */
+.ring {
+  width:200px;
+  height:200px;
+  margin:auto;
+  position:relative;
 }
 
-.gauge {
-  width: 180px;
-  height: 180px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
+.ring svg {
+  transform:rotate(-90deg);
 }
 
-/* CLEAN GLOW */
-.gauge.red {
-  border: 8px solid #ff3b3b;
-  box-shadow: 0 0 20px #ff3b3b;
+/* OUTER SOFT GLOW */
+.outer-glow {
+  stroke:currentColor;
+  stroke-width:10;
+  opacity:0.15;
 }
 
-.gauge.blue {
-  border: 8px solid #3ba3ff;
-  box-shadow: 0 0 20px #3ba3ff;
+/* CHUNK SEGMENTS */
+.segment-ring {
+  stroke:currentColor;
+  stroke-width:12;
+  stroke-dasharray:28 16;
+  opacity:0.7;
 }
 
-.gauge.green {
-  border: 8px solid #2cff88;
-  box-shadow: 0 0 20px #2cff88;
+/* INNER TICKS */
+.ticks {
+  stroke:#9aa0aa;
+  stroke-width:2;
+  stroke-dasharray:2 6;
+  opacity:0.5;
 }
 
-.gauge.purple {
-  border: 8px solid #b26bff;
-  box-shadow: 0 0 20px #b26bff;
+/* MAIN PROGRESS */
+.progress {
+  stroke-width:14;
+  fill:none;
+  stroke-linecap:round;
+  filter:drop-shadow(0 0 10px currentColor);
 }
 
-.inner {
-  font-size: 36px;
-  font-weight: bold;
+/* INNER CORE */
+.ring::before {
+  content:"";
+  position:absolute;
+  width:120px;
+  height:120px;
+  top:50%;
+  left:50%;
+  transform:translate(-50%,-50%);
+  background:radial-gradient(circle, #000 35%, #070707 70%, transparent);
+  border-radius:50%;
+}
+
+/* CENTER */
+.center {
+  position:absolute;
+  top:50%;
+  left:50%;
+  transform:translate(-50%,-50%);
+  font-size:24px;
+  font-weight:600;
+  padding:6px 12px;
+  border-radius:5px;
+  background:rgba(0,0,0,0.65);
+  box-shadow:0 0 12px currentColor;
+}
+
+/* COLORS */
+.red { color:#ff3b3b; }
+.blue { color:#3ba3ff; }
+.purple { color:#b26bff; }
+.green { color:#2cff88; }
+
+/* LABEL */
+.label {
+  text-align:center;
+  margin-top:8px;
+  font-size:12px;
 }
 
 /* CONTROLS */
 .controls {
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-  margin-bottom: 15px;
+  display:flex;
+  justify-content:center;
+  gap:10px;
+  margin-top:10px;
 }
 
 .control {
-  width: 60px;
-  height: 50px;
-  border: 2px solid;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
+  width:48px;
+  height:38px;
+  border:2px solid currentColor;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:14px;
 }
-
-.control.red { border-color: #ff3b3b; }
-.control.blue { border-color: #3ba3ff; }
-.control.green { border-color: #2cff88; }
-.control.purple { border-color: #b26bff; }
 
 /* FOOTER */
 .footer {
-  display: flex;
-  justify-content: center;
-  gap: 40px;
-  margin-top: 30px;
+  display:flex;
+  justify-content:center;
+  gap:40px;
+  margin-top:40px;
 }
 
 .btn {
-  padding: 15px 40px;
-  font-size: 16px;
-  border: 2px solid;
-  background: transparent;
-  cursor: pointer;
-  color: white;
-}
-
-.btn.red {
-  border-color: #ff3b3b;
-  box-shadow: 0 0 10px #ff3b3b;
-}
-
-.btn.blue {
-  border-color: #3ba3ff;
-  box-shadow: 0 0 10px #3ba3ff;
+  padding:14px 40px;
+  border:2px solid currentColor;
+  background:transparent;
+  font-size:14px;
+  filter:drop-shadow(0 0 6px currentColor);
+  color:white;
+  cursor:pointer;
 }
 
 .version {
-  text-align: center;
-  margin-top: 20px;
-  color: #777;
-  font-size: 12px;
+  text-align:center;
+  margin-top:15px;
+  color:#777;
+  font-size:12px;
 }
 </style>
 
@@ -177,69 +195,121 @@ body {
 
 <body>
 
-<div class="app">
+<div class="header">
+  <div class="logo">ONE VOICE</div>
+  <div class="title">The Geniusness Is In The Simplicity</div>
+  <div></div>
+</div>
 
-  <div class="header">
-    <div class="logo">ONE <span>VOICE</span></div>
-    <div class="title">The Geniusness Is In The Simplicity</div>
-  </div>
+<div class="divider"></div>
 
-  <div class="divider"></div>
+<div class="section-row">
+  <div>WHAT THE <span class="red">AGENT</span> HEARS</div>
+  <div>WHAT THE <span class="green">CUSTOMER</span> HEARS</div>
+</div>
 
-  <div class="grid">
+<div class="meters">
 
-    <div class="column">
-      <h3>WHAT THE <span class="red">AGENT</span> HEARS</h3>
-
-      <div class="gauges">
-        <div class="gauge red"><div class="inner">80%</div></div>
-        <div class="gauge blue"><div class="inner">92%</div></div>
-      </div>
-
-      <div class="controls">
-        <div class="control red">-</div>
-        <div class="control red">-3</div>
-        <div class="control red">+</div>
-      </div>
-
-      <div class="controls">
-        <div class="control blue">-</div>
-        <div class="control blue">-3</div>
-        <div class="control blue">+</div>
-      </div>
+  <!-- RED -->
+  <div class="red">
+    <div class="ring">
+      <svg width="200" height="200">
+        <circle cx="100" cy="100" r="90" class="outer-glow"/>
+        <circle cx="100" cy="100" r="82" class="segment-ring"/>
+        <circle cx="100" cy="100" r="68" class="ticks"/>
+        <circle cx="100" cy="100" r="65"
+          class="progress"
+          stroke="currentColor"
+          stroke-dasharray="408"
+          stroke-dashoffset="82"/>
+      </svg>
+      <div class="center">80%</div>
     </div>
-
-    <div class="column">
-      <h3>WHAT THE <span class="purple">CUSTOMER</span> HEARS</h3>
-
-      <div class="gauges">
-        <div class="gauge purple"><div class="inner">88%</div></div>
-        <div class="gauge green"><div class="inner">95%</div></div>
-      </div>
-
-      <div class="controls">
-        <div class="control purple">-</div>
-        <div class="control purple">-3</div>
-        <div class="control purple">+</div>
-      </div>
-
-      <div class="controls">
-        <div class="control green">-</div>
-        <div class="control green">-3</div>
-        <div class="control green">+</div>
-      </div>
+    <div class="label">CUSTOMER VOICE</div>
+    <div class="controls">
+      <div class="control">-</div>
+      <div class="control">-3</div>
+      <div class="control">+</div>
     </div>
-
   </div>
 
-  <div class="footer">
-    <button class="btn red">🎤 SELECT MICROPHONE</button>
-    <button class="btn blue">🔊 SELECT SPEAKER</button>
+  <!-- BLUE -->
+  <div class="blue">
+    <div class="ring">
+      <svg width="200" height="200">
+        <circle cx="100" cy="100" r="90" class="outer-glow"/>
+        <circle cx="100" cy="100" r="82" class="segment-ring"/>
+        <circle cx="100" cy="100" r="68" class="ticks"/>
+        <circle cx="100" cy="100" r="65"
+          class="progress"
+          stroke="currentColor"
+          stroke-dasharray="408"
+          stroke-dashoffset="33"/>
+      </svg>
+      <div class="center">92%</div>
+    </div>
+    <div class="label">AGENT RECORDINGS</div>
+    <div class="controls">
+      <div class="control">-</div>
+      <div class="control">-3</div>
+      <div class="control">+</div>
+    </div>
   </div>
 
-  <div class="version">One United Global LLC 2026 v7.31</div>
+  <!-- PURPLE -->
+  <div class="purple">
+    <div class="ring">
+      <svg width="200" height="200">
+        <circle cx="100" cy="100" r="90" class="outer-glow"/>
+        <circle cx="100" cy="100" r="82" class="segment-ring"/>
+        <circle cx="100" cy="100" r="68" class="ticks"/>
+        <circle cx="100" cy="100" r="65"
+          class="progress"
+          stroke="currentColor"
+          stroke-dasharray="408"
+          stroke-dashoffset="49"/>
+      </svg>
+      <div class="center">88%</div>
+    </div>
+    <div class="label">AGENT VOICE</div>
+    <div class="controls">
+      <div class="control">-</div>
+      <div class="control">-3</div>
+      <div class="control">+</div>
+    </div>
+  </div>
+
+  <!-- GREEN -->
+  <div class="green">
+    <div class="ring">
+      <svg width="200" height="200">
+        <circle cx="100" cy="100" r="90" class="outer-glow"/>
+        <circle cx="100" cy="100" r="82" class="segment-ring"/>
+        <circle cx="100" cy="100" r="68" class="ticks"/>
+        <circle cx="100" cy="100" r="65"
+          class="progress"
+          stroke="currentColor"
+          stroke-dasharray="408"
+          stroke-dashoffset="20"/>
+      </svg>
+      <div class="center">95%</div>
+    </div>
+    <div class="label">AGENT RECORDINGS</div>
+    <div class="controls">
+      <div class="control">-</div>
+      <div class="control">-3</div>
+      <div class="control">+</div>
+    </div>
+  </div>
 
 </div>
+
+<div class="footer">
+  <button class="btn red">🎤 Headset Microphone</button>
+  <button class="btn blue">🔊 Headset Earphone</button>
+</div>
+
+<div class="version">One United Global LLC 2026 v7.31</div>
 
 </body>
 </html>
