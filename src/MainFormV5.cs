@@ -564,7 +564,14 @@ namespace WindowsFormsApp1
         }
 
         // ══════════════════════════════════════════════════════════════════════
-        // DRAW DIAL METER — exact translation of render_new_design.py draw_meter()
+        // DRAW DIAL METER — SVG-style ring design matching ui_mockup.html exactly
+        // Layers (inside-out matching HTML):
+        //   1. Outer glow ring  r=90% of R, stroke-width=10, opacity=0.15
+        //   2. Segment ring     r=82% of R, stroke-width=12, dasharray=18 10, butt caps
+        //   3. Tick ring        r=68% of R, stroke-width=2,  dasharray=2 6, gray
+        //   4. Progress arc     r=65% of R, stroke-width=16, round caps, triple glow
+        //   5. Inner core disc  r=60% of R, radial gradient dark
+        //   6. % badge          centered, dark bg, colored glow
         // ══════════════════════════════════════════════════════════════════════
         private void DrawDialMeter(Graphics g, Panel panel, Color col, string key)
         {
@@ -575,205 +582,168 @@ namespace WindowsFormsApp1
             int H  = panel.Height;
             int cx = W / 2;
             int cy = H / 2;
-            int R  = Math.Min(W, H) / 2 - 2;   // METER_R
+
+            // Scale factor: HTML mockup uses 200x200 with r values 90/82/68/65
+            // We scale those radii proportionally to our panel size
+            float scale200 = Math.Min(W, H) / 200f;
+
+            float rOuter   = 90f * scale200;   // outer glow ring
+            float rSeg     = 82f * scale200;   // segment ring
+            float rTick    = 68f * scale200;   // tick ring
+            float rProg    = 65f * scale200;   // progress arc
+            float rCore    = 60f * scale200;   // inner core disc
 
             float level = GetLevel(key);
             int   pct   = (int)Math.Round(level * 100f);
 
-            // ── LAYER 1: Wide color bloom bleeding outward ────────────────────
-            // Simulated with multiple PathGradientBrush ellipses at increasing radii
-            int[] bloomR = { (int)(R * 1.7f), (int)(R * 1.4f), (int)(R * 1.15f), (int)(R * 0.9f), (int)(R * 0.65f), (int)(R * 0.45f) };
-            int[] bloomA = { 5, 10, 18, 35, 60, 85 };
-            for (int b = 0; b < bloomR.Length; b++)
+            // ── LAYER 1: Outer glow ring (r=90, stroke-width=10, opacity=0.15) ──
+            using (var p = new Pen(Color.FromArgb(38, col), 10f * scale200))
+                g.DrawEllipse(p, cx - rOuter, cy - rOuter, rOuter * 2, rOuter * 2);
+
+            // ── LAYER 2: Segment ring (r=82, stroke-width=12, dasharray=18 10) ──
+            // GDI+ doesn't support dasharray natively, so we simulate it by drawing
+            // individual arcs spaced around the circle
             {
-                int br = bloomR[b];
-                if (cx - br < -br || cy - br < -br) continue; // skip if outside panel
-                using (var bp = new GraphicsPath())
+                float segW   = 12f * scale200;
+                float dash   = 18f * scale200;  // segment length in pixels
+                float gap    = 10f * scale200;  // gap length in pixels
+                float segCirc = 2f * (float)Math.PI * rSeg;
+                float period  = dash + gap;
+                int   numSeg  = (int)(segCirc / period);
+                if (numSeg < 1) numSeg = 1;
+                float actualPeriodDeg = 360f / numSeg;
+                float dashDeg = actualPeriodDeg * (dash / period);
+                using (var segPen = new Pen(Color.FromArgb(178, col), segW))
                 {
-                    bp.AddEllipse(cx - br, cy - br, br * 2, br * 2);
-                    using (var pgb = new PathGradientBrush(bp))
+                    segPen.StartCap = LineCap.Flat;
+                    segPen.EndCap   = LineCap.Flat;
+                    for (int i = 0; i < numSeg; i++)
                     {
-                        pgb.CenterPoint    = new PointF(cx, cy);
-                        pgb.CenterColor    = Color.FromArgb(bloomA[b], col);
-                        pgb.SurroundColors = new[] { Color.FromArgb(0, col) };
-                        g.FillPath(pgb, bp);
+                        float startDeg = i * actualPeriodDeg - 90f;
+                        g.DrawArc(segPen, cx - rSeg, cy - rSeg, rSeg * 2, rSeg * 2,
+                                  startDeg, dashDeg);
                     }
                 }
             }
 
-            // ── LAYER 2: Outer dark base disc ─────────────────────────────────
-            using (var baseBrush = new SolidBrush(Color.FromArgb(18, 18, 22)))
-                g.FillEllipse(baseBrush, cx - R, cy - R, R * 2, R * 2);
-
-            // ── LAYER 2b: Thick colored outer ring with bloom glow ─────────────
-            int outerRingW = Math.Max((int)(18 * _scale), 10);
-            // Glow layers behind the ring
-            int[] ringGlowW = { outerRingW + (int)(20 * _scale), outerRingW + (int)(10 * _scale), outerRingW };
-            int[] ringGlowA = { 40, 80, 160 };
-            for (int rg = 0; rg < 3; rg++)
+            // ── LAYER 3: Tick ring (r=68, stroke-width=2, dasharray=2 6, gray) ──
             {
-                using (var rpen = new Pen(Color.FromArgb(ringGlowA[rg], col), ringGlowW[rg]))
-                    g.DrawEllipse(rpen, cx - R, cy - R, R * 2, R * 2);
-            }
-            // Solid colored ring on top
-            using (var solidRing = new Pen(Color.FromArgb(255, col), outerRingW))
-                g.DrawEllipse(solidRing, cx - R, cy - R, R * 2, R * 2);
-
-            // ── LAYER 3: Chrome highlight arcs (left + right) ─────────────────
-            int chromeW = outerRingW + (int)(2 * _scale);
-            // Left arc: 110° to 250° (sweep 140°)
-            using (var cp1 = new Pen(Color.FromArgb(180, 240, 240, 245), chromeW))
-                g.DrawArc(cp1, cx - R, cy - R, R * 2, R * 2, 110f, 140f);
-            // Right arc: 290° to 70° (sweep 140°)
-            using (var cp2 = new Pen(Color.FromArgb(180, 240, 240, 245), chromeW))
-                g.DrawArc(cp2, cx - R, cy - R, R * 2, R * 2, 290f, 140f);
-            // Thin bright chrome line on top
-            using (var ct = new Pen(Color.FromArgb(220, 255, 255, 255), Math.Max(2, (int)(3 * _scale))))
-            {
-                g.DrawArc(ct, cx - R, cy - R, R * 2, R * 2, 115f, 130f);
-                g.DrawArc(ct, cx - R, cy - R, R * 2, R * 2, 295f, 130f);
-            }
-
-            // ── LAYER 4: LED dot ring ──────────────────────────────────────────
-            int   ledR    = R - (int)(9 * _scale);
-            int   dotSize = Math.Max(2, (int)(3 * _scale));
-            int   numDots = 36;
-            float litFrac = level;  // fraction of dots lit = level
-            for (int d = 0; d < numDots; d++)
-            {
-                float dotAngle = (float)(d * (360.0 / numDots) - 90.0);
-                float dotRad   = (float)(dotAngle * Math.PI / 180.0);
-                float dx       = cx + ledR * (float)Math.Cos(dotRad);
-                float dy       = cy + ledR * (float)Math.Sin(dotRad);
-                float dotFrac  = (float)d / numDots;
-                bool  isLit    = dotFrac <= litFrac;
-                int   dotAlpha = isLit ? 255 : 60;
-                Color dotCol   = isLit ? Color.FromArgb(dotAlpha, col) : Color.FromArgb(dotAlpha, 80, 80, 85);
-
-                if (isLit)
+                float tickW    = 2f * scale200;
+                float dash     = 2f * scale200;
+                float gap      = 6f * scale200;
+                float tickCirc = 2f * (float)Math.PI * rTick;
+                float period   = dash + gap;
+                int   numTick  = (int)(tickCirc / period);
+                if (numTick < 1) numTick = 1;
+                float actualPeriodDeg = 360f / numTick;
+                float dashDeg = actualPeriodDeg * (dash / period);
+                using (var tickPen = new Pen(Color.FromArgb(127, 154, 160, 170), tickW))
                 {
-                    // Dot glow
-                    using (var dgp = new GraphicsPath())
+                    tickPen.StartCap = LineCap.Flat;
+                    tickPen.EndCap   = LineCap.Flat;
+                    for (int i = 0; i < numTick; i++)
                     {
-                        dgp.AddEllipse(dx - dotSize * 3, dy - dotSize * 3, dotSize * 6, dotSize * 6);
-                        using (var dgb = new PathGradientBrush(dgp))
+                        float startDeg = i * actualPeriodDeg - 90f;
+                        g.DrawArc(tickPen, cx - rTick, cy - rTick, rTick * 2, rTick * 2,
+                                  startDeg, dashDeg);
+                    }
+                }
+            }
+
+            // ── LAYER 4: Progress arc (r=65, stroke-width=16, round caps, triple glow) ──
+            // SVG: stroke-dasharray=circumference, stroke-dashoffset=(1-level)*circumference
+            // GDI+: we draw an arc from -90° sweeping level*360°
+            {
+                float progW    = 16f * scale200;
+                float sweepDeg = level * 360f;
+
+                if (sweepDeg > 0.5f)
+                {
+                    // Triple glow passes (simulating CSS drop-shadow filter)
+                    float[] glowWidths = { progW + 28f * scale200, progW + 14f * scale200, progW + 6f * scale200 };
+                    int[]   glowAlphas = { 40, 70, 110 };
+                    for (int gp = 0; gp < 3; gp++)
+                    {
+                        using (var gpen = new Pen(Color.FromArgb(glowAlphas[gp], col), glowWidths[gp]))
                         {
-                            dgb.CenterPoint    = new PointF(dx, dy);
-                            dgb.CenterColor    = Color.FromArgb(120, col);
-                            dgb.SurroundColors = new[] { Color.FromArgb(0, col) };
-                            g.FillPath(dgb, dgp);
+                            gpen.StartCap = LineCap.Round;
+                            gpen.EndCap   = LineCap.Round;
+                            g.DrawArc(gpen, cx - rProg, cy - rProg, rProg * 2, rProg * 2,
+                                      -90f, sweepDeg);
                         }
                     }
-                }
-                using (var dotBrush = new SolidBrush(dotCol))
-                    g.FillEllipse(dotBrush, dx - dotSize, dy - dotSize, dotSize * 2, dotSize * 2);
-            }
-
-            // ── LAYER 5: Inner bezel ring with color glow ─────────────────────
-            int innerBezelR = (int)(R * 0.82f);
-            // Glow passes
-            int[] ibGlowW = { (int)(16 * _scale), (int)(8 * _scale), (int)(3 * _scale) };
-            int[] ibGlowA = { 60, 120, 200 };
-            for (int ib = 0; ib < 3; ib++)
-            {
-                using (var ibp = new Pen(Color.FromArgb(ibGlowA[ib], col), ibGlowW[ib]))
-                    g.DrawEllipse(ibp, cx - innerBezelR, cy - innerBezelR, innerBezelR * 2, innerBezelR * 2);
-            }
-            // Dark fill inside inner bezel
-            using (var ibFill = new SolidBrush(Color.FromArgb(12, 12, 16)))
-                g.FillEllipse(ibFill, cx - innerBezelR, cy - innerBezelR, innerBezelR * 2, innerBezelR * 2);
-            // Colored ring outline
-            using (var ibRing = new Pen(Color.FromArgb(180, col), Math.Max(2, (int)(3 * _scale))))
-                g.DrawEllipse(ibRing, cx - innerBezelR, cy - innerBezelR, innerBezelR * 2, innerBezelR * 2);
-
-            // ── LAYER 6: Tick marks on inner bezel ────────────────────────────
-            int tickOuterR = innerBezelR - (int)(2 * _scale);
-            int tickInnerR = (int)(innerBezelR * 0.88f);
-            for (int t = 0; t < 60; t++)
-            {
-                float angle   = (float)(t * 6.0 - 90.0);
-                float rad     = (float)(angle * Math.PI / 180.0);
-                bool  isMajor = (t % 5 == 0);
-                float tickW   = isMajor ? Math.Max(2, (int)(2 * _scale)) : Math.Max(1, (int)(1 * _scale));
-                int   tickA   = isMajor ? 200 : 100;
-                float x1 = cx + tickOuterR * (float)Math.Cos(rad);
-                float y1 = cy + tickOuterR * (float)Math.Sin(rad);
-                float x2 = cx + tickInnerR * (float)Math.Cos(rad);
-                float y2 = cy + tickInnerR * (float)Math.Sin(rad);
-                using (var tp = new Pen(Color.FromArgb(tickA, 255, 255, 255), tickW))
-                    g.DrawLine(tp, x1, y1, x2, y2);
-            }
-
-            // ── LAYER 7: Deep recessed center disc ────────────────────────────
-            int innerR = (int)(R * 0.68f);
-            // Concentric dark circles — deep recession effect
-            int[] discR = { innerR, (int)(innerR * 0.85f), (int)(innerR * 0.65f), (int)(innerR * 0.40f), (int)(innerR * 0.20f) };
-            Color[] discC = {
-                Color.FromArgb(6, 6, 10),
-                Color.FromArgb(4, 4, 8),
-                Color.FromArgb(2, 2, 5),
-                Color.FromArgb(1, 1, 3),
-                Color.FromArgb(0, 0, 0)
-            };
-            for (int dc = 0; dc < discR.Length; dc++)
-            {
-                using (var db = new SolidBrush(discC[dc]))
-                    g.FillEllipse(db, cx - discR[dc], cy - discR[dc], discR[dc] * 2, discR[dc] * 2);
-            }
-
-            // Color tint — multiple concentric passes with blur simulation (PathGradientBrush)
-            int[] tintR = { (int)(innerR * 0.95f), (int)(innerR * 0.80f), (int)(innerR * 0.60f), (int)(innerR * 0.40f), (int)(innerR * 0.20f) };
-            int[] tintA = { 30, 60, 90, 110, 120 };
-            for (int ti = 0; ti < tintR.Length; ti++)
-            {
-                using (var tp2 = new GraphicsPath())
-                {
-                    tp2.AddEllipse(cx - tintR[ti], cy - tintR[ti], tintR[ti] * 2, tintR[ti] * 2);
-                    using (var pgb = new PathGradientBrush(tp2))
+                    // Solid progress arc on top
+                    using (var progPen = new Pen(Color.FromArgb(255, col), progW))
                     {
-                        pgb.CenterPoint    = new PointF(cx, cy);
-                        pgb.CenterColor    = Color.FromArgb(tintA[ti], col);
-                        pgb.SurroundColors = new[] { Color.FromArgb(0, col) };
-                        g.FillPath(pgb, tp2);
+                        progPen.StartCap = LineCap.Round;
+                        progPen.EndCap   = LineCap.Round;
+                        g.DrawArc(progPen, cx - rProg, cy - rProg, rProg * 2, rProg * 2,
+                                  -90f, sweepDeg);
                     }
                 }
             }
 
-            // Inset shadow edge
-            int[] insetW = { (int)(6 * _scale), (int)(14 * _scale), (int)(28 * _scale) };
-            int[] insetA = { 200, 130, 70 };
-            for (int ii = 0; ii < 3; ii++)
+            // ── LAYER 5: Inner core disc (r=60, radial gradient dark) ─────────
             {
-                using (var isp = new Pen(Color.FromArgb(insetA[ii], 0, 0, 0), insetW[ii]))
-                    g.DrawEllipse(isp, cx - innerR, cy - innerR, innerR * 2, innerR * 2);
-            }
-
-            // ── LAYER 8: % value — white core with color glow ─────────────────
-            string valStr  = pct.ToString() + "%";
-            float  valSize = SF(28f) * ((float)innerR / 60f);
-            valSize = Math.Max(SF(14f), Math.Min(SF(36f), valSize));
-            using (var valFont = new Font("Segoe UI", valSize, FontStyle.Bold))
-            {
-                var valSz = TextRenderer.MeasureText(valStr, valFont);
-                int vx    = cx - valSz.Width / 2;
-                int vy    = cy - valSz.Height / 2;
-
-                // Outer color glow passes (wide, soft)
-                int[] vgBlur = { (int)(22 * _scale), (int)(14 * _scale), (int)(7 * _scale) };
-                int[] vgAlph = { 160, 200, 230 };
-                for (int vg = 0; vg < 3; vg++)
+                float cr = rCore;
+                // Outer dark ring of core
+                using (var corePath = new GraphicsPath())
                 {
-                    int off = vgBlur[vg] / 4 + 1;
-                    for (int ox = -off; ox <= off; ox += Math.Max(1, off / 2))
-                    for (int oy = -off; oy <= off; oy += Math.Max(1, off / 2))
+                    corePath.AddEllipse(cx - cr, cy - cr, cr * 2, cr * 2);
+                    using (var pgb = new PathGradientBrush(corePath))
                     {
-                        TextRenderer.DrawText(g, valStr, valFont,
-                            new Point(vx + ox, vy + oy),
-                            Color.FromArgb(vgAlph[vg] / (off * 2 + 1), col));
+                        pgb.CenterPoint    = new PointF(cx, cy - cr * 0.1f);  // slightly above center like CSS 50% 40%
+                        pgb.CenterColor    = Color.FromArgb(255, 17, 17, 17);
+                        pgb.SurroundColors = new[] { Color.FromArgb(255, 0, 0, 0) };
+                        g.FillPath(pgb, corePath);
                     }
                 }
-                // White core
-                TextRenderer.DrawText(g, valStr, valFont, new Point(vx, vy), Color.White);
+                // Inset shadow edge (dark ring at boundary)
+                using (var insetPen = new Pen(Color.FromArgb(230, 0, 0, 0), 6f * scale200))
+                    g.DrawEllipse(insetPen, cx - cr, cy - cr, cr * 2, cr * 2);
+                // Subtle inner highlight (white shimmer at top)
+                using (var shimPen = new Pen(Color.FromArgb(13, 255, 255, 255), 3f * scale200))
+                    g.DrawArc(shimPen, cx - cr * 0.7f, cy - cr * 0.7f, cr * 1.4f, cr * 1.4f, 200f, 140f);
+            }
+
+            // ── LAYER 6: % badge (dark bg, colored glow, white text) ──────────
+            {
+                string valStr  = pct.ToString() + "%";
+                float  valSize = rCore * 0.38f;
+                valSize = Math.Max(8f, Math.Min(28f, valSize));
+                using (var valFont = new Font("Segoe UI", valSize, FontStyle.SemiBold))
+                {
+                    var valSz = TextRenderer.MeasureText(valStr, valFont);
+                    int padX  = (int)(12 * scale200);
+                    int padY  = (int)(6  * scale200);
+                    int badgeW = valSz.Width  + padX * 2;
+                    int badgeH = valSz.Height + padY * 2;
+                    int bx    = cx - badgeW / 2;
+                    int by    = cy - badgeH / 2;
+                    int bRad  = (int)(5 * scale200);
+
+                    // Dark semi-transparent badge background
+                    using (var bgPath = RoundedRect(new Rectangle(bx, by, badgeW, badgeH), bRad))
+                    {
+                        using (var bgBrush = new SolidBrush(Color.FromArgb(165, 0, 0, 0)))
+                            g.FillPath(bgBrush, bgPath);
+                    }
+
+                    // Colored glow border (box-shadow: 0 0 12px currentColor)
+                    for (int gw = (int)(12 * scale200); gw >= 2; gw -= 3)
+                    {
+                        int ga = (int)(30 * ((float)gw / (12f * scale200)));
+                        using (var glowPath = RoundedRect(
+                            new Rectangle(bx - gw/2, by - gw/2, badgeW + gw, badgeH + gw), bRad + gw/2))
+                        using (var glowPen = new Pen(Color.FromArgb(ga, col), 1f))
+                            g.DrawPath(glowPen, glowPath);
+                    }
+
+                    // White text
+                    int tx = cx - valSz.Width / 2;
+                    int ty = cy - valSz.Height / 2;
+                    TextRenderer.DrawText(g, valStr, valFont, new Point(tx, ty), Color.White);
+                }
             }
         }
 
