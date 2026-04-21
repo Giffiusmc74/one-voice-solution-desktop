@@ -19,7 +19,7 @@
  *   - Labels below each meter
  *   - [–] [val] [+] volume controls (large square buttons, accent-colored borders)
  *   - SELECT MICROPHONE / SELECT SPEAKER buttons (large, glowing)
- *   - Footer: "One United Global LLC 2026  V 7.32"
+ *   - Footer: "One United Global LLC 2026  V 7.33"
  *   - ALL audio/backend logic unchanged.
  *
  * v7.30 changes (audio):
@@ -55,7 +55,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb( 34, 197,  94);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.32";
+        private const string APP_VERSION = "7.33";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -971,7 +971,7 @@ namespace WindowsFormsApp1
 
             _lblFooterCenter = new Label
             {
-                Text      = "One United Global LLC 2026  V 7.32",
+                Text      = "One United Global LLC 2026  V 7.33",
                 ForeColor = Color.FromArgb(100, 100, 110),
                 BackColor = Color.Transparent,
                 Font      = new Font("Segoe UI", SF(11f), FontStyle.Regular),
