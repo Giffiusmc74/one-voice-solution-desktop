@@ -573,7 +573,7 @@ namespace WindowsFormsApp1
         private void DrawDialMeter(Graphics g, Panel panel, Color col, string key)
         {
             g.SmoothingMode     = SmoothingMode.AntiAlias;
-            g.InterpolationMode = System.Drawing.Imaging.InterpolationMode.HighQualityBicubic;
+            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
 
             int   W  = panel.Width;
             int   H  = panel.Height;
