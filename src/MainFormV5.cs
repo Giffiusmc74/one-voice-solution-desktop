@@ -711,7 +711,7 @@ namespace WindowsFormsApp1
                 string valStr  = pct.ToString() + "%";
                 float  valSize = rCore * 0.38f;
                 valSize = Math.Max(8f, Math.Min(28f, valSize));
-                using (var valFont = new Font("Segoe UI", valSize, FontStyle.SemiBold))
+                using (var valFont = new Font("Segoe UI", valSize, FontStyle.Bold))
                 {
                     var valSz = TextRenderer.MeasureText(valStr, valFont);
                     int padX  = (int)(12 * scale200);
