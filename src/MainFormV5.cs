@@ -1,7 +1,7 @@
 /*
- * MainFormV5.cs  —  ONE Voice Solution v7.33
+ * MainFormV5.cs  —  ONE Voice Solution v7.36
  *
- * UI REDESIGN v7.33 — COMPLETE VISUAL REWRITE to match ui_mockup.html exactly.
+ * UI REDESIGN v7.36 — DrawDialMeter replaced with user-specified GDI+ neon ring design.
  *
  *   METER GEOMETRY (SVG canvas 200×200, scaled to panel):
  *     1. Outer soft glow   : r=90, stroke-width=10, opacity=0.15
@@ -46,7 +46,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN  = Color.FromArgb( 44, 255, 136);  // #2cff88
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.34";
+        private const string APP_VERSION = "7.36";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -518,14 +518,7 @@ namespace WindowsFormsApp1
                 int ph     = panel.Height;
                 int textY  = (ph - th) / 2;
                 int startX = (panel.Width - tw) / 2;
-                int lineY  = ph / 2;
 
-                // Decorative lines on each side
-                using (var pen = new Pen(Color.FromArgb(80, 150, 150, 170), 1f))
-                {
-                    g.DrawLine(pen, 0, lineY, startX - (int)(8 * _scale), lineY);
-                    g.DrawLine(pen, startX + tw + (int)(8 * _scale), lineY, panel.Width, lineY);
-                }
                 TextRenderer.DrawText(g, pref, font, new Point(startX,          textY), bc);
                 TextRenderer.DrawText(g, kw,   font, new Point(startX + pw2,    textY), kc);
                 TextRenderer.DrawText(g, suf,  font, new Point(startX + pw2 + kw2, textY), bc);
@@ -543,7 +536,7 @@ namespace WindowsFormsApp1
                 Tag       = key
             };
             Color mc = meterColor;
-            panel.Paint += (s, e) => DrawDialMeter(e.Graphics, (Panel)s, mc, key);
+            panel.Paint += (s, e) => { var _p = (Panel)s; DrawDialMeter(e.Graphics, new Rectangle(0, 0, _p.Width, _p.Height), GetVolumePct(key), mc); };
             this.Controls.Add(panel);
 
             switch (key)
@@ -555,154 +548,120 @@ namespace WindowsFormsApp1
             }
             return panel;
         }
-
         // ══════════════════════════════════════════════════════════════════════
-        // DRAW DIAL METER — exact translation of ui_mockup.html SVG geometry
-        //
-        // SVG canvas = 200×200, cx=cy=100
-        // All radii scaled by (panelSize / 200)
-        //
-        // Layers (bottom to top):
-        //   1. Outer glow   : r=90, stroke-width=10, alpha=38 (opacity 0.15)
-        //   2. Segment ring : r=82, stroke-width=12, dashed 28/16, alpha=178 (opacity 0.7)
-        //   3. Tick ring    : r=68, stroke-width=2,  dashed 2/6,  gray, alpha=128 (opacity 0.5)
-        //   4. Progress arc : r=65, stroke-width=14, from -90° clockwise by level*360°, glow
-        //   5. Inner core   : radial gradient black→#070707, r=60
-        //   6. Center badge : dark bg, colored glow, "XX%" text
+        // DRAW DIAL METER — GDI+ neon ring design (user-specified)
+        // Signature: DrawDialMeter(Graphics g, Rectangle bounds, float percent, Color baseColor)
         // ══════════════════════════════════════════════════════════════════════
-        private void DrawDialMeter(Graphics g, Panel panel, Color col, string key)
+        private void DrawDialMeter(Graphics g, Rectangle bounds, float percent, Color baseColor)
         {
-            g.SmoothingMode     = SmoothingMode.AntiAlias;
-            g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
 
-            int   W  = panel.Width;
-            int   H  = panel.Height;
-            float cx = W / 2f;
-            float cy = H / 2f;
-            float sc = Math.Min(W, H) / 200f;   // scale: SVG canvas is 200×200
+            float cx     = bounds.X + bounds.Width  / 2f;
+            float cy     = bounds.Y + bounds.Height / 2f;
+            float radius = bounds.Width / 2f - 8f;
 
-            float level = GetLevel(key);
-            int   pct   = (int)Math.Round(level * 100f);
-
-            // ── 1. OUTER SOFT GLOW  r=90, stroke-width=10, opacity=0.15 ──────
-            float r1 = 90f * sc;
-            using (var p = new Pen(Color.FromArgb(38, col), 10f * sc))
-                g.DrawEllipse(p, cx - r1, cy - r1, r1 * 2, r1 * 2);
-
-            // ── 2. SEGMENT RING  r=82, stroke-width=12, dasharray=28 16 ──────
-            // GDI+ dashes: DashStyle.Custom with pattern in units of line width
-            float r2  = 82f * sc;
-            float sw2 = 12f * sc;
-            // dasharray 28 16 in SVG user units → divide by stroke-width to get GDI+ units
-            // GDI+ DashPattern is in multiples of line width
-            float dashOn  = 28f / 12f;   // ~2.33
-            float dashOff = 16f / 12f;   // ~1.33
-            using (var p = new Pen(Color.FromArgb(178, col), sw2))
+            // ENERGY BURST (stable particle pattern)
+            var rand = new Random(1);
+            for (int i = 0; i < 40; i++)
             {
-                p.DashStyle   = DashStyle.Custom;
-                p.DashPattern = new float[] { dashOn, dashOff };
-                p.DashCap     = DashCap.Flat;
-                g.DrawEllipse(p, cx - r2, cy - r2, r2 * 2, r2 * 2);
+                double a = rand.NextDouble() * Math.PI * 2;
+                double r = radius + 10 + rand.NextDouble() * 40;
+                float  x = cx + (float)(Math.Cos(a) * r);
+                float  y = cy + (float)(Math.Sin(a) * r);
+                using (Brush b = new SolidBrush(Color.FromArgb(18, baseColor)))
+                    g.FillRectangle(b, x, y, 2, 2);
             }
 
-            // ── 3. TICK RING  r=68, stroke-width=2, dasharray=2 6, gray ──────
-            float r3  = 68f * sc;
-            float sw3 = 2f  * sc;
-            float tickOn  = 2f / 2f;   // 1.0
-            float tickOff = 6f / 2f;   // 3.0
-            using (var p = new Pen(Color.FromArgb(128, 154, 160, 170), sw3))
+            // OUTER GLOW (tight + layered)
+            for (int i = 0; i < 10; i++)
             {
-                p.DashStyle   = DashStyle.Custom;
-                p.DashPattern = new float[] { tickOn, tickOff };
-                p.DashCap     = DashCap.Flat;
-                g.DrawEllipse(p, cx - r3, cy - r3, r3 * 2, r3 * 2);
+                int   alpha = Math.Max(1, 30 - i * 2);
+                float w     = radius + i * 2f;
+                using (var p = new Pen(Color.FromArgb(alpha, baseColor), 18f + i * 2f))
+                    g.DrawEllipse(p, cx - w, cy - w, w * 2f, w * 2f);
             }
 
-            // ── 4. PROGRESS ARC  r=65, stroke-width=14, from -90° clockwise ──
-            // SVG: stroke-dasharray=408, stroke-dashoffset=(1-level)*408
-            // 408 ≈ 2π×65 (circumference of r=65 in SVG user units)
-            // In GDI+: DrawArc(startAngle=-90, sweepAngle=level*360)
-            float r4  = 65f * sc;
-            float sw4 = 14f * sc;
-            if (level > 0.005f)
+            // HARD EDGE RING
+            using (var p = new Pen(baseColor, 3f))
+                g.DrawEllipse(p, cx - radius, cy - radius, radius * 2f, radius * 2f);
+
+            // TICK MARKS (72 ticks, every 6th is major)
+            int tickCount = 72;
+            for (int i = 0; i < tickCount; i++)
             {
-                float sweep = level * 360f;
-
-                // Glow passes (simulate drop-shadow filter)
-                int[] glowA = { 20, 40, 70 };
-                int[] glowW = { (int)(sw4 * 3.5f), (int)(sw4 * 2.2f), (int)(sw4 * 1.4f) };
-                for (int i = 0; i < glowA.Length; i++)
-                {
-                    using (var gp = new Pen(Color.FromArgb(glowA[i], col), glowW[i]))
-                    {
-                        gp.StartCap = LineCap.Round;
-                        gp.EndCap   = LineCap.Round;
-                        g.DrawArc(gp, cx - r4, cy - r4, r4 * 2, r4 * 2, -90f, sweep);
-                    }
-                }
-
-                // Main arc
-                using (var ap = new Pen(col, sw4))
-                {
-                    ap.StartCap = LineCap.Round;
-                    ap.EndCap   = LineCap.Round;
-                    g.DrawArc(ap, cx - r4, cy - r4, r4 * 2, r4 * 2, -90f, sweep);
-                }
+                float angle = (float)(i * Math.PI * 2.0 / tickCount);
+                float inner = radius - 18f;
+                float outer = radius;
+                float x1 = cx + (float)Math.Cos(angle) * inner;
+                float y1 = cy + (float)Math.Sin(angle) * inner;
+                float x2 = cx + (float)Math.Cos(angle) * outer;
+                float y2 = cy + (float)Math.Sin(angle) * outer;
+                bool  major = (i % 6 == 0);
+                using (var p = new Pen(Color.FromArgb(major ? 255 : 200, baseColor), major ? 4f : 2f))
+                    g.DrawLine(p, x1, y1, x2, y2);
             }
 
-            // ── 5. INNER CORE  radial gradient black→#070707, r=60 ───────────
-            float r5 = 60f * sc;
-            using (var path = new GraphicsPath())
+            // PROGRESS ARC (glow pass + main arc)
+            float sweep = percent / 100f * 360f;
+            float arcR  = radius - 12f;
+            using (var glow = new Pen(Color.FromArgb(120, baseColor), 24f))
             {
-                path.AddEllipse(cx - r5, cy - r5, r5 * 2, r5 * 2);
-                using (var pgb = new PathGradientBrush(path))
+                glow.StartCap = System.Drawing.Drawing2D.LineCap.Round;
+                glow.EndCap   = System.Drawing.Drawing2D.LineCap.Round;
+                g.DrawArc(glow, cx - arcR, cy - arcR, arcR * 2f, arcR * 2f, -90f, sweep);
+            }
+            using (var p = new Pen(baseColor, 16f))
+            {
+                p.StartCap = System.Drawing.Drawing2D.LineCap.Round;
+                p.EndCap   = System.Drawing.Drawing2D.LineCap.Round;
+                g.DrawArc(p, cx - arcR, cy - arcR, arcR * 2f, arcR * 2f, -90f, sweep);
+            }
+
+            // TOP HIGHLIGHT (tight flare)
+            using (var p = new Pen(Color.FromArgb(200, Color.White), 4f))
+                g.DrawArc(p, cx - radius, cy - radius, radius * 2f, radius * 2f, -8f, 16f);
+
+            // INNER CORE (depth gradient)
+            float coreR = radius - 28f;
+            using (var path = new System.Drawing.Drawing2D.GraphicsPath())
+            {
+                path.AddEllipse(cx - coreR, cy - coreR, coreR * 2f, coreR * 2f);
+                using (var brush = new System.Drawing.Drawing2D.PathGradientBrush(path))
                 {
-                    pgb.CenterPoint    = new PointF(cx, cy);
-                    pgb.CenterColor    = Color.FromArgb(255, 0, 0, 0);
-                    pgb.SurroundColors = new[] { Color.FromArgb(255, 7, 7, 7) };
-                    g.FillPath(pgb, path);
+                    brush.CenterColor    = Color.Black;
+                    brush.SurroundColors = new[] { Color.FromArgb(15, 15, 15) };
+                    g.FillPath(brush, path);
                 }
             }
 
-            // ── 6. CENTER BADGE  dark bg, colored glow, % text ───────────────
-            // Matches: .center { font-size:24px; background:rgba(0,0,0,0.65); box-shadow:0 0 12px currentColor; }
-            string pctText = pct + "%";
-            float  fontSize = Math.Max(8f, 22f * sc);
-            using (var font = new Font("Segoe UI", fontSize, FontStyle.Bold, GraphicsUnit.Pixel))
+            // INNER COLOR BLEED
+            using (var brush = new System.Drawing.Drawing2D.PathGradientBrush(new PointF[] {
+                new PointF(cx - radius, cy - radius),
+                new PointF(cx + radius, cy - radius),
+                new PointF(cx + radius, cy + radius),
+                new PointF(cx - radius, cy + radius)
+            }))
             {
-                SizeF textSz = g.MeasureString(pctText, font);
-                float bw     = textSz.Width  + 20f * sc;
-                float bh     = textSz.Height + 10f * sc;
-                float bx     = cx - bw / 2f;
-                float by     = cy - bh / 2f;
+                brush.CenterColor    = Color.FromArgb(0,  baseColor);
+                brush.SurroundColors = new[] { Color.FromArgb(40, baseColor) };
+                float bleedR = radius - 10f;
+                g.FillEllipse(brush, cx - bleedR, cy - bleedR, bleedR * 2f, bleedR * 2f);
+            }
 
-                // Colored glow behind badge (box-shadow: 0 0 12px currentColor)
-                int[] glowA2 = { 15, 35, 65 };
-                int[] glowE  = { (int)(16 * sc), (int)(10 * sc), (int)(5 * sc) };
-                for (int i = 0; i < glowA2.Length; i++)
-                {
-                    using (var gbrush = new SolidBrush(Color.FromArgb(glowA2[i], col)))
-                    {
-                        g.FillRectangle(gbrush,
-                            bx - glowE[i], by - glowE[i],
-                            bw + glowE[i] * 2, bh + glowE[i] * 2);
-                    }
-                }
+            // INNER RIM LIGHT
+            using (var p = new Pen(Color.FromArgb(40, Color.White), 2f))
+                g.DrawEllipse(p, cx - coreR, cy - coreR, coreR * 2f, coreR * 2f);
 
-                // Dark background
-                using (var bgBrush = new SolidBrush(Color.FromArgb(165, 0, 0, 0)))
-                    g.FillRectangle(bgBrush, bx, by, bw, bh);
-
-                // Colored text (matches .center { color: currentColor })
-                var sf = new StringFormat
-                {
-                    Alignment     = StringAlignment.Center,
-                    LineAlignment = StringAlignment.Center
-                };
-                using (var textBrush = new SolidBrush(col))
-                    g.DrawString(pctText, font, textBrush, new RectangleF(bx, by, bw, bh), sf);
+            // PERCENT VALUE TEXT
+            using (var font  = new Font("Segoe UI", 30f, FontStyle.Bold))
+            using (var brush = new SolidBrush(baseColor))
+            {
+                string text = $"{(int)percent}%";
+                SizeF  sz   = g.MeasureString(text, font);
+                g.DrawString(text, font, brush, cx - sz.Width / 2f, cy - sz.Height / 2f);
             }
         }
+
 
         // ── Volume controls: [–] [val] [+] ───────────────────────────────────
         // Matches: .controls { display:flex; gap:10px; }
@@ -726,10 +685,10 @@ namespace WindowsFormsApp1
             btnMinus.FlatAppearance.BorderSize  = Math.Max(1, (int)(2 * _scale));
             btnMinus.FlatAppearance.MouseOverBackColor = Color.FromArgb(60, accentColor);
 
-            // Value label (shows VOLUME text)
+            // Value label (shows dB value)
             var lblVal = new Label
             {
-                Text      = "VOLUME",
+                Text      = GetDbText(channelIndex),
                 ForeColor = Color.White,
                 BackColor = Color.FromArgb(0, 0, 0, 100),
                 Font      = new Font("Segoe UI", SF(13f), FontStyle.Bold),
@@ -771,8 +730,8 @@ namespace WindowsFormsApp1
 
             int   ch = channelIndex;
             Label lv = lblVal;
-            btnMinus.Click += (s, e) => AdjustDb(ch, -1, lv);
-            btnPlus.Click  += (s, e) => AdjustDb(ch, +1, lv);
+            btnMinus.Click += (s, e) => { AdjustDb(ch, -1, lv); lv.Text = GetDbText(ch); };
+            btnPlus.Click  += (s, e) => { AdjustDb(ch, +1, lv); lv.Text = GetDbText(ch); };
 
             AttachHoverGlow(btnMinus, accentColor);
             AttachHoverGlow(btnPlus,  accentColor);
@@ -784,7 +743,27 @@ namespace WindowsFormsApp1
 
         private string GetDbText(int channelIndex)
         {
-            return "VOLUME";
+            switch (channelIndex)
+            {
+                case 0: return _dbCustomerVoice  + " dB";
+                case 1: return _dbCustomerScript + " dB";
+                case 2: return _dbAgentVoice     + " dB";
+                case 3: return _dbAgentScript    + " dB";
+                default: return "-3 dB";
+            }
+        }
+
+        // Returns volume level (0-100) for the given meter key — shown as % in center
+        private int GetVolumePct(string key)
+        {
+            switch (key)
+            {
+                case "customerVoice":    return DbToPercent(_dbCustomerVoice);
+                case "agentScript_left": return DbToPercent(_dbCustomerScript);
+                case "myMicLevel":       return DbToPercent(_dbAgentVoice);
+                case "agentScript":      return DbToPercent(_dbAgentScript);
+                default: return 0;
+            }
         }
 
         private void AdjustDb(int channelIndex, int delta, Label lblVal)
@@ -963,7 +942,7 @@ namespace WindowsFormsApp1
 
             _lblFooterCenter = new Label
             {
-                Text      = "One United Global LLC 2026  V 7.34",
+                Text      = "One United Global LLC 2026  V 7.35",
                 ForeColor = Color.FromArgb(100, 100, 110),
                 BackColor = Color.Transparent,
                 Font      = new Font("Segoe UI", SF(11f), FontStyle.Regular),
