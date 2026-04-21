@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>One Voice</title>
+
+<style>
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: Arial, sans-serif;
+}
+
+body {
+  background: #05060a;
+  color: white;
+}
+
+.app {
+  width: 100%;
+  height: 100vh;
+  padding: 20px;
+}
+
+/* HEADER */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.logo {
+  font-size: 32px;
+  font-weight: bold;
+  color: #ff2a2a;
+}
+
+.logo span {
+  font-size: 16px;
+  color: #aaa;
+}
+
+.title {
+  font-size: 28px;
+  color: #ff4a4a;
+}
+
+/* DIVIDER */
+.divider {
+  height: 2px;
+  background: linear-gradient(to right, transparent, red, transparent);
+  margin: 20px 0;
+}
+
+/* GRID */
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 40px;
+}
+
+/* COLUMN */
+.column h3 {
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.red { color: #ff3b3b; }
+.blue { color: #3ba3ff; }
+.green { color: #2cff88; }
+.purple { color: #b26bff; }
+
+/* GAUGES */
+.gauges {
+  display: flex;
+  justify-content: space-around;
+  margin-bottom: 20px;
+}
+
+.gauge {
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+/* CLEAN GLOW */
+.gauge.red {
+  border: 8px solid #ff3b3b;
+  box-shadow: 0 0 20px #ff3b3b;
+}
+
+.gauge.blue {
+  border: 8px solid #3ba3ff;
+  box-shadow: 0 0 20px #3ba3ff;
+}
+
+.gauge.green {
+  border: 8px solid #2cff88;
+  box-shadow: 0 0 20px #2cff88;
+}
+
+.gauge.purple {
+  border: 8px solid #b26bff;
+  box-shadow: 0 0 20px #b26bff;
+}
+
+.inner {
+  font-size: 36px;
+  font-weight: bold;
+}
+
+/* CONTROLS */
+.controls {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+.control {
+  width: 60px;
+  height: 50px;
+  border: 2px solid;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.control.red { border-color: #ff3b3b; }
+.control.blue { border-color: #3ba3ff; }
+.control.green { border-color: #2cff88; }
+.control.purple { border-color: #b26bff; }
+
+/* FOOTER */
+.footer {
+  display: flex;
+  justify-content: center;
+  gap: 40px;
+  margin-top: 30px;
+}
+
+.btn {
+  padding: 15px 40px;
+  font-size: 16px;
+  border: 2px solid;
+  background: transparent;
+  cursor: pointer;
+  color: white;
+}
+
+.btn.red {
+  border-color: #ff3b3b;
+  box-shadow: 0 0 10px #ff3b3b;
+}
+
+.btn.blue {
+  border-color: #3ba3ff;
+  box-shadow: 0 0 10px #3ba3ff;
+}
+
+.version {
+  text-align: center;
+  margin-top: 20px;
+  color: #777;
+  font-size: 12px;
+}
+</style>
+
+</head>
+
+<body>
+
+<div class="app">
+
+  <div class="header">
+    <div class="logo">ONE <span>VOICE</span></div>
+    <div class="title">The Geniusness Is In The Simplicity</div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="grid">
+
+    <div class="column">
+      <h3>WHAT THE <span class="red">AGENT</span> HEARS</h3>
+
+      <div class="gauges">
+        <div class="gauge red"><div class="inner">80%</div></div>
+        <div class="gauge blue"><div class="inner">92%</div></div>
+      </div>
+
+      <div class="controls">
+        <div class="control red">-</div>
+        <div class="control red">-3</div>
+        <div class="control red">+</div>
+      </div>
+
+      <div class="controls">
+        <div class="control blue">-</div>
+        <div class="control blue">-3</div>
+        <div class="control blue">+</div>
+      </div>
+    </div>
+
+    <div class="column">
+      <h3>WHAT THE <span class="purple">CUSTOMER</span> HEARS</h3>
+
+      <div class="gauges">
+        <div class="gauge purple"><div class="inner">88%</div></div>
+        <div class="gauge green"><div class="inner">95%</div></div>
+      </div>
+
+      <div class="controls">
+        <div class="control purple">-</div>
+        <div class="control purple">-3</div>
+        <div class="control purple">+</div>
+      </div>
+
+      <div class="controls">
+        <div class="control green">-</div>
+        <div class="control green">-3</div>
+        <div class="control green">+</div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="footer">
+    <button class="btn red">🎤 SELECT MICROPHONE</button>
+    <button class="btn blue">🔊 SELECT SPEAKER</button>
+  </div>
+
+  <div class="version">One United Global LLC 2026 v7.31</div>
+
+</div>
+
+</body>
+</html>
