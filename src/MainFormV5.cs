@@ -46,7 +46,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN  = Color.FromArgb( 44, 255, 136);  // #2cff88
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.33";
+        private const string APP_VERSION = "7.34";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -306,18 +306,18 @@ namespace WindowsFormsApp1
             };
         }
 
-        // ── Header: logo left + red title block centered ──────────────────────
-        // Matches: .header grid-template-columns:1fr auto 1fr
-        //          .logo { color:#ff2a2a; font-size:26px; }
-        //          .title { background:#ff3b3b; padding:10px 40px; box-shadow:0 0 18px rgba(255,0,0,0.7); }
+        // ── Header: logo left + plain white title centered ───────────────────
         private void BuildHeader(int W, int cardPad)
         {
             int headerH = (int)(90 * _scale);
-            int logoH   = (int)(64 * _scale);
-            int logoW   = (int)(160 * _scale);
-            int logoX   = cardPad + (int)(28 * _scale);
-            int logoY   = cardPad + (headerH - logoH) / 2;
 
+            // Logo — drawn as text "ONE VOICE" to match the target screenshot
+            int logoH = (int)(64 * _scale);
+            int logoW = (int)(200 * _scale);
+            int logoX = cardPad + (int)(12 * _scale);
+            int logoY = cardPad + (headerH - logoH) / 2;
+
+            // Try to load image logo first; fall back to painted text logo
             _logoBox = new PictureBox
             {
                 Bounds    = new Rectangle(logoX, logoY, logoW, logoH),
@@ -325,18 +325,57 @@ namespace WindowsFormsApp1
                 BackColor = Color.Transparent
             };
             LoadLogo();
+
+            // If no image loaded, paint the logo as text
+            if (_logoBox.Image == null)
+            {
+                _logoBox.Paint += (s, e2) =>
+                {
+                    var g2 = e2.Graphics;
+                    g2.SmoothingMode = SmoothingMode.AntiAlias;
+                    int pw = _logoBox.Width;
+                    int ph = _logoBox.Height;
+
+                    // "ONE" in bold red
+                    float oneSz  = Math.Max(10f, 32f * _scale);
+                    float voiceSz = Math.Max(7f, 13f * _scale);
+                    using (var fOne   = new Font("Segoe UI", oneSz,   FontStyle.Bold,    GraphicsUnit.Pixel))
+                    using (var fVoice = new Font("Segoe UI", voiceSz, FontStyle.Regular, GraphicsUnit.Pixel))
+                    {
+                        SizeF szOne   = g2.MeasureString("ONE",   fOne);
+                        SizeF szVoice = g2.MeasureString("VOICE", fVoice);
+                        float totalW  = szOne.Width + (int)(8 * _scale) + szVoice.Width;
+                        float startX  = (pw - totalW) / 2f;
+                        float baseY   = (ph - szOne.Height) / 2f;
+
+                        // Glow behind ONE
+                        for (int gi = 0; gi < 3; gi++)
+                        {
+                            int ga2 = new int[]{ 20, 45, 80 }[gi];
+                            float ge = new float[]{ 6f, 3f, 1.5f }[gi] * _scale;
+                            using (var gb = new SolidBrush(Color.FromArgb(ga2, ONE_RED)))
+                                g2.FillRectangle(gb, startX - ge, baseY - ge, szOne.Width + ge * 2, szOne.Height + ge * 2);
+                        }
+
+                        using (var redBrush   = new SolidBrush(ONE_RED))
+                        using (var whiteBrush = new SolidBrush(Color.White))
+                        {
+                            g2.DrawString("ONE",   fOne,   redBrush,   startX, baseY);
+                            g2.DrawString("VOICE", fVoice, whiteBrush, startX + szOne.Width + (int)(8 * _scale),
+                                          baseY + szOne.Height - szVoice.Height - (int)(2 * _scale));
+                        }
+                    }
+                };
+            }
             this.Controls.Add(_logoBox);
             AttachDrag(_logoBox);
 
-            // Title block — red background with glow, white text
-            // Matches: .title { background:#ff3b3b; box-shadow:0 0 18px rgba(255,0,0,0.7); }
+            // Title — plain white text, no red background
             string titleText = "The Geniusness Is In The Simplicity";
             var    titleFont = new Font("Segoe UI", SF(18f), FontStyle.Bold);
             var    titleSz   = TextRenderer.MeasureText(titleText, titleFont);
-            int    padH      = (int)(10 * _scale);
-            int    padW      = (int)(40 * _scale);
-            int    blockW    = titleSz.Width  + padW * 2;
-            int    blockH    = titleSz.Height + padH * 2;
+            int    blockW    = titleSz.Width  + (int)(20 * _scale);
+            int    blockH    = titleSz.Height + (int)(10 * _scale);
             int    blockX    = (W - blockW) / 2;
             int    blockY    = cardPad + (headerH - blockH) / 2;
 
@@ -354,25 +393,17 @@ namespace WindowsFormsApp1
                 g2.SmoothingMode = SmoothingMode.AntiAlias;
                 int pw = titlePanel.Width;
                 int ph = titlePanel.Height;
-
-                // Red glow behind the block
-                int[] ga = { 6, 14, 30, 60 };
-                int[] gw = { (int)(40 * _scale), (int)(24 * _scale), (int)(12 * _scale), (int)(4 * _scale) };
-                for (int i = 0; i < ga.Length; i++)
-                {
-                    using (var gpen = new Pen(Color.FromArgb(ga[i], ONE_RED), gw[i]))
-                    {
-                        g2.DrawRectangle(gpen, 0, 0, pw - 1, ph - 1);
-                    }
-                }
-
-                // Red fill
-                using (var fill = new SolidBrush(Color.FromArgb(255, 59, 59)))
-                    g2.FillRectangle(fill, 0, 0, pw, ph);
-
-                // White text centered
                 int tx = (pw - ts.Width)  / 2;
                 int ty = (ph - ts.Height) / 2;
+                // Subtle red glow passes behind text
+                for (int gi = 0; gi < 3; gi++)
+                {
+                    int   ga2 = new int[]{ 8, 18, 35 }[gi];
+                    int   off = new int[]{ 3, 2, 1 }[gi];
+                    using (var gbrush = new SolidBrush(Color.FromArgb(ga2, ONE_RED)))
+                        g2.FillRectangle(gbrush, tx - off, ty - off, ts.Width + off * 2, ts.Height + off * 2);
+                }
+                // White text
                 TextRenderer.DrawText(g2, tt, tf, new Point(tx, ty), Color.White);
             };
             this.Controls.Add(titlePanel);
@@ -505,10 +536,10 @@ namespace WindowsFormsApp1
         // ── Circular meter panel ──────────────────────────────────────────────
         private Panel BuildCircularMeter(int x, int y, int diam, Color meterColor, string key)
         {
-            var panel = new Panel
+            var panel = new DoubleBufferedPanel
             {
                 Bounds    = new Rectangle(x, y, diam, diam),
-                BackColor = Color.Transparent,
+                BackColor = Color.FromArgb(7, 8, 18),
                 Tag       = key
             };
             Color mc = meterColor;
@@ -695,10 +726,10 @@ namespace WindowsFormsApp1
             btnMinus.FlatAppearance.BorderSize  = Math.Max(1, (int)(2 * _scale));
             btnMinus.FlatAppearance.MouseOverBackColor = Color.FromArgb(60, accentColor);
 
-            // Value label (shows dB value)
+            // Value label (shows VOLUME text)
             var lblVal = new Label
             {
-                Text      = GetDbText(channelIndex),
+                Text      = "VOLUME",
                 ForeColor = Color.White,
                 BackColor = Color.FromArgb(0, 0, 0, 100),
                 Font      = new Font("Segoe UI", SF(13f), FontStyle.Bold),
@@ -753,16 +784,7 @@ namespace WindowsFormsApp1
 
         private string GetDbText(int channelIndex)
         {
-            int db;
-            switch (channelIndex)
-            {
-                case 0:  db = _dbCustomerVoice;  break;
-                case 1:  db = _dbCustomerScript; break;
-                case 2:  db = _dbAgentVoice;     break;
-                case 3:  db = _dbAgentScript;    break;
-                default: db = -3;                break;
-            }
-            return db.ToString();
+            return "VOLUME";
         }
 
         private void AdjustDb(int channelIndex, int delta, Label lblVal)
@@ -771,26 +793,22 @@ namespace WindowsFormsApp1
             {
                 case 0:
                     _dbCustomerVoice = Math.Max(-20, Math.Min(6, _dbCustomerVoice + delta));
-                    lblVal.Text = _dbCustomerVoice.ToString();
                     _customerVoiceVolume = DbToLinear(_dbCustomerVoice);
                     AppSettings.Instance.SpeakerSystemVolume = DbToPercent(_dbCustomerVoice);
                     break;
                 case 1:
                     _dbCustomerScript = Math.Max(-20, Math.Min(6, _dbCustomerScript + delta));
-                    lblVal.Text = _dbCustomerScript.ToString();
                     AppSettings.Instance.SetVolume("agentScript", DbToLinear(_dbCustomerScript));
                     LocalBridgeServer.Instance.SetVolume("agent", DbToPercent(_dbCustomerScript));
                     break;
                 case 2:
                     _dbAgentVoice = Math.Max(-20, Math.Min(6, _dbAgentVoice + delta));
-                    lblVal.Text = _dbAgentVoice.ToString();
                     if (_activeMicDevice != null)
                         try { _activeMicDevice.AudioEndpointVolume.MasterVolumeLevelScalar = DbToLinear(_dbAgentVoice); } catch { }
                     AppSettings.Instance.MicSystemVolume = DbToPercent(_dbAgentVoice);
                     break;
                 case 3:
                     _dbAgentScript = Math.Max(-20, Math.Min(6, _dbAgentScript + delta));
-                    lblVal.Text = _dbAgentScript.ToString();
                     AppSettings.Instance.SetVolume("customerScript", DbToLinear(_dbAgentScript));
                     LocalBridgeServer.Instance.SetVolume("customer", DbToPercent(_dbAgentScript));
                     break;
@@ -945,7 +963,7 @@ namespace WindowsFormsApp1
 
             _lblFooterCenter = new Label
             {
-                Text      = "One United Global LLC 2026  V 7.33",
+                Text      = "One United Global LLC 2026  V 7.34",
                 ForeColor = Color.FromArgb(100, 100, 110),
                 BackColor = Color.Transparent,
                 Font      = new Font("Segoe UI", SF(11f), FontStyle.Regular),
@@ -1549,6 +1567,22 @@ namespace WindowsFormsApp1
             try { _loopbackCapture?.Dispose(); } catch { }
             _trayIcon?.Dispose();
             base.OnFormClosing(e);
+        }
+    }
+
+    /// <summary>
+    /// Double-buffered panel — eliminates flicker on transparent/custom-painted controls.
+    /// </summary>
+    internal sealed class DoubleBufferedPanel : Panel
+    {
+        public DoubleBufferedPanel()
+        {
+            SetStyle(
+                ControlStyles.OptimizedDoubleBuffer |
+                ControlStyles.AllPaintingInWmPaint  |
+                ControlStyles.UserPaint,
+                true);
+            UpdateStyles();
         }
     }
 }
