@@ -1575,7 +1575,7 @@ namespace WindowsFormsApp1
             {
                 string name = AppSettings.Instance.AgentName;
                 if (string.IsNullOrEmpty(name))
-                    name = await HeartbeatService.Instance.GetAgentNameAsync(key);
+                    name = HeartbeatService.Instance.AgentName;
                 if (!string.IsNullOrEmpty(name))
                 {
                     AppSettings.Instance.AgentName = name;
