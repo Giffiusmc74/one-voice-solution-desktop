@@ -1,30 +1,30 @@
 /*
  * MainFormV5.cs  —  ONE Voice Solution v7.31
  *
- * UI REDESIGN v7.31:
- *   - Complete visual overhaul to match design mock exactly.
- *   - Dark space/nebula background with rounded dark card.
- *   - ONE logo (top-left) + "The Geniusness Is In The Simplicity" tagline centered in header.
- *   - 4 circular VU dial meters: Customer Voice (RED), Customer Recordings (BLUE),
- *     Agent Voice (PURPLE), Agent Recordings (GREEN).
- *   - Section dividers: "WHAT THE AGENT HEARS" / "WHAT THE CUSTOMER HEARS".
- *   - [–] [dB value] [+] volume controls below each meter label.
- *   - Two large device buttons: SELECT MICROPHONE (red glow) / SELECT SPEAKER (blue glow).
- *   - Footer: "One United Global LLC 2026. V 7.31"
- *   - ALL audio logic, routing, and meter data connections unchanged.
+ * UI REDESIGN v7.31 — COMPLETE VISUAL REWRITE to match render_new_design.py exactly.
+ *   - Dark space background (BG = 4,5,14)
+ *   - ONE logo top-left, "The Geniusness Is In The Simplicity" centered with red glow/outline
+ *   - Full-width red glow line with white center flare
+ *   - Section labels: "WHAT THE AGENT HEARS" / "WHAT THE CUSTOMER HEARS"
+ *     (AGENT in red, CUSTOMER in purple)
+ *   - 4 circular VU meters drawn entirely via owner-draw:
+ *       Layer 1: Wide color bloom outward
+ *       Layer 2: Dark base disc + thick colored outer ring with bloom glow
+ *       Layer 3: Chrome highlight arcs (blurred) on left/right
+ *       Layer 4: LED dot ring (36 dots, lit by level)
+ *       Layer 5: Inner bezel ring (0.82r) with color glow, dark fill, colored outline
+ *       Layer 6: Tick marks on inner bezel (60 ticks, white)
+ *       Layer 7: Deep recessed center (concentric dark circles + color tint)
+ *       Layer 8: % value centered (white core + color glow passes)
+ *   - Labels below each meter
+ *   - [–] [val] [+] volume controls (large square buttons, accent-colored borders)
+ *   - SELECT MICROPHONE / SELECT SPEAKER buttons (large, glowing)
+ *   - Footer: "One United Global LLC 2026  V 7.31"
+ *   - ALL audio/backend logic unchanged.
  *
  * v7.30 changes (audio):
  *   - Mic pass-through restarts automatically after each recording finishes.
  *   - WaveFormat upgraded to 48000/16/stereo.
- *
- * v7.29 changes (audio):
- *   - Mic pass-through WaveOut volume explicitly set to 1.0f after Play().
- *
- * v7.27 changes (audio):
- *   - Mic pass-through: agent's live voice routed from Jabra mic through VB-Audio Cable Input.
- *
- * v7.21 changes (audio):
- *   - Volume sliders take effect from the FIRST playback.
  */
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
@@ -43,18 +43,16 @@ namespace WindowsFormsApp1
     public partial class MainFormV5 : Form
     {
         // ── Brand colours ─────────────────────────────────────────────────────
-        private static readonly Color ONE_RED       = Color.FromArgb(254, 1, 1);
-        private static readonly Color BG_DARK       = Color.FromArgb(5, 5, 18);        // Deep space black-blue
-        private static readonly Color BG_CARD       = Color.FromArgb(14, 14, 30);      // Dark card background
-        private static readonly Color BG_PANEL      = Color.FromArgb(28, 28, 28);
+        private static readonly Color ONE_RED       = Color.FromArgb(255, 59, 59);
+        private static readonly Color BG_DARK       = Color.FromArgb(4, 5, 14);
         private static readonly Color TEXT_WHITE     = Color.White;
         private static readonly Color ONE_BLUE_SEL   = Color.FromArgb(0, 102, 204);
 
-        // Meter colours per channel
-        private static readonly Color METER_RED     = Color.FromArgb(254, 1, 1);
-        private static readonly Color METER_BLUE    = Color.FromArgb(0, 160, 255);
-        private static readonly Color METER_PURPLE  = Color.FromArgb(160, 32, 240);
-        private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
+        // Meter colours — exact match to Python render
+        private static readonly Color METER_RED     = Color.FromArgb(255,  59,  59);
+        private static readonly Color METER_BLUE    = Color.FromArgb( 59, 163, 255);
+        private static readonly Color METER_PURPLE  = Color.FromArgb(168,  85, 247);
+        private static readonly Color METER_GREEN   = Color.FromArgb( 34, 197,  94);
 
         // ── Version ───────────────────────────────────────────────────────────
         private const string APP_VERSION = "7.31";
@@ -90,11 +88,10 @@ namespace WindowsFormsApp1
         private Label       _lblAgentName;
         private ComboBox    _cboMic;
         private ComboBox    _cboHeadset;
-        // Meter panels (used for real-time invalidation)
-        private Panel       _myMicMeterLeft;       // Agent Voice (purple) — right side
-        private Panel       _agentScriptMeter;     // Agent Recordings (green) — right side
-        private Panel       _customerVoiceMeter;   // Customer Voice (red) — left side
-        private Panel       _customerScriptMeter;  // Customer Recordings (blue) — left side
+        private Panel       _myMicMeterLeft;
+        private Panel       _agentScriptMeter;
+        private Panel       _customerVoiceMeter;
+        private Panel       _customerScriptMeter;
         private Label       _lblFooterCenter;
         private NotifyIcon  _trayIcon;
         private ContextMenuStrip _trayMenu;
@@ -105,20 +102,18 @@ namespace WindowsFormsApp1
         private MMDevice _activeSpeakerDevice;
         private MMDevice _activeVBCableDevice;
 
-        // Volume gain values (0.0–2.0, default 1.0 = 0 dB)
-        // These are the per-channel gain scalars used by the meter display and bridge.
+        // Volume gain values
         private float _volCustomerVoice      = 1.0f;
         private float _volCustomerScript     = 1.0f;
         private float _volAgentVoice         = 1.0f;
         private float _volAgentScript        = 1.0f;
 
-        // dB display values (integer, shown in the [–][val][+] controls)
+        // dB display values
         private int _dbCustomerVoice     = -3;
         private int _dbCustomerScript    = -3;
         private int _dbAgentVoice        = -3;
         private int _dbAgentScript       = -3;
 
-        // dB display labels
         private Label _lblDbCustomerVoice;
         private Label _lblDbCustomerScript;
         private Label _lblDbAgentVoice;
@@ -134,7 +129,6 @@ namespace WindowsFormsApp1
         private Label    _lblAgentScriptVol;
         private Label    _lblCustomerScriptVol;
 
-        // Loopback capture for Customer Voice meter
         private WasapiLoopbackCapture  _loopbackCapture;
         private float                  _customerVoiceVolume = 1.0f;
 
@@ -215,7 +209,9 @@ namespace WindowsFormsApp1
             Log.Info($"[UI] Screen={screen.DeviceName} DPI={dpi} WA={wa} FormSize={w}x{h} Scale={_scale:F2}");
         }
 
-        // ── Paint: space background + dark card + horizontal glow flare ─────────
+        // ══════════════════════════════════════════════════════════════════════
+        // FORM PAINT — background, glow line, vignette
+        // ══════════════════════════════════════════════════════════════════════
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
@@ -225,170 +221,84 @@ namespace WindowsFormsApp1
             int W = this.ClientSize.Width;
             int H = this.ClientSize.Height;
 
-            // ── Outer form: pure deep space black ─────────────────────────────
-            g.FillRectangle(new SolidBrush(Color.FromArgb(4, 4, 10)), 0, 0, W, H);
+            // ── Background: deep space black-blue ─────────────────────────────
+            using (var bgBrush = new SolidBrush(Color.FromArgb(4, 5, 14)))
+                g.FillRectangle(bgBrush, 0, 0, W, H);
 
-            // ── Dark card with rounded corners ────────────────────────────────
-            int cardPad  = (int)(18 * _scale);
-            var cardRect = new Rectangle(cardPad, cardPad, W - cardPad * 2, H - cardPad * 2);
-            int radius   = (int)(22 * _scale);
-
-            // Card fill: very dark navy
-            using (var cardPath = RoundedRect(cardRect, radius))
-            using (var cardBrush = new SolidBrush(Color.FromArgb(235, 10, 10, 24)))
-                g.FillPath(cardBrush, cardPath);
-
-            // ── Top-center red radial glow (nebula behind header) ─────────────
-            int topGlowW = (int)(W * 0.55f);
-            int topGlowH = (int)(H * 0.28f);
-            using (var gp = new GraphicsPath())
+            // ── Subtle vignette (dark edges, lighter center) ──────────────────
+            int[] vigR = { W, (int)(W * 0.85f), (int)(W * 0.65f), (int)(W * 0.45f) };
+            int[] vigA = { 0, 20, 50, 90 };
+            for (int v = vigR.Length - 1; v >= 0; v--)
             {
-                gp.AddEllipse(W / 2 - topGlowW / 2, cardPad - topGlowH / 3,
-                              topGlowW, topGlowH);
-                using (var pgb = new PathGradientBrush(gp))
+                using (var vp = new GraphicsPath())
                 {
-                    pgb.CenterColor    = Color.FromArgb(75, 200, 10, 10);
-                    pgb.SurroundColors = new[] { Color.Transparent };
-                    g.FillPath(pgb, gp);
+                    vp.AddEllipse(W / 2 - vigR[v], H / 2 - vigR[v], vigR[v] * 2, vigR[v] * 2);
+                    using (var vpb = new PathGradientBrush(vp))
+                    {
+                        vpb.CenterColor    = Color.Transparent;
+                        vpb.SurroundColors = new[] { Color.FromArgb(vigA[v], 0, 0, 0) };
+                        g.FillPath(vpb, vp);
+                    }
                 }
             }
 
-            // ── Bottom-right subtle blue/teal ambient glow ────────────────────
-            int brGlowW = (int)(W * 0.45f);
-            int brGlowH = (int)(H * 0.35f);
-            using (var gp2 = new GraphicsPath())
+            // ── Glow line: full-width red line with white center flare ─────────
+            int headerH = (int)(90 * _scale);
+            int cardPad = (int)(18 * _scale);
+            int glareY  = cardPad + headerH + (int)(16 * _scale);
+
+            // Outer red ambient glow passes
+            int[] glowWidths = { (int)(120 * _scale), (int)(70 * _scale), (int)(40 * _scale), (int)(20 * _scale) };
+            int[] glowAlphas = { 6, 14, 28, 55 };
+            for (int gp2 = 0; gp2 < glowWidths.Length; gp2++)
             {
-                gp2.AddEllipse(W - brGlowW + (int)(20 * _scale),
-                               H - brGlowH + (int)(20 * _scale),
-                               brGlowW, brGlowH);
-                using (var pgb2 = new PathGradientBrush(gp2))
-                {
-                    pgb2.CenterColor    = Color.FromArgb(35, 0, 80, 140);
-                    pgb2.SurroundColors = new[] { Color.Transparent };
-                    g.FillPath(pgb2, gp2);
-                }
+                using (var gpen = new Pen(Color.FromArgb(glowAlphas[gp2], ONE_RED), glowWidths[gp2]))
+                    g.DrawLine(gpen, 0, glareY, W, glareY);
             }
 
-            // ── Horizontal center glow line (light flare) ─────────────────────
-            // Positioned at ~28% from top of card — just below header
-            int headerH  = (int)(90 * _scale);
-            int flareY   = cardPad + headerH + (int)(10 * _scale);
-            int flareX1  = cardPad + (int)(30 * _scale);
-            int flareX2  = cardPad + (W - cardPad * 2) - (int)(30 * _scale);
+            // Solid red line full width
+            using (var redLine = new Pen(Color.FromArgb(230, ONE_RED), Math.Max(1, (int)(2 * _scale))))
+                g.DrawLine(redLine, 0, glareY, W, glareY);
 
-            // Wide soft outer halo (very transparent)
-            for (int pass = 0; pass < 3; pass++)
+            // White center flare — horizontal gradient hotspot
+            int flareHalf = (int)(W * 0.15f);
+            int flareCX   = W / 2;
+            int flareH2   = Math.Max(4, (int)(4 * _scale));
+            for (int px = flareCX - flareHalf; px <= flareCX + flareHalf; px++)
             {
-                int alpha  = new int[] { 12, 22, 35 }[pass];
-                float wid  = new float[] { 28f, 14f, 5f }[pass];
-                using (var haloPen = new Pen(Color.FromArgb(alpha, 220, 80, 40), wid))
-                {
-                    haloPen.StartCap = System.Drawing.Drawing2D.LineCap.Round;
-                    haloPen.EndCap   = System.Drawing.Drawing2D.LineCap.Round;
-                    g.DrawLine(haloPen, flareX1, flareY, flareX2, flareY);
-                }
+                float t  = 1.0f - (float)Math.Abs(px - flareCX) / flareHalf;
+                float t2 = (float)Math.Pow(t, 1.5);
+                int   r2 = 255;
+                int   g2 = Math.Min(255, (int)(59 + t2 * (255 - 59)));
+                int   b2 = Math.Min(255, (int)(59 + t2 * (255 - 59)));
+                int   a2 = (int)(80 + t2 * 175);
+                using (var fp = new Pen(Color.FromArgb(a2, r2, g2, b2), flareH2))
+                    g.DrawLine(fp, px, glareY - flareH2 / 2, px, glareY + flareH2 / 2);
             }
-            // Bright core line
-            using (var corePen = new Pen(Color.FromArgb(200, 255, 120, 80), 1.5f))
-            {
-                corePen.StartCap = System.Drawing.Drawing2D.LineCap.Round;
-                corePen.EndCap   = System.Drawing.Drawing2D.LineCap.Round;
-                g.DrawLine(corePen, flareX1, flareY, flareX2, flareY);
-            }
-            // Bright center hotspot
-            int hotW = (int)(W * 0.18f);
-            using (var gph = new GraphicsPath())
-            {
-                gph.AddEllipse(W / 2 - hotW, flareY - (int)(8 * _scale), hotW * 2, (int)(16 * _scale));
-                using (var pgbh = new PathGradientBrush(gph))
-                {
-                    pgbh.CenterColor    = Color.FromArgb(90, 255, 140, 80);
-                    pgbh.SurroundColors = new[] { Color.Transparent };
-                    g.FillPath(pgbh, gph);
-                }
-            }
-
-            // ── Card border: subtle rounded rect ──────────────────────────────
-            using (var cardPath = RoundedRect(cardRect, radius))
-            using (var borderPen = new Pen(Color.FromArgb(70, 80, 95, 120), 1.5f))
-                g.DrawPath(borderPen, cardPath);
         }
 
-        // ── Build UI ──────────────────────────────────────────────────────────
+        // ══════════════════════════════════════════════════════════════════════
+        // BUILD UI
+        // ══════════════════════════════════════════════════════════════════════
         private void BuildUI()
         {
             int W = this.ClientSize.Width;
             int H = this.ClientSize.Height;
             int cardPad = (int)(18 * _scale);
 
+            BuildWindowButtons(W, cardPad);
             BuildHeader(W, cardPad);
             BuildMeterSection(W, H, cardPad);
             BuildDeviceButtons(W, H, cardPad);
             BuildFooter(W, H, cardPad);
-            BuildWindowButtons(W, cardPad);
-            BuildHiddenTrackBars(); // keep audio logic wired
+            BuildHiddenTrackBars();
         }
 
-        // ── Header ────────────────────────────────────────────────────────────
-        private void BuildHeader(int W, int cardPad)
-        {
-            int headerH = (int)(90 * _scale);
-            int logoH   = (int)(64 * _scale);
-            int logoW   = (int)(160 * _scale);
-            int logoX   = cardPad + (int)(28 * _scale);
-            int logoY   = cardPad + (headerH - logoH) / 2;
-
-            _logoBox = new PictureBox
-            {
-                Bounds    = new Rectangle(logoX, logoY, logoW, logoH),
-                SizeMode  = PictureBoxSizeMode.Zoom,
-                BackColor = Color.Transparent
-            };
-            LoadLogo();
-            this.Controls.Add(_logoBox);
-            AttachDrag(_logoBox);
-
-            // Tagline: positioned to the RIGHT of the logo, vertically centered in header
-            // (matches mock: logo left, tagline fills remaining space to the right)
-            _lblTagline = new Label
-            {
-                Text      = "The Geniusness Is In The Simplicity",
-                ForeColor = Color.White,
-                BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(21f), FontStyle.Bold),
-                AutoSize  = true
-            };
-            this.Controls.Add(_lblTagline);
-            AttachDrag(_lblTagline);
-            int tagW  = TextRenderer.MeasureText(_lblTagline.Text, _lblTagline.Font).Width;
-            int tagH  = TextRenderer.MeasureText(_lblTagline.Text, _lblTagline.Font).Height;
-            // Center tagline in the space between logo-right-edge and window-right (minus close buttons)
-            int logoRight  = logoX + logoW + (int)(16 * _scale);
-            int rightEdge  = W - (int)(90 * _scale); // leave room for close/min buttons
-            int availSpace = rightEdge - logoRight;
-            int tagX       = logoRight + (availSpace - tagW) / 2;
-            if (tagX < logoRight) tagX = logoRight;
-            _lblTagline.Location = new Point(tagX, cardPad + (headerH - tagH) / 2);
-
-            // Agent name (hidden, kept for heartbeat logic)
-            _lblAgentName = new Label
-            {
-                Text      = "Agent: " + AppSettings.Instance.AgentName,
-                ForeColor = Color.Transparent,
-                BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(11f), FontStyle.Regular),
-                AutoSize  = true,
-                Location  = new Point(-500, -500)
-            };
-            this.Controls.Add(_lblAgentName);
-        }
-
-        // ── Window buttons ────────────────────────────────────────────────────
+        // ── Window close/minimize buttons ─────────────────────────────────────
         private void BuildWindowButtons(int W, int cardPad)
         {
-            int btnSz     = (int)(30 * _scale);
-            int btnMargin = cardPad + (int)(10 * _scale);
-            int btnY      = cardPad + (int)(10 * _scale);
+            int btnSz = (int)(30 * _scale);
+            int btnY  = cardPad + (int)(10 * _scale);
 
             _btnClose = new Button
             {
@@ -397,7 +307,7 @@ namespace WindowsFormsApp1
                 ForeColor = Color.White,
                 BackColor = Color.FromArgb(55, 55, 65),
                 Font      = new Font("Segoe UI", SF(11f), FontStyle.Bold),
-                Bounds    = new Rectangle(W - btnSz - btnMargin, btnY, btnSz, btnSz),
+                Bounds    = new Rectangle(W - btnSz - cardPad - (int)(10 * _scale), btnY, btnSz, btnSz),
                 Cursor    = Cursors.Hand,
                 TabStop   = false
             };
@@ -413,7 +323,7 @@ namespace WindowsFormsApp1
                 ForeColor = Color.White,
                 BackColor = Color.FromArgb(55, 55, 65),
                 Font      = new Font("Segoe UI", SF(11f), FontStyle.Bold),
-                Bounds    = new Rectangle(W - btnSz * 2 - btnMargin - (int)(8 * _scale), btnY, btnSz, btnSz),
+                Bounds    = new Rectangle(W - btnSz * 2 - cardPad - (int)(18 * _scale), btnY, btnSz, btnSz),
                 Cursor    = Cursors.Hand,
                 TabStop   = false
             };
@@ -432,83 +342,159 @@ namespace WindowsFormsApp1
             };
         }
 
+        // ── Header: logo left + tagline centered ──────────────────────────────
+        private void BuildHeader(int W, int cardPad)
+        {
+            int headerH = (int)(90 * _scale);
+            int logoH   = (int)(64 * _scale);
+            int logoW   = (int)(160 * _scale);
+            int logoX   = cardPad + (int)(28 * _scale);
+            int logoY   = cardPad + (headerH - logoH) / 2;
+
+            _logoBox = new PictureBox
+            {
+                Bounds    = new Rectangle(logoX, logoY, logoW, logoH),
+                SizeMode  = PictureBoxSizeMode.Zoom,
+                BackColor = Color.Transparent
+            };
+            LoadLogo();
+            this.Controls.Add(_logoBox);
+            AttachDrag(_logoBox);
+
+            // Tagline — drawn as owner-draw panel so we can do red glow + outline + white fill
+            string tagText = "The Geniusness Is In The Simplicity";
+            var tagFont    = new Font("Segoe UI", SF(21f), FontStyle.Bold);
+            var tagSz      = TextRenderer.MeasureText(tagText, tagFont);
+            int tagX       = (W - tagSz.Width) / 2;
+            int tagY       = cardPad + (headerH - tagSz.Height) / 2;
+
+            var tagPanel = new Panel
+            {
+                Bounds    = new Rectangle(tagX - (int)(20 * _scale), tagY - (int)(8 * _scale),
+                                          tagSz.Width + (int)(40 * _scale), tagSz.Height + (int)(16 * _scale)),
+                BackColor = Color.Transparent
+            };
+            string tt = tagText;
+            Font   tf = tagFont;
+            tagPanel.Paint += (s, e2) =>
+            {
+                var g = e2.Graphics;
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                int pw = tagPanel.Width;
+                int ph = tagPanel.Height;
+                int tx = (pw - tagSz.Width) / 2;
+                int ty = (ph - tagSz.Height) / 2;
+
+                // Red glow passes
+                int[] glowOff = { (int)(30 * _scale), (int)(16 * _scale), (int)(7 * _scale) };
+                int[] glowAlp = { 90, 140, 180 };
+                for (int gp = 0; gp < 3; gp++)
+                {
+                    for (int ox = -glowOff[gp]; ox <= glowOff[gp]; ox += Math.Max(1, glowOff[gp] / 3))
+                    for (int oy = -glowOff[gp]; oy <= glowOff[gp]; oy += Math.Max(1, glowOff[gp] / 3))
+                    {
+                        TextRenderer.DrawText(g, tt, tf,
+                            new Point(tx + ox, ty + oy),
+                            Color.FromArgb(glowAlp[gp] / 9, ONE_RED));
+                    }
+                }
+                // Red outline (8 directions, 2px offset)
+                int[] outOff = { -2, 0, 2 };
+                foreach (int ox in outOff)
+                foreach (int oy in outOff)
+                {
+                    if (ox == 0 && oy == 0) continue;
+                    TextRenderer.DrawText(g, tt, tf, new Point(tx + ox, ty + oy), ONE_RED);
+                }
+                // White fill
+                TextRenderer.DrawText(g, tt, tf, new Point(tx, ty), Color.White);
+            };
+            this.Controls.Add(tagPanel);
+            AttachDrag(tagPanel);
+
+            // Agent name label (hidden, kept for heartbeat logic)
+            _lblAgentName = new Label
+            {
+                Text      = "Agent: " + AppSettings.Instance.AgentName,
+                ForeColor = Color.Transparent,
+                BackColor = Color.Transparent,
+                Font      = new Font("Segoe UI", SF(11f), FontStyle.Regular),
+                AutoSize  = true,
+                Location  = new Point(-500, -500)
+            };
+            this.Controls.Add(_lblAgentName);
+        }
+
         // ── Meter section ─────────────────────────────────────────────────────
         private void BuildMeterSection(int W, int H, int cardPad)
         {
             int headerH    = (int)(90 * _scale);
-            // sectionTop: just below the horizontal glow flare
-            int sectionTop = cardPad + headerH + (int)(28 * _scale);
+            int glareH     = (int)(16 * _scale);
+            int sectionTop = cardPad + headerH + glareH + (int)(26 * _scale);
 
-            // Sizing constants
-            int footerH     = (int)(44 * _scale);
-            int btnAreaH    = (int)(90 * _scale);
-            int dbCtrlH     = (int)(34 * _scale);
-            int lblH        = (int)(26 * _scale);
-            int sectionLblH = (int)(28 * _scale);
-
-            // Meter diameter: fill available width evenly across 4 slots
-            int innerPad    = cardPad + (int)(24 * _scale);
-            int usableW     = W - innerPad * 2;
-            int meterSpacing = usableW / 4;
-            int meterDiam   = (int)(meterSpacing * 0.88f);
+            // Layout constants matching render
+            int innerPad     = cardPad + (int)(24 * _scale);
+            int usableW      = W - innerPad * 2;
+            int slotW        = usableW / 4;
+            int meterDiam    = (int)(slotW * 0.88f);
             meterDiam = Math.Max(120, Math.Min((int)(200 * _scale), meterDiam));
 
-            // Meter top: below section label row
-            int meterTop = sectionTop + sectionLblH + (int)(14 * _scale);
+            int sectionLblH  = (int)(28 * _scale);
+            int meterTop     = sectionTop + sectionLblH + (int)(14 * _scale);
 
-            // ── Section labels ──────────────────────────────────────────────────
-            // Left label spans over meters 0+1, right label spans over meters 2+3
-            BuildSectionLabel(innerPad, sectionTop, meterSpacing * 2,
+            // Section labels
+            // Left: "WHAT THE AGENT HEARS" — AGENT in red
+            BuildSectionLabel(innerPad, sectionTop, slotW * 2,
                               "WHAT THE ", "AGENT", " HEARS",
-                              Color.FromArgb(195, 195, 205), ONE_RED);
-
-            BuildSectionLabel(innerPad + meterSpacing * 2, sectionTop, meterSpacing * 2,
+                              Color.FromArgb(180, 180, 205), METER_RED);
+            // Right: "WHAT THE CUSTOMER HEARS" — CUSTOMER in purple
+            BuildSectionLabel(innerPad + slotW * 2, sectionTop, slotW * 2,
                               "WHAT THE ", "CUSTOMER", " HEARS",
-                              Color.FromArgb(195, 195, 205), METER_GREEN);
+                              Color.FromArgb(180, 180, 205), METER_PURPLE);
 
-            // NO vertical divider line — sections separated by natural spacing only
-
-            // ── 4 Meters ─────────────────────────────────────────────────────────────
-            // 0: Customer Voice (RED)       — left side (AGENT HEARS)
-            // 1: Customer Recordings (BLUE) — left side
-            // 2: Agent Voice (PURPLE)       — right side (CUSTOMER HEARS)
-            // 3: Agent Recordings (GREEN)   — right side
-            string[] labels = { "CUSTOMER VOICE", "CUSTOMER RECORDINGS", "AGENT VOICE", "AGENT RECORDINGS" };
+            // Meter definitions matching render order:
+            // 0: RED   = CUSTOMER VOICE
+            // 1: BLUE  = AGENT RECORDINGS
+            // 2: PURPLE= AGENT VOICE
+            // 3: GREEN = AGENT RECORDINGS
+            string[] labels = { "CUSTOMER VOICE", "AGENT RECORDINGS", "AGENT VOICE", "AGENT RECORDINGS" };
             Color[]  colors = { METER_RED, METER_BLUE, METER_PURPLE, METER_GREEN };
             string[] keys   = { "customerVoice", "agentScript_left", "myMicLevel", "agentScript" };
-            // key mapping:
-            // 0 RED   = customerVoice       (customer mic level via bridge)
-            // 1 BLUE  = agentScript_left    (customer-channel script playback)
-            // 2 PURPLE= myMicLevel          (agent's own microphone)
-            // 3 GREEN = agentScript         (agent-channel script playback)
+
+            int lblH    = (int)(24 * _scale);
+            int btnSzV  = (int)(50 * _scale);   // large square buttons matching render
+            int numWV   = (int)(60 * _scale);
+            int gapV    = (int)(6 * _scale);
 
             for (int i = 0; i < 4; i++)
             {
-                // Center each meter within its equal slot
-                int mx = innerPad + i * meterSpacing + (meterSpacing - meterDiam) / 2;
-                int my = meterTop;
+                int slotCX = innerPad + i * slotW + slotW / 2;
+                int mx     = slotCX - meterDiam / 2;
+                int my     = meterTop;
 
-                // Circular meter panel
+                // Meter panel
                 BuildCircularMeter(mx, my, meterDiam, colors[i], keys[i]);
 
                 // Label below meter
-                int labelY = my + meterDiam + (int)(10 * _scale);
+                int labelY = my + meterDiam + (int)(18 * _scale);
                 var lbl = new Label
                 {
                     Text      = labels[i],
-                    ForeColor = Color.White,
+                    ForeColor = Color.FromArgb(200, 200, 210),
                     BackColor = Color.Transparent,
                     Font      = new Font("Segoe UI", SF(11f), FontStyle.Bold),
                     AutoSize  = false,
                     TextAlign = ContentAlignment.MiddleCenter,
-                    Bounds    = new Rectangle(mx - (int)(8 * _scale), labelY,
-                                              meterDiam + (int)(16 * _scale), lblH)
+                    Bounds    = new Rectangle(slotCX - slotW / 2, labelY, slotW, lblH)
                 };
                 this.Controls.Add(lbl);
 
-                // [–] [dB] [+] controls
-                int ctrlY = labelY + lblH + (int)(3 * _scale);
-                BuildDbControl(mx, ctrlY, meterDiam, colors[i], i);
+                // [–] [val] [+] volume controls — large square buttons
+                int ctrlY   = labelY + lblH + (int)(12 * _scale);
+                int totalVW = btnSzV + gapV + numWV + gapV + btnSzV;
+                int startVX = slotCX - totalVW / 2;
+
+                BuildVolumeControl(startVX, ctrlY, btnSzV, numWV, gapV, colors[i], i);
             }
         }
 
@@ -517,42 +503,36 @@ namespace WindowsFormsApp1
                                        string prefix, string keyword, string suffix,
                                        Color baseColor, Color keyColor)
         {
-            // We render this as a single owner-draw panel for exact color control
-            var font     = new Font("Segoe UI", SF(11f), FontStyle.Bold);
-            int prefW    = TextRenderer.MeasureText(prefix,  font).Width;
-            int keyW     = TextRenderer.MeasureText(keyword, font).Width;
-            int sufW     = TextRenderer.MeasureText(suffix,  font).Width;
-            int totalTW  = prefW + keyW + sufW;
-            int textH    = TextRenderer.MeasureText(keyword, font).Height;
+            var font    = new Font("Segoe UI", SF(11f), FontStyle.Bold);
+            int prefW   = TextRenderer.MeasureText(prefix,  font).Width;
+            int keyW    = TextRenderer.MeasureText(keyword, font).Width;
+            int sufW    = TextRenderer.MeasureText(suffix,  font).Width;
+            int totalTW = prefW + keyW + sufW;
+            int textH   = TextRenderer.MeasureText(keyword, font).Height;
 
-            // Left divider line + text + right divider line
             var panel = new Panel
             {
                 Bounds    = new Rectangle(x, y, w, textH + (int)(8 * _scale)),
                 BackColor = Color.Transparent
             };
             string pref = prefix, kw = keyword, suf = suffix;
-            Color bc = baseColor, kc = keyColor;
+            Color  bc   = baseColor, kc = keyColor;
             panel.Paint += (s, e) =>
             {
                 var g = e.Graphics;
                 g.SmoothingMode = SmoothingMode.AntiAlias;
                 int pw = panel.Width;
                 int ph = panel.Height;
-                int textY = (ph - textH) / 2;
-
-                // Center text block
+                int textY  = (ph - textH) / 2;
                 int startX = (pw - totalTW) / 2;
+                int lineY  = ph / 2;
 
-                // Left line
-                int lineY = ph / 2;
+                // Decorative lines
                 using (var pen = new Pen(Color.FromArgb(80, 150, 150, 170), 1f))
                 {
                     g.DrawLine(pen, 0, lineY, startX - (int)(8 * _scale), lineY);
                     g.DrawLine(pen, startX + totalTW + (int)(8 * _scale), lineY, pw, lineY);
                 }
-
-                // Text segments
                 TextRenderer.DrawText(g, pref, font, new Point(startX, textY), bc);
                 TextRenderer.DrawText(g, kw,   font, new Point(startX + prefW, textY), kc);
                 TextRenderer.DrawText(g, suf,  font, new Point(startX + prefW + keyW, textY), bc);
@@ -569,213 +549,275 @@ namespace WindowsFormsApp1
                 BackColor = Color.Transparent,
                 Tag       = key
             };
-
             Color mc = meterColor;
             panel.Paint += (s, e) => DrawDialMeter(e.Graphics, (Panel)s, mc, key);
             this.Controls.Add(panel);
 
             switch (key)
             {
-                case "myMicLevel":      _myMicMeterLeft      = panel; break;
-                case "customerVoice":   _customerVoiceMeter  = panel; break;
-                case "agentScript":     _agentScriptMeter    = panel; break;
-                case "agentScript_left":_customerScriptMeter = panel; break;
+                case "myMicLevel":       _myMicMeterLeft      = panel; break;
+                case "customerVoice":    _customerVoiceMeter  = panel; break;
+                case "agentScript":      _agentScriptMeter    = panel; break;
+                case "agentScript_left": _customerScriptMeter = panel; break;
             }
             return panel;
         }
 
-        // ── Draw circular dial VU meter ───────────────────────────────────────
-        private void DrawDialMeter(Graphics g, Panel panel, Color meterColor, string key)
+        // ══════════════════════════════════════════════════════════════════════
+        // DRAW DIAL METER — exact translation of render_new_design.py draw_meter()
+        // ══════════════════════════════════════════════════════════════════════
+        private void DrawDialMeter(Graphics g, Panel panel, Color col, string key)
         {
             g.SmoothingMode     = SmoothingMode.AntiAlias;
             g.InterpolationMode = InterpolationMode.HighQualityBicubic;
 
-            int W    = panel.Width;
-            int H    = panel.Height;
-            int cx   = W / 2;
-            int cy   = H / 2;
-            int r    = Math.Min(W, H) / 2 - 4;
+            int W  = panel.Width;
+            int H  = panel.Height;
+            int cx = W / 2;
+            int cy = H / 2;
+            int R  = Math.Min(W, H) / 2 - 2;   // METER_R
 
             float level = GetLevel(key);
+            int   pct   = (int)Math.Round(level * 100f);
 
-            // ── Outer dark base disc ──────────────────────────────────────────
-            using (var outerBrush = new SolidBrush(Color.FromArgb(30, 30, 40)))
-                g.FillEllipse(outerBrush, cx - r, cy - r, r * 2, r * 2);
-
-            // Outer ring gradient (metallic rim)
-            using (var rimPath = new GraphicsPath())
+            // ── LAYER 1: Wide color bloom bleeding outward ────────────────────
+            // Simulated with multiple PathGradientBrush ellipses at increasing radii
+            int[] bloomR = { (int)(R * 1.7f), (int)(R * 1.4f), (int)(R * 1.15f), (int)(R * 0.9f), (int)(R * 0.65f), (int)(R * 0.45f) };
+            int[] bloomA = { 5, 10, 18, 35, 60, 85 };
+            for (int b = 0; b < bloomR.Length; b++)
             {
-                rimPath.AddEllipse(cx - r, cy - r, r * 2, r * 2);
-                using (var pgb = new PathGradientBrush(rimPath))
+                int br = bloomR[b];
+                if (cx - br < -br || cy - br < -br) continue; // skip if outside panel
+                using (var bp = new GraphicsPath())
                 {
-                    pgb.CenterPoint    = new PointF(cx, cy);
-                    pgb.CenterColor    = Color.Transparent;
-                    pgb.SurroundColors = new[] { Color.FromArgb(120, 60, 60, 70) };
-                    g.FillPath(pgb, rimPath);
+                    bp.AddEllipse(cx - br, cy - br, br * 2, br * 2);
+                    using (var pgb = new PathGradientBrush(bp))
+                    {
+                        pgb.CenterPoint    = new PointF(cx, cy);
+                        pgb.CenterColor    = Color.FromArgb(bloomA[b], col);
+                        pgb.SurroundColors = new[] { Color.FromArgb(0, col) };
+                        g.FillPath(pgb, bp);
+                    }
                 }
             }
 
-            // ── Thick colored outer ring ──────────────────────────────────────
-            int outerRingW = Math.Max(8, (int)(r * 0.13f));
-            using (var gp1 = new Pen(Color.FromArgb(40, meterColor), outerRingW + 16))
-                g.DrawEllipse(gp1, cx - r, cy - r, r * 2, r * 2);
-            using (var gp2 = new Pen(Color.FromArgb(90, meterColor), outerRingW + 8))
-                g.DrawEllipse(gp2, cx - r, cy - r, r * 2, r * 2);
-            using (var ringPen = new Pen(Color.FromArgb(255, meterColor), outerRingW))
-                g.DrawEllipse(ringPen, cx - r, cy - r, r * 2, r * 2);
+            // ── LAYER 2: Outer dark base disc ─────────────────────────────────
+            using (var baseBrush = new SolidBrush(Color.FromArgb(18, 18, 22)))
+                g.FillEllipse(baseBrush, cx - R, cy - R, R * 2, R * 2);
 
-            // Chrome highlights left and right
-            int chromeW = outerRingW + 2;
-            using (var cp1 = new Pen(Color.FromArgb(120, 240, 240, 245), chromeW))
-                g.DrawArc(cp1, cx - r, cy - r, r * 2, r * 2, 110f, 140f);
-            using (var cp2 = new Pen(Color.FromArgb(120, 240, 240, 245), chromeW))
-                g.DrawArc(cp2, cx - r, cy - r, r * 2, r * 2, 290f, 140f);
-
-            // ── Tick marks ───────────────────────────────────────────────────
-            float startAngle = 135f;
-            float sweepAngle = 270f;
-            int   numTicks   = 36;
-            int   rTick      = r - 2;
-            int   rTickIn    = r - (int)(r * 0.14f);
-            for (int t = 0; t <= numTicks; t++)
+            // ── LAYER 2b: Thick colored outer ring with bloom glow ─────────────
+            int outerRingW = Math.Max((int)(18 * _scale), 10);
+            // Glow layers behind the ring
+            int[] ringGlowW = { outerRingW + (int)(20 * _scale), outerRingW + (int)(10 * _scale), outerRingW };
+            int[] ringGlowA = { 40, 80, 160 };
+            for (int rg = 0; rg < 3; rg++)
             {
-                float angle = startAngle + (sweepAngle / numTicks) * t;
-                float rad   = (float)(angle * Math.PI / 180.0);
-                float fx1   = cx + rTick * (float)Math.Cos(rad);
-                float fy1   = cy + rTick * (float)Math.Sin(rad);
-                float fx2   = cx + rTickIn * (float)Math.Cos(rad);
-                float fy2   = cy + rTickIn * (float)Math.Sin(rad);
-                float tickFrac = (float)t / numTicks;
-                bool  lit      = tickFrac <= level;
-                Color tickCol  = lit ? Color.FromArgb(220, meterColor) : Color.FromArgb(50, 60, 65, 75);
-                bool  isMajor  = (t % 6 == 0);
-                float tickW    = isMajor ? 2.5f : 1.2f;
-                if (lit && isMajor) tickW = 3f;
-                using (var pen = new Pen(tickCol, tickW))
-                    g.DrawLine(pen, fx1, fy1, fx2, fy2);
+                using (var rpen = new Pen(Color.FromArgb(ringGlowA[rg], col), ringGlowW[rg]))
+                    g.DrawEllipse(rpen, cx - R, cy - R, R * 2, R * 2);
+            }
+            // Solid colored ring on top
+            using (var solidRing = new Pen(Color.FromArgb(255, col), outerRingW))
+                g.DrawEllipse(solidRing, cx - R, cy - R, R * 2, R * 2);
+
+            // ── LAYER 3: Chrome highlight arcs (left + right) ─────────────────
+            int chromeW = outerRingW + (int)(2 * _scale);
+            // Left arc: 110° to 250° (sweep 140°)
+            using (var cp1 = new Pen(Color.FromArgb(180, 240, 240, 245), chromeW))
+                g.DrawArc(cp1, cx - R, cy - R, R * 2, R * 2, 110f, 140f);
+            // Right arc: 290° to 70° (sweep 140°)
+            using (var cp2 = new Pen(Color.FromArgb(180, 240, 240, 245), chromeW))
+                g.DrawArc(cp2, cx - R, cy - R, R * 2, R * 2, 290f, 140f);
+            // Thin bright chrome line on top
+            using (var ct = new Pen(Color.FromArgb(220, 255, 255, 255), Math.Max(2, (int)(3 * _scale))))
+            {
+                g.DrawArc(ct, cx - R, cy - R, R * 2, R * 2, 115f, 130f);
+                g.DrawArc(ct, cx - R, cy - R, R * 2, R * 2, 295f, 130f);
             }
 
-            // ── Inner dark circle ─────────────────────────────────────────────
-            int innerR = (int)(r * 0.72f);
-            using (var innerBrush = new LinearGradientBrush(
-                new Rectangle(cx - innerR, cy - innerR, innerR * 2, innerR * 2),
-                Color.FromArgb(22, 22, 35),
-                Color.FromArgb(10, 10, 20),
-                LinearGradientMode.ForwardDiagonal))
-                g.FillEllipse(innerBrush, cx - innerR, cy - innerR, innerR * 2, innerR * 2);
-
-            // Color tint in center
-            using (var tintPath = new GraphicsPath())
+            // ── LAYER 4: LED dot ring ──────────────────────────────────────────
+            int   ledR    = R - (int)(9 * _scale);
+            int   dotSize = Math.Max(2, (int)(3 * _scale));
+            int   numDots = 36;
+            float litFrac = level;  // fraction of dots lit = level
+            for (int d = 0; d < numDots; d++)
             {
-                tintPath.AddEllipse(cx - innerR, cy - innerR, innerR * 2, innerR * 2);
-                using (var pgb = new PathGradientBrush(tintPath))
+                float dotAngle = (float)(d * (360.0 / numDots) - 90.0);
+                float dotRad   = (float)(dotAngle * Math.PI / 180.0);
+                float dx       = cx + ledR * (float)Math.Cos(dotRad);
+                float dy       = cy + ledR * (float)Math.Sin(dotRad);
+                float dotFrac  = (float)d / numDots;
+                bool  isLit    = dotFrac <= litFrac;
+                int   dotAlpha = isLit ? 255 : 60;
+                Color dotCol   = isLit ? Color.FromArgb(dotAlpha, col) : Color.FromArgb(dotAlpha, 80, 80, 85);
+
+                if (isLit)
                 {
-                    pgb.CenterPoint    = new PointF(cx, cy);
-                    pgb.CenterColor    = Color.FromArgb(100, meterColor);
-                    pgb.SurroundColors = new[] { Color.FromArgb(0, meterColor) };
-                    g.FillPath(pgb, tintPath);
+                    // Dot glow
+                    using (var dgp = new GraphicsPath())
+                    {
+                        dgp.AddEllipse(dx - dotSize * 3, dy - dotSize * 3, dotSize * 6, dotSize * 6);
+                        using (var dgb = new PathGradientBrush(dgp))
+                        {
+                            dgb.CenterPoint    = new PointF(dx, dy);
+                            dgb.CenterColor    = Color.FromArgb(120, col);
+                            dgb.SurroundColors = new[] { Color.FromArgb(0, col) };
+                            g.FillPath(dgb, dgp);
+                        }
+                    }
+                }
+                using (var dotBrush = new SolidBrush(dotCol))
+                    g.FillEllipse(dotBrush, dx - dotSize, dy - dotSize, dotSize * 2, dotSize * 2);
+            }
+
+            // ── LAYER 5: Inner bezel ring with color glow ─────────────────────
+            int innerBezelR = (int)(R * 0.82f);
+            // Glow passes
+            int[] ibGlowW = { (int)(16 * _scale), (int)(8 * _scale), (int)(3 * _scale) };
+            int[] ibGlowA = { 60, 120, 200 };
+            for (int ib = 0; ib < 3; ib++)
+            {
+                using (var ibp = new Pen(Color.FromArgb(ibGlowA[ib], col), ibGlowW[ib]))
+                    g.DrawEllipse(ibp, cx - innerBezelR, cy - innerBezelR, innerBezelR * 2, innerBezelR * 2);
+            }
+            // Dark fill inside inner bezel
+            using (var ibFill = new SolidBrush(Color.FromArgb(12, 12, 16)))
+                g.FillEllipse(ibFill, cx - innerBezelR, cy - innerBezelR, innerBezelR * 2, innerBezelR * 2);
+            // Colored ring outline
+            using (var ibRing = new Pen(Color.FromArgb(180, col), Math.Max(2, (int)(3 * _scale))))
+                g.DrawEllipse(ibRing, cx - innerBezelR, cy - innerBezelR, innerBezelR * 2, innerBezelR * 2);
+
+            // ── LAYER 6: Tick marks on inner bezel ────────────────────────────
+            int tickOuterR = innerBezelR - (int)(2 * _scale);
+            int tickInnerR = (int)(innerBezelR * 0.88f);
+            for (int t = 0; t < 60; t++)
+            {
+                float angle   = (float)(t * 6.0 - 90.0);
+                float rad     = (float)(angle * Math.PI / 180.0);
+                bool  isMajor = (t % 5 == 0);
+                float tickW   = isMajor ? Math.Max(2, (int)(2 * _scale)) : Math.Max(1, (int)(1 * _scale));
+                int   tickA   = isMajor ? 200 : 100;
+                float x1 = cx + tickOuterR * (float)Math.Cos(rad);
+                float y1 = cy + tickOuterR * (float)Math.Sin(rad);
+                float x2 = cx + tickInnerR * (float)Math.Cos(rad);
+                float y2 = cy + tickInnerR * (float)Math.Sin(rad);
+                using (var tp = new Pen(Color.FromArgb(tickA, 255, 255, 255), tickW))
+                    g.DrawLine(tp, x1, y1, x2, y2);
+            }
+
+            // ── LAYER 7: Deep recessed center disc ────────────────────────────
+            int innerR = (int)(R * 0.68f);
+            // Concentric dark circles — deep recession effect
+            int[] discR = { innerR, (int)(innerR * 0.85f), (int)(innerR * 0.65f), (int)(innerR * 0.40f), (int)(innerR * 0.20f) };
+            Color[] discC = {
+                Color.FromArgb(6, 6, 10),
+                Color.FromArgb(4, 4, 8),
+                Color.FromArgb(2, 2, 5),
+                Color.FromArgb(1, 1, 3),
+                Color.FromArgb(0, 0, 0)
+            };
+            for (int dc = 0; dc < discR.Length; dc++)
+            {
+                using (var db = new SolidBrush(discC[dc]))
+                    g.FillEllipse(db, cx - discR[dc], cy - discR[dc], discR[dc] * 2, discR[dc] * 2);
+            }
+
+            // Color tint — multiple concentric passes with blur simulation (PathGradientBrush)
+            int[] tintR = { (int)(innerR * 0.95f), (int)(innerR * 0.80f), (int)(innerR * 0.60f), (int)(innerR * 0.40f), (int)(innerR * 0.20f) };
+            int[] tintA = { 30, 60, 90, 110, 120 };
+            for (int ti = 0; ti < tintR.Length; ti++)
+            {
+                using (var tp2 = new GraphicsPath())
+                {
+                    tp2.AddEllipse(cx - tintR[ti], cy - tintR[ti], tintR[ti] * 2, tintR[ti] * 2);
+                    using (var pgb = new PathGradientBrush(tp2))
+                    {
+                        pgb.CenterPoint    = new PointF(cx, cy);
+                        pgb.CenterColor    = Color.FromArgb(tintA[ti], col);
+                        pgb.SurroundColors = new[] { Color.FromArgb(0, col) };
+                        g.FillPath(pgb, tp2);
+                    }
                 }
             }
 
-            // Inner ring glow
-            using (var ibg1 = new Pen(Color.FromArgb(50, meterColor), 10))
-                g.DrawEllipse(ibg1, cx - innerR, cy - innerR, innerR * 2, innerR * 2);
-            using (var innerRimPen = new Pen(Color.FromArgb(120, meterColor), 1.5f))
-                g.DrawEllipse(innerRimPen, cx - innerR, cy - innerR, innerR * 2, innerR * 2);
-
-            // ── Percentage value text (centered) — exact from working build ───
-            int pctVal    = (int)Math.Round(level * 100f);
-            string pctStr = pctVal.ToString() + "%";
-            float numSize = SF(28f) * (innerR / 60f);
-            numSize = Math.Max(SF(14f), Math.Min(SF(32f), numSize));
-            using (var numFont = new Font("Segoe UI", numSize, FontStyle.Bold))
+            // Inset shadow edge
+            int[] insetW = { (int)(6 * _scale), (int)(14 * _scale), (int)(28 * _scale) };
+            int[] insetA = { 200, 130, 70 };
+            for (int ii = 0; ii < 3; ii++)
             {
-                var numSz = TextRenderer.MeasureText(pctStr, numFont);
-                int numX  = cx - numSz.Width / 2;
-                int numY  = cy - numSz.Height / 2;
-                Color numGlow = level > 0.01f ? meterColor : Color.FromArgb(120, 120, 140);
-                // Color glow passes
-                for (int gPass = 0; gPass < 3; gPass++)
+                using (var isp = new Pen(Color.FromArgb(insetA[ii], 0, 0, 0), insetW[ii]))
+                    g.DrawEllipse(isp, cx - innerR, cy - innerR, innerR * 2, innerR * 2);
+            }
+
+            // ── LAYER 8: % value — white core with color glow ─────────────────
+            string valStr  = pct.ToString() + "%";
+            float  valSize = SF(28f) * ((float)innerR / 60f);
+            valSize = Math.Max(SF(14f), Math.Min(SF(36f), valSize));
+            using (var valFont = new Font("Segoe UI", valSize, FontStyle.Bold))
+            {
+                var valSz = TextRenderer.MeasureText(valStr, valFont);
+                int vx    = cx - valSz.Width / 2;
+                int vy    = cy - valSz.Height / 2;
+
+                // Outer color glow passes (wide, soft)
+                int[] vgBlur = { (int)(22 * _scale), (int)(14 * _scale), (int)(7 * _scale) };
+                int[] vgAlph = { 160, 200, 230 };
+                for (int vg = 0; vg < 3; vg++)
                 {
-                    int offset = (gPass + 1) * 2;
-                    int alpha  = gPass == 0 ? 120 : gPass == 1 ? 160 : 200;
-                    TextRenderer.DrawText(g, pctStr, numFont,
-                        new Rectangle(numX - offset, numY - offset,
-                                      numSz.Width + offset * 2, numSz.Height + offset * 2),
-                        Color.FromArgb(alpha, numGlow),
-                        TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+                    int off = vgBlur[vg] / 4 + 1;
+                    for (int ox = -off; ox <= off; ox += Math.Max(1, off / 2))
+                    for (int oy = -off; oy <= off; oy += Math.Max(1, off / 2))
+                    {
+                        TextRenderer.DrawText(g, valStr, valFont,
+                            new Point(vx + ox, vy + oy),
+                            Color.FromArgb(vgAlph[vg] / (off * 2 + 1), col));
+                    }
                 }
                 // White core
-                TextRenderer.DrawText(g, pctStr, numFont, new Point(numX, numY), Color.White);
-            }
-
-            // ── Clockwise arc fill ring (exact from working build) ────────────
-            if (level > 0.005f)
-            {
-                int   arcR     = (int)(innerR * 1.22f);
-                float arcSweep = 360f * level;
-                float arcStart = -90f;
-                var   arcRect  = new RectangleF(cx - arcR, cy - arcR, arcR * 2, arcR * 2);
-                using (var glowPen = new Pen(Color.FromArgb(50, meterColor), (int)(12 * _scale)))
-                {
-                    glowPen.LineJoin = System.Drawing.Drawing2D.LineJoin.Round;
-                    g.DrawArc(glowPen, arcRect, arcStart, arcSweep);
-                }
-                using (var midPen = new Pen(Color.FromArgb(120, meterColor), (int)(7 * _scale)))
-                    g.DrawArc(midPen, arcRect, arcStart, arcSweep);
-                using (var corePen = new Pen(Color.FromArgb(240, meterColor), (int)(3 * _scale)))
-                    g.DrawArc(corePen, arcRect, arcStart, arcSweep);
-                // Tip dot
-                float tipAngleRad = (float)((arcStart + arcSweep) * Math.PI / 180.0);
-                float tipX = cx + arcR * (float)Math.Cos(tipAngleRad);
-                float tipY = cy + arcR * (float)Math.Sin(tipAngleRad);
-                int   tipR = (int)(5 * _scale);
-                using (var tipBrush = new SolidBrush(Color.FromArgb(255, meterColor)))
-                    g.FillEllipse(tipBrush, tipX - tipR, tipY - tipR, tipR * 2, tipR * 2);
-                using (var tipGlow = new Pen(Color.FromArgb(80, meterColor), (int)(8 * _scale)))
-                    g.DrawEllipse(tipGlow, tipX - tipR - 3, tipY - tipR - 3,
-                                  (tipR + 3) * 2, (tipR + 3) * 2);
+                TextRenderer.DrawText(g, valStr, valFont, new Point(vx, vy), Color.White);
             }
         }
 
-        // ── [–] [dB] [+] control row ──────────────────────────────────────────
-        private void BuildDbControl(int meterX, int y, int meterW, Color accentColor, int channelIndex)
+        // ── Volume control row: [–] [val] [+] ────────────────────────────────
+        private void BuildVolumeControl(int startX, int y, int btnSz, int numW, int gap,
+                                        Color accentColor, int channelIndex)
         {
-            // Sizing — slightly smaller than original to be subtle
-            int btnW  = (int)(28 * _scale);   // ~10% smaller than 32
-            int btnH  = (int)(28 * _scale);
-            int valW  = (int)(54 * _scale);
-            int totalW = btnW + valW + btnW + (int)(6 * _scale);
-            int startX = meterX + (meterW - totalW) / 2;
-            int gap    = (int)(3 * _scale);
-
             // [–] button
             var btnMinus = new Button
             {
                 Text      = "–",
                 FlatStyle = FlatStyle.Flat,
                 ForeColor = Color.White,
-                BackColor = Color.FromArgb(28, 28, 42),
-                Font      = new Font("Segoe UI", SF(13f), FontStyle.Bold),
-                Bounds    = new Rectangle(startX, y, btnW, btnH),
+                BackColor = Color.FromArgb(0, 0, 0, 102),
+                Font      = new Font("Segoe UI", SF(18f), FontStyle.Bold),
+                Bounds    = new Rectangle(startX, y, btnSz, btnSz),
                 Cursor    = Cursors.Hand,
                 TabStop   = false
             };
-            btnMinus.FlatAppearance.BorderColor = Color.FromArgb(80, accentColor);
-            btnMinus.FlatAppearance.BorderSize  = 1;
-            // Idle: low glow; Hover: strong glow
+            btnMinus.FlatAppearance.BorderColor = accentColor;
+            btnMinus.FlatAppearance.BorderSize  = Math.Max(1, (int)(2 * _scale));
             btnMinus.FlatAppearance.MouseOverBackColor = Color.FromArgb(60, accentColor);
-            ApplyButtonGlow(btnMinus, accentColor, idle: true);
+            StyleVolumeButton(btnMinus, accentColor);
 
             // Value label
             var lblVal = new Label
             {
                 Text      = GetDbText(channelIndex),
                 ForeColor = Color.White,
-                BackColor = Color.FromArgb(20, 20, 35),
-                Font      = new Font("Segoe UI", SF(12f), FontStyle.Bold),
+                BackColor = Color.FromArgb(0, 0, 0, 102),
+                Font      = new Font("Segoe UI", SF(14f), FontStyle.Bold),
                 TextAlign = ContentAlignment.MiddleCenter,
-                Bounds    = new Rectangle(startX + btnW + gap, y, valW, btnH)
+                Bounds    = new Rectangle(startX + btnSz + gap, y, numW, btnSz)
+            };
+            // Draw border on label via Paint
+            Color ac = accentColor;
+            int   bsz = Math.Max(1, (int)(2 * _scale));
+            lblVal.Paint += (s, e2) =>
+            {
+                using (var bp = new Pen(ac, bsz))
+                {
+                    var r = new Rectangle(0, 0, lblVal.Width - 1, lblVal.Height - 1);
+                    e2.Graphics.DrawRectangle(bp, r);
+                }
             };
 
             // [+] button
@@ -784,16 +826,16 @@ namespace WindowsFormsApp1
                 Text      = "+",
                 FlatStyle = FlatStyle.Flat,
                 ForeColor = Color.White,
-                BackColor = Color.FromArgb(28, 28, 42),
-                Font      = new Font("Segoe UI", SF(13f), FontStyle.Bold),
-                Bounds    = new Rectangle(startX + btnW + gap + valW + gap, y, btnW, btnH),
+                BackColor = Color.FromArgb(0, 0, 0, 102),
+                Font      = new Font("Segoe UI", SF(18f), FontStyle.Bold),
+                Bounds    = new Rectangle(startX + btnSz + gap + numW + gap, y, btnSz, btnSz),
                 Cursor    = Cursors.Hand,
                 TabStop   = false
             };
-            btnPlus.FlatAppearance.BorderColor = Color.FromArgb(80, accentColor);
-            btnPlus.FlatAppearance.BorderSize  = 1;
+            btnPlus.FlatAppearance.BorderColor = accentColor;
+            btnPlus.FlatAppearance.BorderSize  = Math.Max(1, (int)(2 * _scale));
             btnPlus.FlatAppearance.MouseOverBackColor = Color.FromArgb(60, accentColor);
-            ApplyButtonGlow(btnPlus, accentColor, idle: true);
+            StyleVolumeButton(btnPlus, accentColor);
 
             // Store dB label reference
             switch (channelIndex)
@@ -804,19 +846,40 @@ namespace WindowsFormsApp1
                 case 3: _lblDbAgentScript     = lblVal; break;
             }
 
-            // Wire up click handlers
             int ch = channelIndex;
             Label lv = lblVal;
             btnMinus.Click += (s, e) => AdjustDb(ch, -1, lv);
             btnPlus.Click  += (s, e) => AdjustDb(ch, +1, lv);
 
-            // Hover glow effect
             AttachHoverGlow(btnMinus, accentColor);
             AttachHoverGlow(btnPlus,  accentColor);
 
             this.Controls.Add(btnMinus);
             this.Controls.Add(lblVal);
             this.Controls.Add(btnPlus);
+        }
+
+        private void StyleVolumeButton(Button btn, Color accent)
+        {
+            // Rounded corners via Paint
+            btn.Paint += (s, e2) =>
+            {
+                var g = e2.Graphics;
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                int radius = (int)(4 * _scale);
+                var rect   = new Rectangle(0, 0, btn.Width - 1, btn.Height - 1);
+                using (var path = RoundedRect(rect, radius))
+                {
+                    using (var fill = new SolidBrush(btn.BackColor))
+                        g.FillPath(fill, path);
+                    using (var border = new Pen(btn.FlatAppearance.BorderColor, btn.FlatAppearance.BorderSize))
+                        g.DrawPath(border, path);
+                }
+                // Draw text centered
+                var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+                using (var tf = new SolidBrush(btn.ForeColor))
+                    g.DrawString(btn.Text, btn.Font, tf, new RectangleF(0, 0, btn.Width, btn.Height), sf);
+            };
         }
 
         private string GetDbText(int channelIndex)
@@ -869,24 +932,19 @@ namespace WindowsFormsApp1
         private static float DbToLinear(int db) => (float)Math.Pow(10.0, db / 20.0);
         private static int   DbToPercent(int db) => (int)(DbToLinear(db) * 100f);
 
-        private void ApplyButtonGlow(Button btn, Color accent, bool idle)
-        {
-            // Idle: very subtle border glow only
-            int alpha = idle ? 55 : 160;
-            btn.FlatAppearance.BorderColor = Color.FromArgb(alpha, accent);
-        }
-
         private void AttachHoverGlow(Button btn, Color accent)
         {
             btn.MouseEnter += (s, e) =>
             {
-                btn.FlatAppearance.BorderColor = Color.FromArgb(200, accent);
+                btn.FlatAppearance.BorderColor = Color.FromArgb(255, accent);
                 btn.BackColor = Color.FromArgb(45, accent);
+                btn.Invalidate();
             };
             btn.MouseLeave += (s, e) =>
             {
-                btn.FlatAppearance.BorderColor = Color.FromArgb(55, accent);
-                btn.BackColor = Color.FromArgb(28, 28, 42);
+                btn.FlatAppearance.BorderColor = accent;
+                btn.BackColor = Color.FromArgb(0, 0, 0, 102);
+                btn.Invalidate();
             };
         }
 
@@ -894,29 +952,28 @@ namespace WindowsFormsApp1
         private void BuildDeviceButtons(int W, int H, int cardPad)
         {
             int footerH  = (int)(44 * _scale);
-            int btnAreaH = (int)(90 * _scale);
             int btnH     = (int)(58 * _scale);
-            int btnW     = (int)(Math.Min(W * 0.30f, 340 * _scale));
-            int btnY     = H - footerH - btnAreaH + (btnAreaH - btnH) / 2;
-            int gap      = (int)(30 * _scale);
-            int totalBtnW = btnW * 2 + gap;
-            int btnX0    = (W - totalBtnW) / 2;
+            int btnW     = (int)(Math.Min(W * 0.30f, 390 * _scale));
+            int gap      = (int)(36 * _scale);
+            int totalBW  = btnW * 2 + gap;
+            int btnX0    = (W - totalBW) / 2;
+            int btnY     = H - footerH - (int)(30 * _scale) - btnH;
 
             // SELECT MICROPHONE — red glow
             var btnMic = new Button
             {
                 FlatStyle = FlatStyle.Flat,
                 ForeColor = Color.White,
-                BackColor = Color.FromArgb(18, 18, 30),
+                BackColor = Color.FromArgb(0, 0, 0, 114),
                 Font      = new Font("Segoe UI", SF(14f), FontStyle.Bold),
                 Bounds    = new Rectangle(btnX0, btnY, btnW, btnH),
                 Cursor    = Cursors.Hand,
                 TabStop   = false,
-                Text      = "  \uD83C\uDF99  SELECT MICROPHONE   \u2304"
+                Text      = "  \uD83C\uDF99  SELECT MICROPHONE"
             };
             btnMic.FlatAppearance.BorderColor = METER_RED;
-            btnMic.FlatAppearance.BorderSize  = 2;
-            btnMic.FlatAppearance.MouseOverBackColor = Color.FromArgb(40, 180, 0, 0);
+            btnMic.FlatAppearance.BorderSize  = Math.Max(1, (int)(2 * _scale));
+            btnMic.FlatAppearance.MouseOverBackColor = Color.FromArgb(40, METER_RED);
             AttachDeviceButtonHover(btnMic, METER_RED);
             btnMic.Click += (s, e) => ShowMicDropdown(btnMic);
             this.Controls.Add(btnMic);
@@ -926,36 +983,35 @@ namespace WindowsFormsApp1
             {
                 FlatStyle = FlatStyle.Flat,
                 ForeColor = Color.White,
-                BackColor = Color.FromArgb(18, 18, 30),
+                BackColor = Color.FromArgb(0, 0, 0, 114),
                 Font      = new Font("Segoe UI", SF(14f), FontStyle.Bold),
                 Bounds    = new Rectangle(btnX0 + btnW + gap, btnY, btnW, btnH),
                 Cursor    = Cursors.Hand,
                 TabStop   = false,
-                Text      = "  \uD83D\uDD0A  SELECT SPEAKER   \u2304"
+                Text      = "  \uD83D\uDD0A  SELECT SPEAKER"
             };
             btnSpk.FlatAppearance.BorderColor = METER_BLUE;
-            btnSpk.FlatAppearance.BorderSize  = 2;
-            btnSpk.FlatAppearance.MouseOverBackColor = Color.FromArgb(40, 0, 120, 200);
+            btnSpk.FlatAppearance.BorderSize  = Math.Max(1, (int)(2 * _scale));
+            btnSpk.FlatAppearance.MouseOverBackColor = Color.FromArgb(40, METER_BLUE);
             AttachDeviceButtonHover(btnSpk, METER_BLUE);
             btnSpk.Click += (s, e) => ShowSpeakerDropdown(btnSpk);
             this.Controls.Add(btnSpk);
 
-            // Store references for PopulateDevices
+            // Hidden combos for device selection logic
             _cboMic     = new ComboBox { Visible = false, Location = new Point(-500, -500), Width = 1 };
             _cboHeadset = new ComboBox { Visible = false, Location = new Point(-500, -500), Width = 1 };
             this.Controls.Add(_cboMic);
             this.Controls.Add(_cboHeadset);
 
-            // Keep button text updated after device selection
             _cboMic.SelectedIndexChanged += (s, e) =>
             {
                 if (_cboMic.SelectedIndex >= 0)
-                    btnMic.Text = "  \uD83C\uDF99  " + TruncateDevice(_cboMic.Text, 22) + "   \u2304";
+                    btnMic.Text = "  \uD83C\uDF99  " + TruncateDevice(_cboMic.Text, 22);
             };
             _cboHeadset.SelectedIndexChanged += (s, e) =>
             {
                 if (_cboHeadset.SelectedIndex >= 0)
-                    btnSpk.Text = "  \uD83D\uDD0A  " + TruncateDevice(_cboHeadset.Text, 22) + "   \u2304";
+                    btnSpk.Text = "  \uD83D\uDD0A  " + TruncateDevice(_cboHeadset.Text, 22);
             };
         }
 
@@ -975,7 +1031,7 @@ namespace WindowsFormsApp1
             btn.MouseLeave += (s, e) =>
             {
                 btn.FlatAppearance.BorderColor = accent;
-                btn.BackColor = Color.FromArgb(18, 18, 30);
+                btn.BackColor = Color.FromArgb(0, 0, 0, 114);
             };
         }
 
@@ -988,16 +1044,8 @@ namespace WindowsFormsApp1
             foreach (string item in _cboMic.Items)
             {
                 string it = item;
-                var mi = new ToolStripMenuItem(it)
-                {
-                    ForeColor = Color.White,
-                    BackColor = Color.FromArgb(22, 22, 38)
-                };
-                mi.Click += (s, e) =>
-                {
-                    int idx = _cboMic.Items.IndexOf(it);
-                    if (idx >= 0) _cboMic.SelectedIndex = idx;
-                };
+                var mi = new ToolStripMenuItem(it) { ForeColor = Color.White, BackColor = Color.FromArgb(22, 22, 38) };
+                mi.Click += (s, e) => { int idx = _cboMic.Items.IndexOf(it); if (idx >= 0) _cboMic.SelectedIndex = idx; };
                 ctx.Items.Add(mi);
             }
             ctx.Show(anchor, new Point(0, anchor.Height));
@@ -1012,16 +1060,8 @@ namespace WindowsFormsApp1
             foreach (string item in _cboHeadset.Items)
             {
                 string it = item;
-                var mi = new ToolStripMenuItem(it)
-                {
-                    ForeColor = Color.White,
-                    BackColor = Color.FromArgb(22, 22, 38)
-                };
-                mi.Click += (s, e) =>
-                {
-                    int idx = _cboHeadset.Items.IndexOf(it);
-                    if (idx >= 0) _cboHeadset.SelectedIndex = idx;
-                };
+                var mi = new ToolStripMenuItem(it) { ForeColor = Color.White, BackColor = Color.FromArgb(22, 22, 38) };
+                mi.Click += (s, e) => { int idx = _cboHeadset.Items.IndexOf(it); if (idx >= 0) _cboHeadset.SelectedIndex = idx; };
                 ctx.Items.Add(mi);
             }
             ctx.Show(anchor, new Point(0, anchor.Height));
@@ -1035,8 +1075,8 @@ namespace WindowsFormsApp1
 
             _lblFooterCenter = new Label
             {
-                Text      = "One United Global LLC 2026.  V 7.31",
-                ForeColor = Color.FromArgb(160, 165, 175),
+                Text      = "One United Global LLC 2026  V 7.31",
+                ForeColor = Color.FromArgb(100, 100, 110),
                 BackColor = Color.Transparent,
                 Font      = new Font("Segoe UI", SF(11f), FontStyle.Regular),
                 AutoSize  = true
@@ -1050,8 +1090,6 @@ namespace WindowsFormsApp1
         // ── Hidden TrackBars (audio logic compatibility) ───────────────────────
         private void BuildHiddenTrackBars()
         {
-            // These are required by the audio logic (StartAudioCapture, PopulateDevices).
-            // They are hidden off-screen and never shown.
             _trkMicVol = new TrackBar
             {
                 Minimum = 0, Maximum = 100,
@@ -1099,13 +1137,17 @@ namespace WindowsFormsApp1
         {
             switch (key)
             {
-                case "myMicLevel":      return _micLevel;
-                case "customerVoice":   return _customerVoiceLevel;
-                case "agentScript":     return _agentScriptLevel;
-                case "agentScript_left":return _customerScriptLevel;
+                case "myMicLevel":       return _micLevel;
+                case "customerVoice":    return _customerVoiceLevel;
+                case "agentScript":      return _agentScriptLevel;
+                case "agentScript_left": return _customerScriptLevel;
                 default: return 0f;
             }
         }
+
+        // ══════════════════════════════════════════════════════════════════════
+        // BACKEND — all unchanged from original
+        // ══════════════════════════════════════════════════════════════════════
 
         // ── Tray icon ─────────────────────────────────────────────────────────
         private void SetupTrayIcon()
@@ -1531,7 +1573,9 @@ namespace WindowsFormsApp1
             bool ok = await HeartbeatService.Instance.DesktopLoginAsync(key, machineId);
             if (ok)
             {
-                string name = HeartbeatService.Instance.AgentName;
+                string name = AppSettings.Instance.AgentName;
+                if (string.IsNullOrEmpty(name))
+                    name = await HeartbeatService.Instance.GetAgentNameAsync(key);
                 if (!string.IsNullOrEmpty(name))
                 {
                     AppSettings.Instance.AgentName = name;
@@ -1566,11 +1610,10 @@ namespace WindowsFormsApp1
         private void LoadSettings()
         {
             var s = AppSettings.Instance;
-            // Restore dB values from saved volume percentages
-            int micPct     = Math.Max(1, Math.Min(200, s.MicSystemVolume));
-            int spkPct     = Math.Max(1, Math.Min(200, s.SpeakerSystemVolume));
-            int agentPct   = Math.Max(1, (int)(s.GetVolume("agentScript",    0.48f) * 100));
-            int custPct    = Math.Max(1, (int)(s.GetVolume("customerScript", 0.55f) * 100));
+            int micPct   = Math.Max(1, Math.Min(200, s.MicSystemVolume));
+            int spkPct   = Math.Max(1, Math.Min(200, s.SpeakerSystemVolume));
+            int agentPct = Math.Max(1, (int)(s.GetVolume("agentScript",    0.48f) * 100));
+            int custPct  = Math.Max(1, (int)(s.GetVolume("customerScript", 0.55f) * 100));
             _dbAgentVoice      = LinearToDb(micPct   / 100f);
             _dbCustomerVoice   = LinearToDb(spkPct   / 100f);
             _dbCustomerScript  = LinearToDb(agentPct / 100f);
