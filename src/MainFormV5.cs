@@ -199,11 +199,11 @@ namespace WindowsFormsApp1
             }
             catch { }
 
-            int w = Math.Max((int)(wa.Width  * 0.92), 960);
-            int h = Math.Max((int)(wa.Height * 0.88), 600);
+            int w = Math.Max((int)(wa.Width  * 0.69), 720);
+            int h = Math.Max((int)(wa.Height * 0.66), 450);
 
             float sizeScale = Math.Min((float)w / 1400f, (float)h / 820f);
-            _scale = Math.Max(0.55f, Math.Min(sizeScale, 1.20f));
+            _scale = Math.Max(0.42f, Math.Min(sizeScale, 0.90f));
 
             this.ClientSize = new Size(w, h);
             int cx = wa.Left + (wa.Width - w) / 2;
@@ -271,8 +271,8 @@ namespace WindowsFormsApp1
 
             // ── Horizontal center glow line (light flare) ─────────────────────
             // Positioned at ~28% from top of card — just below header
-            int headerH  = (int)(90 * _scale);
-            int flareY   = cardPad + headerH + (int)(10 * _scale);
+            int headerH  = (int)(68 * _scale);
+            int flareY   = cardPad + headerH + (int)(8 * _scale);
             int flareX1  = cardPad + (int)(30 * _scale);
             int flareX2  = cardPad + (W - cardPad * 2) - (int)(30 * _scale);
 
@@ -280,7 +280,7 @@ namespace WindowsFormsApp1
             for (int pass = 0; pass < 3; pass++)
             {
                 int alpha  = new int[] { 12, 22, 35 }[pass];
-                float wid  = new float[] { 28f, 14f, 5f }[pass];
+                float wid  = new float[] { 21f, 10f, 4f }[pass];
                 using (var haloPen = new Pen(Color.FromArgb(alpha, 220, 80, 40), wid))
                 {
                     haloPen.StartCap = System.Drawing.Drawing2D.LineCap.Round;
@@ -299,7 +299,7 @@ namespace WindowsFormsApp1
             int hotW = (int)(W * 0.18f);
             using (var gph = new GraphicsPath())
             {
-                gph.AddEllipse(W / 2 - hotW, flareY - (int)(8 * _scale), hotW * 2, (int)(16 * _scale));
+                gph.AddEllipse(W / 2 - hotW, flareY - (int)(6 * _scale), hotW * 2, (int)(12 * _scale));
                 using (var pgbh = new PathGradientBrush(gph))
                 {
                     pgbh.CenterColor    = Color.FromArgb(90, 255, 140, 80);
@@ -332,9 +332,9 @@ namespace WindowsFormsApp1
         // ── Header ────────────────────────────────────────────────────────────
         private void BuildHeader(int W, int cardPad)
         {
-            int headerH = (int)(90 * _scale);
-            int logoH   = (int)(64 * _scale);
-            int logoW   = (int)(160 * _scale);
+            int headerH = (int)(68 * _scale);
+            int logoH   = (int)(48 * _scale);
+            int logoW   = (int)(220 * _scale);
             int logoX   = cardPad + (int)(28 * _scale);
             int logoY   = cardPad + (headerH - logoH) / 2;
 
@@ -355,7 +355,7 @@ namespace WindowsFormsApp1
                 Text      = "The Geniusness Is In The Simplicity",
                 ForeColor = Color.White,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(21f), FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(16f), FontStyle.Bold),
                 AutoSize  = true
             };
             this.Controls.Add(_lblTagline);
@@ -364,7 +364,7 @@ namespace WindowsFormsApp1
             int tagH  = TextRenderer.MeasureText(_lblTagline.Text, _lblTagline.Font).Height;
             // Center tagline in the space between logo-right-edge and window-right (minus close buttons)
             int logoRight  = logoX + logoW + (int)(16 * _scale);
-            int rightEdge  = W - (int)(90 * _scale); // leave room for close/min buttons
+            int rightEdge  = W - (int)(68 * _scale); // leave room for close/min buttons
             int availSpace = rightEdge - logoRight;
             int tagX       = logoRight + (availSpace - tagW) / 2;
             if (tagX < logoRight) tagX = logoRight;
@@ -386,9 +386,9 @@ namespace WindowsFormsApp1
         // ── Window buttons ────────────────────────────────────────────────────
         private void BuildWindowButtons(int W, int cardPad)
         {
-            int btnSz     = (int)(30 * _scale);
-            int btnMargin = cardPad + (int)(10 * _scale);
-            int btnY      = cardPad + (int)(10 * _scale);
+            int btnSz     = (int)(22 * _scale);
+            int btnMargin = cardPad + (int)(8 * _scale);
+            int btnY      = cardPad + (int)(8 * _scale);
 
             _btnClose = new Button
             {
@@ -396,7 +396,7 @@ namespace WindowsFormsApp1
                 FlatStyle = FlatStyle.Flat,
                 ForeColor = Color.White,
                 BackColor = Color.FromArgb(55, 55, 65),
-                Font      = new Font("Segoe UI", SF(11f), FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(9f), FontStyle.Bold),
                 Bounds    = new Rectangle(W - btnSz - btnMargin, btnY, btnSz, btnSz),
                 Cursor    = Cursors.Hand,
                 TabStop   = false
@@ -412,8 +412,8 @@ namespace WindowsFormsApp1
                 FlatStyle = FlatStyle.Flat,
                 ForeColor = Color.White,
                 BackColor = Color.FromArgb(55, 55, 65),
-                Font      = new Font("Segoe UI", SF(11f), FontStyle.Bold),
-                Bounds    = new Rectangle(W - btnSz * 2 - btnMargin - (int)(8 * _scale), btnY, btnSz, btnSz),
+                Font      = new Font("Segoe UI", SF(9f), FontStyle.Bold),
+                Bounds    = new Rectangle(W - btnSz * 2 - btnMargin - (int)(6 * _scale), btnY, btnSz, btnSz),
                 Cursor    = Cursors.Hand,
                 TabStop   = false
             };
@@ -424,7 +424,7 @@ namespace WindowsFormsApp1
 
             this.MouseDown += (s, e) =>
             {
-                if (e.Button == MouseButtons.Left && e.Y < (int)(90 * _scale) + (int)(18 * _scale))
+                if (e.Button == MouseButtons.Left && e.Y < (int)(68 * _scale) + (int)(18 * _scale))
                 {
                     ReleaseCapture();
                     SendMessage(this.Handle, WM_NCLBUTTONDOWN, HTCAPTION, 0);
@@ -435,26 +435,26 @@ namespace WindowsFormsApp1
         // ── Meter section ─────────────────────────────────────────────────────
         private void BuildMeterSection(int W, int H, int cardPad)
         {
-            int headerH    = (int)(90 * _scale);
+            int headerH    = (int)(68 * _scale);
             // sectionTop: just below the horizontal glow flare
-            int sectionTop = cardPad + headerH + (int)(28 * _scale);
+            int sectionTop = cardPad + headerH + (int)(20 * _scale);
 
             // Sizing constants
-            int footerH     = (int)(44 * _scale);
-            int btnAreaH    = (int)(90 * _scale);
-            int dbCtrlH     = (int)(34 * _scale);
-            int lblH        = (int)(26 * _scale);
-            int sectionLblH = (int)(28 * _scale);
+            int footerH     = (int)(33 * _scale);
+            int btnAreaH    = (int)(68 * _scale);
+            int dbCtrlH     = (int)(26 * _scale);
+            int lblH        = (int)(20 * _scale);
+            int sectionLblH = (int)(22 * _scale);
 
             // Meter diameter: fill available width evenly across 4 slots
             int innerPad    = cardPad + (int)(24 * _scale);
             int usableW     = W - innerPad * 2;
             int meterSpacing = usableW / 4;
             int meterDiam   = (int)(meterSpacing * 0.88f);
-            meterDiam = Math.Max(120, Math.Min((int)(200 * _scale), meterDiam));
+            meterDiam = Math.Max(90, Math.Min((int)(150 * _scale), meterDiam));
 
             // Meter top: below section label row
-            int meterTop = sectionTop + sectionLblH + (int)(14 * _scale);
+            int meterTop = sectionTop + sectionLblH + (int)(10 * _scale);
 
             // ── Section labels ──────────────────────────────────────────────────
             // Left label spans over meters 0+1, right label spans over meters 2+3
@@ -487,13 +487,13 @@ namespace WindowsFormsApp1
                 BuildCircularMeter(mx, my, meterDiam, colors[i], keys[i]);
 
                 // Label below meter
-                int labelY = my + meterDiam + (int)(10 * _scale);
+                int labelY = my + meterDiam + (int)(7 * _scale);
                 var lbl = new Label
                 {
                     Text      = labels[i],
                     ForeColor = Color.White,
                     BackColor = Color.Transparent,
-                    Font      = new Font("Segoe UI", SF(11f), FontStyle.Bold),
+                    Font      = new Font("Segoe UI", SF(8.5f), FontStyle.Bold),
                     AutoSize  = false,
                     TextAlign = ContentAlignment.MiddleCenter,
                     Bounds    = new Rectangle(mx - (int)(8 * _scale), labelY,
@@ -502,7 +502,7 @@ namespace WindowsFormsApp1
                 this.Controls.Add(lbl);
 
                 // [–] [dB] [+] controls
-                int ctrlY = labelY + lblH + (int)(3 * _scale);
+                int ctrlY = labelY + lblH + (int)(2 * _scale);
                 BuildDbControl(mx, ctrlY, meterDiam, colors[i], i);
             }
         }
@@ -513,7 +513,7 @@ namespace WindowsFormsApp1
                                        Color baseColor, Color keyColor)
         {
             // We render this as a single owner-draw panel for exact color control
-            var font     = new Font("Segoe UI", SF(11f), FontStyle.Bold);
+            var font     = new Font("Segoe UI", SF(8.5f), FontStyle.Bold);
             int prefW    = TextRenderer.MeasureText(prefix,  font).Width;
             int keyW     = TextRenderer.MeasureText(keyword, font).Width;
             int sufW     = TextRenderer.MeasureText(suffix,  font).Width;
@@ -733,9 +733,9 @@ namespace WindowsFormsApp1
         private void BuildDbControl(int meterX, int y, int meterW, Color accentColor, int channelIndex)
         {
             // Sizing — slightly smaller than original to be subtle
-            int btnW  = (int)(28 * _scale);   // ~10% smaller than 32
-            int btnH  = (int)(28 * _scale);
-            int valW  = (int)(54 * _scale);
+            int btnW  = (int)(22 * _scale);
+            int btnH  = (int)(22 * _scale);
+            int valW  = (int)(42 * _scale);
             int totalW = btnW + valW + btnW + (int)(6 * _scale);
             int startX = meterX + (meterW - totalW) / 2;
             int gap    = (int)(3 * _scale);
@@ -747,7 +747,7 @@ namespace WindowsFormsApp1
                 FlatStyle = FlatStyle.Flat,
                 ForeColor = Color.White,
                 BackColor = Color.FromArgb(28, 28, 42),
-                Font      = new Font("Segoe UI", SF(13f), FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(10f), FontStyle.Bold),
                 Bounds    = new Rectangle(startX, y, btnW, btnH),
                 Cursor    = Cursors.Hand,
                 TabStop   = false
@@ -764,7 +764,7 @@ namespace WindowsFormsApp1
                 Text      = GetDbText(channelIndex),
                 ForeColor = Color.White,
                 BackColor = Color.FromArgb(20, 20, 35),
-                Font      = new Font("Segoe UI", SF(12f), FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(9f), FontStyle.Bold),
                 TextAlign = ContentAlignment.MiddleCenter,
                 Bounds    = new Rectangle(startX + btnW + gap, y, valW, btnH)
             };
@@ -776,7 +776,7 @@ namespace WindowsFormsApp1
                 FlatStyle = FlatStyle.Flat,
                 ForeColor = Color.White,
                 BackColor = Color.FromArgb(28, 28, 42),
-                Font      = new Font("Segoe UI", SF(13f), FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(10f), FontStyle.Bold),
                 Bounds    = new Rectangle(startX + btnW + gap + valW + gap, y, btnW, btnH),
                 Cursor    = Cursors.Hand,
                 TabStop   = false
@@ -884,10 +884,10 @@ namespace WindowsFormsApp1
         // ── Device buttons ────────────────────────────────────────────────────
         private void BuildDeviceButtons(int W, int H, int cardPad)
         {
-            int footerH  = (int)(44 * _scale);
-            int btnAreaH = (int)(90 * _scale);
-            int btnH     = (int)(58 * _scale);
-            int btnW     = (int)(Math.Min(W * 0.30f, 340 * _scale));
+            int footerH  = (int)(33 * _scale);
+            int btnAreaH = (int)(68 * _scale);
+            int btnH     = (int)(44 * _scale);
+            int btnW     = (int)(Math.Min(W * 0.30f, 255 * _scale));
             int btnY     = H - footerH - btnAreaH + (btnAreaH - btnH) / 2;
             int gap      = (int)(30 * _scale);
             int totalBtnW = btnW * 2 + gap;
@@ -899,7 +899,7 @@ namespace WindowsFormsApp1
                 FlatStyle = FlatStyle.Flat,
                 ForeColor = Color.White,
                 BackColor = Color.FromArgb(18, 18, 30),
-                Font      = new Font("Segoe UI", SF(14f), FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(11f), FontStyle.Bold),
                 Bounds    = new Rectangle(btnX0, btnY, btnW, btnH),
                 Cursor    = Cursors.Hand,
                 TabStop   = false,
@@ -918,7 +918,7 @@ namespace WindowsFormsApp1
                 FlatStyle = FlatStyle.Flat,
                 ForeColor = Color.White,
                 BackColor = Color.FromArgb(18, 18, 30),
-                Font      = new Font("Segoe UI", SF(14f), FontStyle.Bold),
+                Font      = new Font("Segoe UI", SF(11f), FontStyle.Bold),
                 Bounds    = new Rectangle(btnX0 + btnW + gap, btnY, btnW, btnH),
                 Cursor    = Cursors.Hand,
                 TabStop   = false,
@@ -1021,7 +1021,7 @@ namespace WindowsFormsApp1
         // ── Footer ────────────────────────────────────────────────────────────
         private void BuildFooter(int W, int H, int cardPad)
         {
-            int footerH = (int)(44 * _scale);
+            int footerH = (int)(33 * _scale);
             int fy      = H - cardPad - footerH;
 
             _lblFooterCenter = new Label
@@ -1029,7 +1029,7 @@ namespace WindowsFormsApp1
                 Text      = "One United Global LLC 2026.  V 7.31",
                 ForeColor = Color.FromArgb(160, 165, 175),
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(11f), FontStyle.Regular),
+                Font      = new Font("Segoe UI", SF(8.5f), FontStyle.Regular),
                 AutoSize  = true
             };
             this.Controls.Add(_lblFooterCenter);
