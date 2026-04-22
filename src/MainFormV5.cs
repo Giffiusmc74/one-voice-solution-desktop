@@ -66,7 +66,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.39";
+        private const string APP_VERSION = "7.40";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -514,7 +514,7 @@ namespace WindowsFormsApp1
                                        Color baseColor, Color keyColor)
         {
             // We render this as a single owner-draw panel for exact color control
-            var font     = new Font("Segoe UI", SF(11f), FontStyle.Bold);
+            var font     = new Font("Segoe UI", SF(15f), FontStyle.Bold);
             int prefW    = TextRenderer.MeasureText(prefix,  font).Width;
             int keyW     = TextRenderer.MeasureText(keyword, font).Width;
             int sufW     = TextRenderer.MeasureText(suffix,  font).Width;
@@ -676,8 +676,8 @@ namespace WindowsFormsApp1
             using (var gp = new GraphicsPath()) {
                 gp.AddEllipse(cx - innerR, cy - innerR, innerR * 2, innerR * 2);
                 using (var pgb = new PathGradientBrush(gp)) {
-                    pgb.CenterColor = Color.FromArgb(55, meterColor);
-                    pgb.SurroundColors = new[] { Color.Transparent };
+                    pgb.CenterColor = Color.FromArgb(90, meterColor);
+                    pgb.SurroundColors = new[] { Color.FromArgb(25, meterColor) };
                     g.FillPath(pgb, gp);
                 }
             }
@@ -992,9 +992,9 @@ namespace WindowsFormsApp1
                             using (var b = new SolidBrush(currentFill)) g.FillPath(b, path);
                         }
                         // Outer soft glow passes
-                        using (var g1 = new Pen(Color.FromArgb(18, accent), 22f)) g.DrawPath(g1, path);
-                        using (var g2 = new Pen(Color.FromArgb(40, accent), 10f)) g.DrawPath(g2, path);
-                        using (var glow = new Pen(Color.FromArgb(70, accent), 4f)) g.DrawPath(glow, path);
+                        using (var g1 = new Pen(Color.FromArgb(30, accent), 28f)) g.DrawPath(g1, path);
+                        using (var g2 = new Pen(Color.FromArgb(60, accent), 14f)) g.DrawPath(g2, path);
+                        using (var glow = new Pen(Color.FromArgb(100, accent), 5f)) g.DrawPath(glow, path);
                         using (var pen = new Pen(currentBorder, 2f)) g.DrawPath(pen, path);
                     }
                     var font = new Font("Segoe UI", SF(12f), FontStyle.Bold);
