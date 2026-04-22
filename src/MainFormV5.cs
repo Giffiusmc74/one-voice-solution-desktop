@@ -66,7 +66,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.40";
+        private const string APP_VERSION = "7.41";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -956,8 +956,8 @@ namespace WindowsFormsApp1
         {
             int footerH  = (int)(44 * _scale);
             int btnAreaH = (int)(90 * _scale);
-            int btnH     = (int)(50 * _scale);
-            int btnW     = (int)(Math.Min(W * 0.30f, 320 * _scale));
+            int btnH     = (int)(70 * _scale);
+            int btnW     = (int)(Math.Min(W * 0.36f, 400 * _scale));
             int btnY     = H - footerH - btnAreaH + (btnAreaH - btnH) / 2 - (int)(25 * _scale);
             int gap      = (int)(30 * _scale);
             int totalBtnW = btnW * 2 + gap;
@@ -997,10 +997,10 @@ namespace WindowsFormsApp1
                         using (var glow = new Pen(Color.FromArgb(100, accent), 5f)) g.DrawPath(glow, path);
                         using (var pen = new Pen(currentBorder, 2f)) g.DrawPath(pen, path);
                     }
-                    var font = new Font("Segoe UI", SF(12f), FontStyle.Bold);
+                    var font = new Font("Segoe UI", SF(16f), FontStyle.Bold);
                     
-                    int iconSz = (int)(20 * _scale);
-                    int ix = (int)(20 * _scale);
+                    int iconSz = (int)(26 * _scale);
+                    int ix = (int)(22 * _scale);
                     
                     // Shift text to the right so it never overlaps the icon
                     int textLeft = ix + iconSz + (int)(10 * _scale);
