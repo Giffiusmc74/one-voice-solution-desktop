@@ -26,7 +26,7 @@
     <UpdateRequired>false</UpdateRequired>
     <MapFileExtensions>true</MapFileExtensions>
     <ApplicationRevision>11</ApplicationRevision>
-    <ApplicationVersion>2.0.0.%2a</ApplicationVersion>
+    <ApplicationVersion>7.32.0.%2a</ApplicationVersion>
     <UseApplicationTrust>false</UseApplicationTrust>
     <PublishWizardCompleted>true</PublishWizardCompleted>
     <BootstrapperEnabled>true</BootstrapperEnabled>
@@ -58,8 +58,10 @@
   </PropertyGroup>
   <PropertyGroup>
     <!-- ClickOnce manifest signing disabled for CI builds (no certificate in store) -->
-    <ManifestCertificateThumbprint></ManifestCertificateThumbprint>
-    <ManifestKeyFile></ManifestKeyFile>
+    <ManifestCertificateThumbprint>
+    </ManifestCertificateThumbprint>
+    <ManifestKeyFile>
+    </ManifestKeyFile>
     <GenerateManifests>false</GenerateManifests>
     <SignManifests>false</SignManifests>
   </PropertyGroup>
@@ -222,7 +224,7 @@
     <Compile Include="src\Scripts.cs" />
     <Compile Include="src\AutoUpdater.cs" />
     <Compile Include="src\MainFormV5.cs">
-      <SubType>Form</SubType>
+      <SubType>Component</SubType>
     </Compile>
     <Compile Include="src\SimpleHTTPServer.cs" />
     <Compile Include="src\TimeAPI.cs" />
