@@ -1,17 +1,15 @@
 /*
- * MainFormV5.cs  —  ONE Voice Solution v7.31
+ * MainFormV5.cs  —  ONE Voice Solution v7.38
  *
- * UI REDESIGN v7.31:
+ * UI REDESIGN v7.38:
  *   - Complete visual overhaul to match design mock exactly.
- *   - Dark space/nebula background with rounded dark card.
+ *   - Dark space background with 800 static and glowing stars.
  *   - ONE logo (top-left) + "The Geniusness Is In The Simplicity" tagline centered in header.
- *   - 4 circular VU dial meters: Customer Voice (RED), Customer Recordings (BLUE),
- *     Agent Voice (PURPLE), Agent Recordings (GREEN).
- *   - Section dividers: "WHAT THE AGENT HEARS" / "WHAT THE CUSTOMER HEARS".
- *   - [–] [dB value] [+] volume controls below each meter label.
- *   - Two large device buttons: SELECT MICROPHONE (red glow) / SELECT SPEAKER (blue glow).
- *   - Footer: "One United Global LLC 2026. V 7.31"
- *   - ALL audio logic, routing, and meter data connections unchanged.
+ *   - 4 circular neon glow meters with live frequency tracking capped at static volume %.
+ *   - Unified [– VOLUME +] pill-shaped controls below meters.
+ *   - Custom GDI+ drawn device icons for MICROPHONE (red) and SPEAKER (blue).
+ *   - Footer: "One United Global LLC 2026. V 7.38"
+ *   - ALL audio logic, routing, and meter data connections mapped accurately.
  *
  * v7.30 changes (audio):
  *   - Mic pass-through restarts automatically after each recording finishes.
@@ -68,7 +66,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.32";
+        private const string APP_VERSION = "7.38";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -1177,7 +1175,7 @@ namespace WindowsFormsApp1
 
             _lblFooterCenter = new Label
             {
-                Text      = "One United Global LLC 2026.  V 7.32",
+                Text      = "One United Global LLC 2026.  V 7.38",
                 ForeColor = Color.FromArgb(160, 165, 175),
                 BackColor = Color.Transparent,
                 Font      = new Font("Segoe UI", SF(11f), FontStyle.Regular),
