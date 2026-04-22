@@ -711,8 +711,12 @@ namespace WindowsFormsApp1
                     g.DrawArc(gp2, cx - arcR, cy - arcR, arcR * 2, arcR * 2, startAngle, litSweep);
                 }
                 
-                // White-hot inner core
-                using (var gp3 = new Pen(Color.FromArgb(255, 255, 255, 255), arcThick - 3f * _scale)) {
+                // Bright meter-color inner core
+                var coreColor = Color.FromArgb(255,
+                    Math.Min(255, meterColor.R + 80),
+                    Math.Min(255, meterColor.G + 80),
+                    Math.Min(255, meterColor.B + 80));
+                using (var gp3 = new Pen(coreColor, arcThick - 3f * _scale)) {
                     gp3.StartCap = System.Drawing.Drawing2D.LineCap.Round; gp3.EndCap = System.Drawing.Drawing2D.LineCap.Round;
                     g.DrawArc(gp3, cx - arcR, cy - arcR, arcR * 2, arcR * 2, startAngle, litSweep);
                 }
