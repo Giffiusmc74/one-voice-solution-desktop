@@ -1183,7 +1183,7 @@ namespace WindowsFormsApp1
 
             _lblFooterCenter = new Label
             {
-                Text      = "One United Global LLC 2026.  V 7.38",
+                Text      = $"One United Global LLC 2026.  V {APP_VERSION}",
                 ForeColor = Color.FromArgb(160, 165, 175),
                 BackColor = Color.Transparent,
                 Font      = new Font("Segoe UI", SF(11f), FontStyle.Regular),
