@@ -95,11 +95,7 @@ jobs:
       - name: Install Inno Setup
         run: choco install innosetup --yes --no-progress
 
-      - name: Build Installer
-        run: |
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\ONEVoiceSolution_Setup.iss
-
-      # ── 7. Extract version ───────────────────────────────────────────────────
+      # ── 7. Extract version & inject into installer script ─────────────────────
       - name: Extract app version
         id: get_version
         shell: powershell
@@ -107,8 +103,18 @@ jobs:
           $line = Select-String -Path "src\MainFormV5.cs" -Pattern 'APP_VERSION = "([^"]+)"' | Select-Object -First 1
           $ver  = $line.Matches[0].Groups[1].Value
           echo "VERSION=$ver" >> $env:GITHUB_OUTPUT
+          # Inject version into Inno Setup script
+          $iss = Get-Content "installer\ONEVoiceSolution_Setup.iss" -Raw
+          $iss = $iss -replace 'BUILD_VERSION_PLACEHOLDER', $ver
+          Set-Content "installer\ONEVoiceSolution_Setup.iss" $iss
+          Write-Host "Injected version $ver into installer script"
 
-      # ── 8. Create GitHub Release ─────────────────────────────────────────────
+      # ── 8. Build Installer (after version injection) ─────────────────────────
+      - name: Build Installer
+        run: |
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\ONEVoiceSolution_Setup.iss
+
+      # ── 9. Create GitHub Release ─────────────────────────────────────────────
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
