@@ -1,7 +1,7 @@
 /*
- * MainFormV5.cs  —  ONE Voice Solution v7.36
+ * MainFormV5.cs  —  ONE Voice Solution v7.37
  *
- * UI REDESIGN v7.36 — DrawDialMeter replaced with user-specified GDI+ neon ring design.
+ * UI REDESIGN v7.37 — Full visual overhaul: laser divider, section labels, meter glow, controls depth.
  *
  *   METER GEOMETRY (SVG canvas 200×200, scaled to panel):
  *     1. Outer soft glow   : r=90, stroke-width=10, opacity=0.15
@@ -46,7 +46,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN  = Color.FromArgb( 44, 255, 136);  // #2cff88
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.36";
+        private const string APP_VERSION = "7.37";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -228,17 +228,34 @@ namespace WindowsFormsApp1
             int cardPad = (int)(18 * _scale);
             int divY    = cardPad + headerH + (int)(10 * _scale);
 
-            // Outer glow passes
-            int[] glowW = { (int)(80 * _scale), (int)(40 * _scale), (int)(18 * _scale), (int)(8 * _scale) };
-            int[] glowA = { 8, 18, 40, 80 };
-            for (int i = 0; i < glowW.Length; i++)
+            // ── Laser line: thin horizontal glow, strong center flare, fades to edges ──
+            // Horizontal glow (edge-based, not vertical thickness)
+            int[] laserAlpha = { 6, 14, 30, 60 };
+            int[] laserWidth = { (int)(22*_scale), (int)(10*_scale), (int)(4*_scale), (int)(2*_scale) };
+            for (int i = 0; i < laserAlpha.Length; i++)
             {
-                using (var gp = new Pen(Color.FromArgb(glowA[i], ONE_RED), glowW[i]))
-                    g.DrawLine(gp, 0, divY, W, divY);
+                using (var lp = new Pen(Color.FromArgb(laserAlpha[i], ONE_RED), laserWidth[i]))
+                    g.DrawLine(lp, 0, divY, W, divY);
             }
-            // Solid red line
-            using (var rp = new Pen(Color.FromArgb(220, ONE_RED), Math.Max(2, (int)(3 * _scale))))
-                g.DrawLine(rp, 0, divY, W, divY);
+            // 1px core line
+            using (var lp = new Pen(Color.FromArgb(230, ONE_RED), 1f))
+                g.DrawLine(lp, 0, divY, W, divY);
+            // Center flare: radial gradient ellipse at center
+            int flareW = (int)(W * 0.35f);
+            int flareH = (int)(18 * _scale);
+            int flareX = W / 2 - flareW / 2;
+            int flareY = divY - flareH / 2;
+            using (var flarePath = new System.Drawing.Drawing2D.GraphicsPath())
+            {
+                flarePath.AddEllipse(flareX, flareY, flareW, flareH);
+                using (var flareBrush = new System.Drawing.Drawing2D.PathGradientBrush(flarePath))
+                {
+                    flareBrush.CenterPoint    = new PointF(W / 2f, divY);
+                    flareBrush.CenterColor    = Color.FromArgb(120, ONE_RED);
+                    flareBrush.SurroundColors = new[] { Color.FromArgb(0, ONE_RED) };
+                    g.FillEllipse(flareBrush, flareX, flareY, flareW, flareH);
+                }
+            }
         }
 
         // ══════════════════════════════════════════════════════════════════════
@@ -439,7 +456,7 @@ namespace WindowsFormsApp1
             meterDiam = Math.Max(120, Math.Min((int)(200 * _scale), meterDiam));
 
             int sectionLblH = (int)(28 * _scale);
-            int meterTop    = sectionTop + sectionLblH + (int)(10 * _scale);
+            int meterTop    = sectionTop + sectionLblH + (int)(4 * _scale);  // tighter: moved up
 
             // Section labels
             // Left:  "WHAT THE AGENT HEARS"    — AGENT in red
@@ -470,7 +487,7 @@ namespace WindowsFormsApp1
                 BuildCircularMeter(mx, my, meterDiam, colors[i], keys[i]);
 
                 // Label below meter
-                int labelY = my + meterDiam + (int)(12 * _scale);
+                int labelY = my + meterDiam + (int)(6 * _scale);   // tighter: label closer to meter
                 var lbl = new Label
                 {
                     Text      = labels[i],
@@ -484,7 +501,7 @@ namespace WindowsFormsApp1
                 this.Controls.Add(lbl);
 
                 // Volume controls: [–] [val] [+]
-                int ctrlY   = labelY + lblH + (int)(10 * _scale);
+                int ctrlY   = labelY + lblH + (int)(5 * _scale);    // tighter: controls closer to label
                 int totalVW = btnSz + gap + numW + gap + btnSz;
                 int startVX = slotCX - totalVW / 2;
                 BuildVolumeControl(startVX, ctrlY, btnSz, numW, gap, colors[i], i);
@@ -518,10 +535,23 @@ namespace WindowsFormsApp1
                 int ph     = panel.Height;
                 int textY  = (ph - th) / 2;
                 int startX = (panel.Width - tw) / 2;
-
-                TextRenderer.DrawText(g, pref, font, new Point(startX,          textY), bc);
-                TextRenderer.DrawText(g, kw,   font, new Point(startX + pw2,    textY), kc);
-                TextRenderer.DrawText(g, suf,  font, new Point(startX + pw2 + kw2, textY), bc);
+                int kwX    = startX + pw2;
+                // Glow behind keyword only (2 passes)
+                for (int gi = 0; gi < 2; gi++)
+                {
+                    int   ga  = gi == 0 ? 25 : 55;
+                    float off = gi == 0 ? 3f : 1.5f;
+                    using (var gb = new SolidBrush(Color.FromArgb(ga, kc)))
+                        g.FillRectangle(gb, kwX - off, textY - off, kw2 + off * 2, th + off * 2);
+                }
+                // Brighter base text (~20% brighter)
+                TextRenderer.DrawText(g, pref, font, new Point(startX, textY), Color.FromArgb(240, 240, 248));
+                TextRenderer.DrawText(g, kw,   font, new Point(kwX,    textY), kc);
+                TextRenderer.DrawText(g, suf,  font, new Point(kwX + kw2, textY), Color.FromArgb(240, 240, 248));
+                // Thin accent underline below the full label
+                int lineY = textY + th + 2;
+                using (var lp = new Pen(Color.FromArgb(160, kc), 1.5f))
+                    g.DrawLine(lp, startX, lineY, startX + tw, lineY);
             };
             this.Controls.Add(panel);
         }
@@ -532,7 +562,7 @@ namespace WindowsFormsApp1
             var panel = new DoubleBufferedPanel
             {
                 Bounds    = new Rectangle(x, y, diam, diam),
-                BackColor = Color.FromArgb(7, 8, 18),
+                BackColor = Color.Transparent,
                 Tag       = key
             };
             Color mc = meterColor;
@@ -549,120 +579,154 @@ namespace WindowsFormsApp1
             return panel;
         }
         // ══════════════════════════════════════════════════════════════════════
-        // DRAW DIAL METER — GDI+ neon ring design (user-specified)
-        // Signature: DrawDialMeter(Graphics g, Rectangle bounds, float percent, Color baseColor)
+        // DRAW DIAL METER v7.37 — neon ring, tight glow, no box, cinematic
         // ══════════════════════════════════════════════════════════════════════
         private void DrawDialMeter(Graphics g, Rectangle bounds, float percent, Color baseColor)
         {
-            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            g.SmoothingMode     = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            g.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
+            g.InterpolationMode  = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
 
             float cx     = bounds.X + bounds.Width  / 2f;
             float cy     = bounds.Y + bounds.Height / 2f;
             float radius = bounds.Width / 2f - 8f;
 
-            // ENERGY BURST (stable particle pattern)
-            var rand = new Random(1);
+            // Derived color tones
+            Color brightTone = Color.FromArgb(
+                Math.Min(255, baseColor.R + 60),
+                Math.Min(255, baseColor.G + 60),
+                Math.Min(255, baseColor.B + 60));
+            Color darkTone = Color.FromArgb(
+                (int)(baseColor.R * 0.55f),
+                (int)(baseColor.G * 0.55f),
+                (int)(baseColor.B * 0.55f));
+
+            // ── ENERGY BURST (stable particles, very low opacity) ─────────────
+            var rand = new Random(42);
             for (int i = 0; i < 40; i++)
             {
                 double a = rand.NextDouble() * Math.PI * 2;
-                double r = radius + 10 + rand.NextDouble() * 40;
+                double r = radius + 8 + rand.NextDouble() * 30;
                 float  x = cx + (float)(Math.Cos(a) * r);
                 float  y = cy + (float)(Math.Sin(a) * r);
-                using (Brush b = new SolidBrush(Color.FromArgb(18, baseColor)))
+                using (var b = new SolidBrush(Color.FromArgb(14, darkTone)))
                     g.FillRectangle(b, x, y, 2, 2);
             }
 
-            // OUTER GLOW (tight + layered)
-            for (int i = 0; i < 10; i++)
+            // ── OUTER GLOW — tight falloff, strongest at ring edge (8–10 passes) ──
+            for (int i = 9; i >= 0; i--)
             {
-                int   alpha = Math.Max(1, 30 - i * 2);
-                float w     = radius + i * 2f;
-                using (var p = new Pen(Color.FromArgb(alpha, baseColor), 18f + i * 2f))
+                int   alpha = Math.Max(1, 28 - i * 3);
+                float w     = radius + i * 1.8f;
+                float pen   = Math.Max(1f, 16f - i * 1.2f);
+                using (var p = new Pen(Color.FromArgb(alpha, i < 3 ? brightTone : darkTone), pen))
                     g.DrawEllipse(p, cx - w, cy - w, w * 2f, w * 2f);
             }
 
-            // HARD EDGE RING
-            using (var p = new Pen(baseColor, 3f))
+            // ── HARD EDGE RING ────────────────────────────────────────────────
+            using (var p = new Pen(baseColor, 2.5f))
                 g.DrawEllipse(p, cx - radius, cy - radius, radius * 2f, radius * 2f);
 
-            // TICK MARKS (72 ticks, every 6th is major)
-            int tickCount = 72;
-            for (int i = 0; i < tickCount; i++)
+            // ── INNER RIM LINE (just inside the ring) ─────────────────────────
+            float rimR = radius - 5f;
+            using (var p = new Pen(Color.FromArgb(60, brightTone), 1f))
+                g.DrawEllipse(p, cx - rimR, cy - rimR, rimR * 2f, rimR * 2f);
+
+            // ── TICK MARKS — 72 ticks, every 6th is major ─────────────────────
+            for (int i = 0; i < 72; i++)
             {
-                float angle = (float)(i * Math.PI * 2.0 / tickCount);
-                float inner = radius - 18f;
-                float outer = radius;
+                float angle = (float)(i * Math.PI * 2.0 / 72);
+                bool  major = (i % 6 == 0);
+                float inner = major ? radius - 16f : radius - 10f;
                 float x1 = cx + (float)Math.Cos(angle) * inner;
                 float y1 = cy + (float)Math.Sin(angle) * inner;
-                float x2 = cx + (float)Math.Cos(angle) * outer;
-                float y2 = cy + (float)Math.Sin(angle) * outer;
-                bool  major = (i % 6 == 0);
-                using (var p = new Pen(Color.FromArgb(major ? 255 : 200, baseColor), major ? 4f : 2f))
+                float x2 = cx + (float)Math.Cos(angle) * radius;
+                float y2 = cy + (float)Math.Sin(angle) * radius;
+                using (var p = new Pen(Color.FromArgb(major ? 230 : 140, major ? brightTone : baseColor), major ? 3f : 1.2f))
                     g.DrawLine(p, x1, y1, x2, y2);
             }
 
-            // PROGRESS ARC (glow pass + main arc)
+            // ── PROGRESS ARC — glow layer + sharp layer, rounded caps ─────────
             float sweep = percent / 100f * 360f;
-            float arcR  = radius - 12f;
-            using (var glow = new Pen(Color.FromArgb(120, baseColor), 24f))
+            float arcR  = radius - 14f;
+            // Outer glow arc (thicker, semi-transparent)
+            using (var glow = new Pen(Color.FromArgb(90, darkTone), 22f))
             {
                 glow.StartCap = System.Drawing.Drawing2D.LineCap.Round;
                 glow.EndCap   = System.Drawing.Drawing2D.LineCap.Round;
                 g.DrawArc(glow, cx - arcR, cy - arcR, arcR * 2f, arcR * 2f, -90f, sweep);
             }
-            using (var p = new Pen(baseColor, 16f))
+            // Inner sharp arc (solid color)
+            using (var p = new Pen(baseColor, 12f))
             {
                 p.StartCap = System.Drawing.Drawing2D.LineCap.Round;
                 p.EndCap   = System.Drawing.Drawing2D.LineCap.Round;
                 g.DrawArc(p, cx - arcR, cy - arcR, arcR * 2f, arcR * 2f, -90f, sweep);
             }
+            // Bright highlight on arc
+            using (var p = new Pen(Color.FromArgb(180, brightTone), 3f))
+            {
+                p.StartCap = System.Drawing.Drawing2D.LineCap.Round;
+                p.EndCap   = System.Drawing.Drawing2D.LineCap.Round;
+                g.DrawArc(p, cx - arcR + 2f, cy - arcR + 2f, (arcR - 2f) * 2f, (arcR - 2f) * 2f, -90f, sweep);
+            }
 
-            // TOP HIGHLIGHT (tight flare)
-            using (var p = new Pen(Color.FromArgb(200, Color.White), 4f))
-                g.DrawArc(p, cx - radius, cy - radius, radius * 2f, radius * 2f, -8f, 16f);
+            // ── TOP HIGHLIGHT (~12 degrees, white, thin) ──────────────────────
+            using (var p = new Pen(Color.FromArgb(210, Color.White), 3f))
+                g.DrawArc(p, cx - radius, cy - radius, radius * 2f, radius * 2f, -96f, 12f);
 
-            // INNER CORE (depth gradient)
-            float coreR = radius - 28f;
+            // ── INNER CORE — radial gradient black→very dark gray ─────────────
+            float coreR = radius - 22f;
             using (var path = new System.Drawing.Drawing2D.GraphicsPath())
             {
                 path.AddEllipse(cx - coreR, cy - coreR, coreR * 2f, coreR * 2f);
                 using (var brush = new System.Drawing.Drawing2D.PathGradientBrush(path))
                 {
-                    brush.CenterColor    = Color.Black;
-                    brush.SurroundColors = new[] { Color.FromArgb(15, 15, 15) };
+                    brush.CenterPoint    = new PointF(cx, cy);
+                    brush.CenterColor    = Color.FromArgb(255, 0, 0, 0);
+                    brush.SurroundColors = new[] { Color.FromArgb(255, 12, 12, 14) };
                     g.FillPath(brush, path);
                 }
             }
 
-            // INNER COLOR BLEED
-            using (var brush = new System.Drawing.Drawing2D.PathGradientBrush(new PointF[] {
-                new PointF(cx - radius, cy - radius),
-                new PointF(cx + radius, cy - radius),
-                new PointF(cx + radius, cy + radius),
-                new PointF(cx - radius, cy + radius)
-            }))
+            // ── COLOR BLEED — soft radial tint inside ring (low opacity) ──────
+            using (var path = new System.Drawing.Drawing2D.GraphicsPath())
             {
-                brush.CenterColor    = Color.FromArgb(0,  baseColor);
-                brush.SurroundColors = new[] { Color.FromArgb(40, baseColor) };
-                float bleedR = radius - 10f;
-                g.FillEllipse(brush, cx - bleedR, cy - bleedR, bleedR * 2f, bleedR * 2f);
+                path.AddEllipse(cx - coreR, cy - coreR, coreR * 2f, coreR * 2f);
+                using (var brush = new System.Drawing.Drawing2D.PathGradientBrush(path))
+                {
+                    brush.CenterPoint    = new PointF(cx, cy);
+                    brush.CenterColor    = Color.FromArgb(0, baseColor);       // transparent center
+                    brush.SurroundColors = new[] { Color.FromArgb(35, baseColor) }; // color at edge
+                    g.FillPath(brush, path);
+                }
             }
 
-            // INNER RIM LIGHT
-            using (var p = new Pen(Color.FromArgb(40, Color.White), 2f))
+            // ── FAINT INNER RIM HIGHLIGHT ─────────────────────────────────────
+            using (var p = new Pen(Color.FromArgb(35, Color.White), 1f))
                 g.DrawEllipse(p, cx - coreR, cy - coreR, coreR * 2f, coreR * 2f);
 
-            // PERCENT VALUE TEXT
-            using (var font  = new Font("Segoe UI", 30f, FontStyle.Bold))
-            using (var brush = new SolidBrush(baseColor))
+            // ── PERCENT VALUE TEXT — larger, centered, slight color glow ──────
+            float fntPx = Math.Max(14f, coreR * 0.52f);
+            using (var font  = new Font("Segoe UI", fntPx, FontStyle.Bold, GraphicsUnit.Pixel))
             {
                 string text = $"{(int)percent}%";
                 SizeF  sz   = g.MeasureString(text, font);
-                g.DrawString(text, font, brush, cx - sz.Width / 2f, cy - sz.Height / 2f);
+                float  tx   = cx - sz.Width  / 2f;
+                float  ty   = cy - sz.Height / 2f;
+                // Glow pass (color, 3x3 offsets)
+                using (var gb = new SolidBrush(Color.FromArgb(130, baseColor)))
+                {
+                    float[] offs = { -2f, 0f, 2f };
+                    foreach (float ox in offs)
+                    foreach (float oy in offs)
+                        g.DrawString(text, font, gb, tx + ox, ty + oy);
+                }
+                // White core text
+                using (var wb = new SolidBrush(Color.White))
+                    g.DrawString(text, font, wb, tx, ty);
             }
         }
-
-
         // ── Volume controls: [–] [val] [+] ───────────────────────────────────
         // Matches: .controls { display:flex; gap:10px; }
         //          .control { width:48px; height:38px; border:2px solid currentColor; }
@@ -675,7 +739,7 @@ namespace WindowsFormsApp1
                 Text      = "\u2212",
                 FlatStyle = FlatStyle.Flat,
                 ForeColor = Color.White,
-                BackColor = Color.FromArgb(0, 0, 0, 100),
+                BackColor = Color.FromArgb(8, 8, 12),
                 Font      = new Font("Segoe UI", SF(16f), FontStyle.Bold),
                 Bounds    = new Rectangle(startX, y, btnSz, btnSz),
                 Cursor    = Cursors.Hand,
@@ -709,7 +773,7 @@ namespace WindowsFormsApp1
                 Text      = "+",
                 FlatStyle = FlatStyle.Flat,
                 ForeColor = Color.White,
-                BackColor = Color.FromArgb(0, 0, 0, 100),
+                BackColor = Color.FromArgb(8, 8, 12),
                 Font      = new Font("Segoe UI", SF(16f), FontStyle.Bold),
                 Bounds    = new Rectangle(startX + btnSz + gap + numW + gap, y, btnSz, btnSz),
                 Cursor    = Cursors.Hand,
@@ -800,6 +864,20 @@ namespace WindowsFormsApp1
 
         private void AttachHoverGlow(Button btn, Color accent)
         {
+            // Persistent glow border paint
+            btn.Paint += (s, e2) =>
+            {
+                var g2 = e2.Graphics;
+                g2.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                // Outer glow (2 passes)
+                for (int gi = 0; gi < 2; gi++)
+                {
+                    int   ga = gi == 0 ? 18 : 45;
+                    float gw = gi == 0 ? 4f : 2f;
+                    using (var gp = new Pen(Color.FromArgb(ga, accent), gw))
+                        g2.DrawRectangle(gp, new Rectangle(0, 0, btn.Width - 1, btn.Height - 1));
+                }
+            };
             btn.MouseEnter += (s, e) =>
             {
                 btn.FlatAppearance.BorderColor = Color.FromArgb(255, accent);
@@ -809,7 +887,7 @@ namespace WindowsFormsApp1
             btn.MouseLeave += (s, e) =>
             {
                 btn.FlatAppearance.BorderColor = accent;
-                btn.BackColor = Color.FromArgb(0, 0, 0, 100);
+                btn.BackColor = Color.FromArgb(8, 8, 12);
                 btn.Invalidate();
             };
         }
@@ -831,7 +909,7 @@ namespace WindowsFormsApp1
             {
                 FlatStyle = FlatStyle.Flat,
                 ForeColor = Color.White,
-                BackColor = Color.Transparent,
+                BackColor = Color.FromArgb(6, 6, 10),
                 Font      = new Font("Segoe UI", SF(13f), FontStyle.Bold),
                 Bounds    = new Rectangle(btnX0, btnY, btnW, btnH),
                 Cursor    = Cursors.Hand,
@@ -850,7 +928,7 @@ namespace WindowsFormsApp1
             {
                 FlatStyle = FlatStyle.Flat,
                 ForeColor = Color.White,
-                BackColor = Color.Transparent,
+                BackColor = Color.FromArgb(6, 6, 10),
                 Font      = new Font("Segoe UI", SF(13f), FontStyle.Bold),
                 Bounds    = new Rectangle(btnX0 + btnW + gap, btnY, btnW, btnH),
                 Cursor    = Cursors.Hand,
@@ -890,6 +968,19 @@ namespace WindowsFormsApp1
 
         private void AttachDeviceButtonHover(Button btn, Color accent)
         {
+            // Persistent outer glow on device buttons
+            btn.Paint += (s, e2) =>
+            {
+                var g2 = e2.Graphics;
+                g2.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                for (int gi = 0; gi < 3; gi++)
+                {
+                    int   ga = new int[]{ 10, 22, 45 }[gi];
+                    float gw = new float[]{ 6f, 3f, 1.5f }[gi];
+                    using (var gp = new Pen(Color.FromArgb(ga, accent), gw))
+                        g2.DrawRectangle(gp, new Rectangle(0, 0, btn.Width - 1, btn.Height - 1));
+                }
+            };
             btn.MouseEnter += (s, e) =>
             {
                 btn.FlatAppearance.BorderColor = Color.FromArgb(255, accent);
@@ -898,7 +989,7 @@ namespace WindowsFormsApp1
             btn.MouseLeave += (s, e) =>
             {
                 btn.FlatAppearance.BorderColor = accent;
-                btn.BackColor = Color.Transparent;
+                btn.BackColor = Color.FromArgb(6, 6, 10);
             };
         }
 
@@ -942,7 +1033,7 @@ namespace WindowsFormsApp1
 
             _lblFooterCenter = new Label
             {
-                Text      = "One United Global LLC 2026  V 7.35",
+                Text      = "One United Global LLC 2026  V 7.37",
                 ForeColor = Color.FromArgb(100, 100, 110),
                 BackColor = Color.Transparent,
                 Font      = new Font("Segoe UI", SF(11f), FontStyle.Regular),
