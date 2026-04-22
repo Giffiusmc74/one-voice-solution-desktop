@@ -66,7 +66,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.38";
+        private const string APP_VERSION = "7.39";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -316,10 +316,15 @@ namespace WindowsFormsApp1
                 }
             }
 
-            // 5. Window Border
+            // 5. Window Border — red neon glow (multi-pass)
             using (var path = RoundedRect(new Rectangle(1, 1, W - 3, H - 3), (int)(15 * _scale)))
-            using (var borderPen = new Pen(Color.FromArgb(60, 80, 90, 100), 1.5f))
-                g.DrawPath(borderPen, path);
+            {
+                using (var gp1 = new Pen(Color.FromArgb(18, 255, 0, 0), 18f * _scale)) g.DrawPath(gp1, path);
+                using (var gp2 = new Pen(Color.FromArgb(35, 255, 0, 0), 12f * _scale)) g.DrawPath(gp2, path);
+                using (var gp3 = new Pen(Color.FromArgb(60, 255, 0, 0), 7f * _scale))  g.DrawPath(gp3, path);
+                using (var gp4 = new Pen(Color.FromArgb(100, 255, 0, 0), 3.5f * _scale)) g.DrawPath(gp4, path);
+                using (var gp5 = new Pen(Color.FromArgb(200, 255, 40, 40), 1.2f * _scale)) g.DrawPath(gp5, path);
+            }
         }
 
         // ── Build UI ──────────────────────────────────────────────────────────
@@ -671,7 +676,7 @@ namespace WindowsFormsApp1
             using (var gp = new GraphicsPath()) {
                 gp.AddEllipse(cx - innerR, cy - innerR, innerR * 2, innerR * 2);
                 using (var pgb = new PathGradientBrush(gp)) {
-                    pgb.CenterColor = Color.FromArgb(20, meterColor);
+                    pgb.CenterColor = Color.FromArgb(55, meterColor);
                     pgb.SurroundColors = new[] { Color.Transparent };
                     g.FillPath(pgb, gp);
                 }
@@ -986,7 +991,10 @@ namespace WindowsFormsApp1
                         if (currentFill != Color.Transparent) {
                             using (var b = new SolidBrush(currentFill)) g.FillPath(b, path);
                         }
-                        using (var glow = new Pen(Color.FromArgb(60, accent), 4f)) g.DrawPath(glow, path);
+                        // Outer soft glow passes
+                        using (var g1 = new Pen(Color.FromArgb(18, accent), 22f)) g.DrawPath(g1, path);
+                        using (var g2 = new Pen(Color.FromArgb(40, accent), 10f)) g.DrawPath(g2, path);
+                        using (var glow = new Pen(Color.FromArgb(70, accent), 4f)) g.DrawPath(glow, path);
                         using (var pen = new Pen(currentBorder, 2f)) g.DrawPath(pen, path);
                     }
                     var font = new Font("Segoe UI", SF(12f), FontStyle.Bold);
