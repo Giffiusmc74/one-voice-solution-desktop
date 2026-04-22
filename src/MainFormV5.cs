@@ -66,7 +66,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.41";
+        private const string APP_VERSION = "7.42";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
