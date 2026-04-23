@@ -66,7 +66,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.45";
+        private const string APP_VERSION = "7.46";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -1197,6 +1197,19 @@ namespace WindowsFormsApp1
             int fcW = TextRenderer.MeasureText(_lblFooterCenter.Text, _lblFooterCenter.Font).Width;
             int fcH = TextRenderer.MeasureText(_lblFooterCenter.Text, _lblFooterCenter.Font).Height;
             _lblFooterCenter.Location = new Point((W - fcW) / 2, fy + (footerH - fcH) / 2);
+
+            // W.O.T. 31 ! — centered below the main footer line
+            var lblWot = new Label
+            {
+                Text      = "W.O.T. 31 !",
+                ForeColor = Color.FromArgb(160, 165, 175),
+                BackColor = Color.Transparent,
+                Font      = new Font("Segoe UI", SF(10f), FontStyle.Regular),
+                AutoSize  = true
+            };
+            this.Controls.Add(lblWot);
+            int wotW = TextRenderer.MeasureText(lblWot.Text, lblWot.Font).Width;
+            lblWot.Location = new Point((W - wotW) / 2, fy + (footerH - fcH) / 2 + fcH + (int)(2 * _scale));
         }
 
         // ── Hidden TrackBars (audio logic compatibility) ───────────────────────
