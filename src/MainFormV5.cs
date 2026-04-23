@@ -290,30 +290,45 @@ namespace WindowsFormsApp1
             int flareX1  = (int)(30 * _scale);
             int flareX2  = W - (int)(30 * _scale);
 
-            // Red outer glow
-            using (var glowPen2 = new Pen(Color.FromArgb(40, 255, 0, 0), 12f * _scale)) {
-                glowPen2.StartCap = System.Drawing.Drawing2D.LineCap.Round; glowPen2.EndCap = System.Drawing.Drawing2D.LineCap.Round;
-                g.DrawLine(glowPen2, flareX1, flareY, flareX2, flareY);
+            // Horizontal gradient flare: brand red (#FE0101) on both edges → pure white at center
+            // Outer soft glow pass (wide, low alpha)
+            int glowH2 = (int)(14f * _scale);
+            using (var lgb2 = new System.Drawing.Drawing2D.LinearGradientBrush(
+                new Rectangle(flareX1, flareY - glowH2 / 2, flareX2 - flareX1, glowH2),
+                Color.FromArgb(60, 254, 1, 1), Color.FromArgb(60, 254, 1, 1), 0f))
+            {
+                lgb2.InterpolationColors = new System.Drawing.Drawing2D.ColorBlend
+                {
+                    Colors = new[] { Color.FromArgb(60, 254, 1, 1), Color.FromArgb(20, 255, 255, 255), Color.FromArgb(60, 254, 1, 1) },
+                    Positions = new[] { 0f, 0.5f, 1f }
+                };
+                using (var pen2 = new Pen(lgb2, glowH2)) g.DrawLine(pen2, flareX1, flareY, flareX2, flareY);
             }
-            using (var glowPen = new Pen(Color.FromArgb(120, 255, 0, 0), 4f * _scale)) {
-                glowPen.StartCap = System.Drawing.Drawing2D.LineCap.Round; glowPen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
-                g.DrawLine(glowPen, flareX1, flareY, flareX2, flareY);
+            // Mid glow pass
+            int glowH = (int)(5f * _scale);
+            using (var lgb = new System.Drawing.Drawing2D.LinearGradientBrush(
+                new Rectangle(flareX1, flareY - glowH / 2, flareX2 - flareX1, glowH),
+                Color.FromArgb(180, 254, 1, 1), Color.FromArgb(180, 254, 1, 1), 0f))
+            {
+                lgb.InterpolationColors = new System.Drawing.Drawing2D.ColorBlend
+                {
+                    Colors = new[] { Color.FromArgb(180, 254, 1, 1), Color.FromArgb(220, 255, 255, 255), Color.FromArgb(180, 254, 1, 1) },
+                    Positions = new[] { 0f, 0.5f, 1f }
+                };
+                using (var pen = new Pen(lgb, glowH)) g.DrawLine(pen, flareX1, flareY, flareX2, flareY);
             }
-            // White-red core
-            using (var corePen = new Pen(Color.FromArgb(255, 255, 180, 180), 1.5f * _scale)) {
-                corePen.StartCap = System.Drawing.Drawing2D.LineCap.Round; corePen.EndCap = System.Drawing.Drawing2D.LineCap.Round;
-                g.DrawLine(corePen, flareX1, flareY, flareX2, flareY);
-            }
-            // Center bright hotspot
-            using (var gph = new GraphicsPath()) {
-                int hw = (int)(150 * _scale);
-                int hh = (int)(10 * _scale);
-                gph.AddEllipse(W / 2 - hw, flareY - hh / 2, hw * 2, hh);
-                using (var pgbh = new PathGradientBrush(gph)) {
-                    pgbh.CenterColor = Color.FromArgb(200, 255, 255, 255);
-                    pgbh.SurroundColors = new[] { Color.Transparent };
-                    g.FillPath(pgbh, gph);
-                }
+            // Bright core line: full brand red on edges → pure white center
+            int coreH = (int)(2f * _scale);
+            using (var lcore = new System.Drawing.Drawing2D.LinearGradientBrush(
+                new Rectangle(flareX1, flareY - 1, flareX2 - flareX1, Math.Max(2, coreH)),
+                Color.FromArgb(255, 254, 1, 1), Color.FromArgb(255, 254, 1, 1), 0f))
+            {
+                lcore.InterpolationColors = new System.Drawing.Drawing2D.ColorBlend
+                {
+                    Colors = new[] { Color.FromArgb(255, 254, 1, 1), Color.FromArgb(255, 255, 255, 255), Color.FromArgb(255, 254, 1, 1) },
+                    Positions = new[] { 0f, 0.5f, 1f }
+                };
+                using (var penCore = new Pen(lcore, Math.Max(1.5f, coreH))) g.DrawLine(penCore, flareX1, flareY, flareX2, flareY);
             }
 
             // 5. Window Border — red neon glow (multi-pass)
@@ -1188,9 +1203,9 @@ namespace WindowsFormsApp1
             _lblFooterCenter = new Label
             {
                 Text      = $"One United Global LLC 2026.  V {APP_VERSION}",
-                ForeColor = Color.FromArgb(160, 165, 175),
+                ForeColor = Color.White,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(11f), FontStyle.Regular),
+                Font      = new Font("Segoe UI", SF(13f), FontStyle.Regular),
                 AutoSize  = true
             };
             this.Controls.Add(_lblFooterCenter);
@@ -1202,9 +1217,9 @@ namespace WindowsFormsApp1
             var lblWot = new Label
             {
                 Text      = "W.O.T. 31 !",
-                ForeColor = Color.FromArgb(160, 165, 175),
+                ForeColor = Color.White,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(10f), FontStyle.Regular),
+                Font      = new Font("Segoe UI", SF(12f), FontStyle.Regular),
                 AutoSize  = true
             };
             this.Controls.Add(lblWot);
