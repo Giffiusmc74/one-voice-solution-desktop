@@ -75,9 +75,13 @@ Source: "..\bin\Release\NLog.config";               DestDir: "{app}";           
 Source: "..\Resources\one_logo.ico";                DestDir: "{app}\Resources";    Flags: ignoreversion
 Source: "..\Resources\one_logo.png";               DestDir: "{app}\Resources";    Flags: ignoreversion
 Source: "..\Resources\installer_banner.bmp";       DestDir: "{app}\Resources";    Flags: ignoreversion
-Source: "..\Resources\1ONEDigitalVideo.mp4";       DestDir: "{app}\Resources";    Flags: ignoreversion skipifsourcedoesntexist
+Source: "..\Resources\1ONEDigitalVideo.mp4";       DestDir: "{app}\Resources";    Flags: ignoreversion skipifsourcedoesntexist; ── Logo for in-app header (res folder) ─────────────────────────────────────────
+Source: "..\res\logo.png";                          DestDir: "{app}\res";          Flags: ignoreversion skipifsourcedoesntexist
 
-; ── VB-Audio Virtual Cable driver (bundled, silent install) ───────────────────
+; ── Audio configuration script ───────────────────────────────────────────────────
+Source: ".\ConfigureAudio.ps1";                       DestDir: "{tmp}";              Flags: ignoreversion deleteafterinstall
+
+; ── VB-Audio Virtual Cable driver (bundled, silent install) ─────────────────────
 ; Extract VBCABLE_Driver_Pack45.zip into installer\vbcable\ before building
 ; ALL files in the vbcable folder must be bundled — the .inf and driver files
 ; must be present alongside the .exe or the installer will error with "Missing inf"
@@ -104,9 +108,13 @@ Filename: "{tmp}\vbcable\VBCABLE_Setup.exe"; \
   Parameters: "/S /norestart"; \
   StatusMsg: "Installing audio components (VB-Audio Virtual Cable)..."; \
   Flags: waituntilterminated runhidden; \
-  Check: ShouldInstallVBCable and not Is64BitInstallMode
+  Check: ShouldInstallVBCable and not Is64BitInstallMode; ── Step 2: Configure VB-Audio CABLE to 16-bit 48000 Hz ─────────────────────────
+Filename: "powershell.exe"; \
+  Parameters: "-ExecutionPolicy Bypass -NonInteractive -WindowStyle Hidden -File \"{tmp}\ConfigureAudio.ps1\""; \
+  StatusMsg: "Configuring audio settings..."; \
+  Flags: waituntilterminated runhidden
 
-; ── Step 2: Launch ONE Voice Solution after install ───────────────────────────
+; ── Step 3: Launch ONE Voice Solution after install ─────────────────────────────
 Filename: "{app}\{#AppExeName}"; \
   Description: "Launch ONE Voice Solution now"; \
   Flags: nowait postinstall skipifsilent

@@ -66,7 +66,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.44";
+        private const string APP_VERSION = "7.45";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -476,7 +476,7 @@ namespace WindowsFormsApp1
             // Left label spans over meters 0+1, right label spans over meters 2+3
             BuildSectionLabel(innerPad, sectionTop, meterSpacing * 2,
                               "WHAT THE ", "AGENT", " HEARS",
-                              Color.FromArgb(195, 195, 205), ONE_RED);
+                              Color.FromArgb(195, 195, 205), METER_BLUE);
 
             BuildSectionLabel(innerPad + meterSpacing * 2, sectionTop, meterSpacing * 2,
                               "WHAT THE ", "CUSTOMER", " HEARS",
