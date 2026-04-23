@@ -66,7 +66,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.56";
+        private const string APP_VERSION = "7.57";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -1492,7 +1492,7 @@ namespace WindowsFormsApp1
                             : Math.Abs(BitConverter.ToSingle(e.Buffer, i));
                         if (sample > max) max = sample;
                     }
-                    _micLevel = Math.Min(1f, max * 2.5f);
+                    _micLevel = Math.Min(1f, max * 3.25f);
                 };
                 _micCapture.StartRecording();
                 StartMicPassThrough(device.FriendlyName);
@@ -1594,7 +1594,7 @@ namespace WindowsFormsApp1
                         float sample = Math.Abs(BitConverter.ToSingle(e.Buffer, i)) * _customerVoiceVolume;
                         if (sample > max) max = sample;
                     }
-                    float level = Math.Min(1f, max * 2.2f);
+                    float level = Math.Min(1f, max * 2.85f);
                     if (level > _customerVoiceLevel) _customerVoiceLevel = level;
                 };
                 _loopbackCapture.StartRecording();
@@ -1738,12 +1738,12 @@ namespace WindowsFormsApp1
                 {
                     if (channel == "agent")
                     {
-                        if (level * 0.7f > _agentScriptLevel) _agentScriptLevel = level * 0.7f;
+                        if (level * 0.85f > _agentScriptLevel) _agentScriptLevel = level * 0.85f;
                         _agentScriptMeter?.Invalidate();
                     }
                     else
                     {
-                        if (level * 0.7f > _customerScriptLevel) _customerScriptLevel = level * 0.7f;
+                        if (level * 0.85f > _customerScriptLevel) _customerScriptLevel = level * 0.85f;
                         _customerScriptMeter?.Invalidate();
                     }
                 };
