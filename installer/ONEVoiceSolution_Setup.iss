@@ -148,7 +148,7 @@ Root: HKCR; Subkey: "one-voice\DefaultIcon"; \
   ValueType: string; ValueName: ""; ValueData: "{app}\{#AppExeName},0"; \
   Flags: uninsdeletekey
 Root: HKCR; Subkey: "one-voice\shell\open\command"; \
-  ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExeName}"" "%1""; \
+  ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExeName}"" ""%1"""; \
   Flags: uninsdeletekey
 
 ; Auto-start registry entry (only if user chose startup task)
