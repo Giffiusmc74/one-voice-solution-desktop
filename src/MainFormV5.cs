@@ -66,7 +66,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.50";
+        private const string APP_VERSION = "7.51";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -1330,20 +1330,43 @@ namespace WindowsFormsApp1
             this.Activate();
         }
 
-        // Force full repaint when restored from minimize — prevents GDI corruption
+        // Rebuild all controls on restore from minimize — prevents GDI corruption (broken red boxes)
+        private bool _wasMinimized = false;
         protected override void WndProc(ref Message m)
         {
             const int WM_SIZE        = 0x0005;
+            const int SIZE_MINIMIZED = 1;
             const int SIZE_RESTORED  = 0;
             const int SIZE_MAXIMIZED = 2;
             base.WndProc(ref m);
             if (m.Msg == WM_SIZE)
             {
                 int sizeType = m.WParam.ToInt32();
-                if (sizeType == SIZE_RESTORED || sizeType == SIZE_MAXIMIZED)
+                if (sizeType == SIZE_MINIMIZED)
                 {
-                    this.Invalidate(true);
-                    this.Refresh();
+                    _wasMinimized = true;
+                }
+                else if (_wasMinimized && (sizeType == SIZE_RESTORED || sizeType == SIZE_MAXIMIZED))
+                {
+                    _wasMinimized = false;
+                    this.BeginInvoke(new Action(() =>
+                    {
+                        this.SuspendLayout();
+                        // Dispose and remove all existing controls
+                        var controls = new System.Windows.Forms.Control[this.Controls.Count];
+                        this.Controls.CopyTo(controls, 0);
+                        this.Controls.Clear();
+                        foreach (var c in controls)
+                        {
+                            if (c != null && !c.IsDisposed)
+                                c.Dispose();
+                        }
+                        // Rebuild fresh
+                        BuildUI();
+                        this.ResumeLayout(true);
+                        this.Invalidate(true);
+                        this.Refresh();
+                    }));
                 }
             }
         }
