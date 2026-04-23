@@ -136,6 +136,21 @@ Root: HKLM; Subkey: "SOFTWARE\ONEUnitedGlobal\OneVoiceSolution"; \
   ValueType: string; ValueName: "InstallPath"; ValueData: "{app}"; \
   Flags: uninsdeletekey
 
+; ── one-voice:// custom URL protocol handler ─────────────────────────────────
+; Allows the web portal to launch the app via one-voice://launch?key=...
+Root: HKCR; Subkey: "one-voice"; \
+  ValueType: string; ValueName: ""; ValueData: "URL:ONE Voice Solution"; \
+  Flags: uninsdeletekey
+Root: HKCR; Subkey: "one-voice"; \
+  ValueType: string; ValueName: "URL Protocol"; ValueData: ""; \
+  Flags: uninsdeletevalue
+Root: HKCR; Subkey: "one-voice\DefaultIcon"; \
+  ValueType: string; ValueName: ""; ValueData: "{app}\{#AppExeName},0"; \
+  Flags: uninsdeletekey
+Root: HKCR; Subkey: "one-voice\shell\open\command"; \
+  ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExeName}"" "%1""; \
+  Flags: uninsdeletekey
+
 ; Auto-start registry entry (only if user chose startup task)
 Root: HKCU; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; \
   ValueType: string; ValueName: "ONEVoiceSolution"; \
