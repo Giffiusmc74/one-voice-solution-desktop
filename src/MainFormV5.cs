@@ -66,7 +66,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.51";
+        private const string APP_VERSION = "7.52";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -1351,21 +1351,42 @@ namespace WindowsFormsApp1
                     _wasMinimized = false;
                     this.BeginInvoke(new Action(() =>
                     {
+                        // Stop meter timer FIRST so it cannot fire Invalidate on disposed controls
+                        _meterTimer?.Stop();
+
+                        // Null out all meter + UI field references before disposing controls
+                        // so the timer tick cannot call .Invalidate() on a disposed handle
+                        _myMicMeterLeft     = null;
+                        _customerVoiceMeter = null;
+                        _agentScriptMeter   = null;
+                        _customerScriptMeter = null;
+                        _logoBox            = null;
+                        _lblTagline         = null;
+                        _lblAgentName       = null;
+                        _lblFooterCenter    = null;
+                        _btnClose           = null;
+                        _btnMinimize        = null;
+
                         this.SuspendLayout();
+
                         // Dispose and remove all existing controls
                         var controls = new System.Windows.Forms.Control[this.Controls.Count];
                         this.Controls.CopyTo(controls, 0);
                         this.Controls.Clear();
                         foreach (var c in controls)
                         {
-                            if (c != null && !c.IsDisposed)
-                                c.Dispose();
+                            try { if (c is PictureBox pb) pb.Image = null; } catch { }
+                            try { if (c != null && !c.IsDisposed) c.Dispose(); } catch { }
                         }
-                        // Rebuild fresh
+
+                        // Rebuild fresh UI
                         BuildUI();
                         this.ResumeLayout(true);
                         this.Invalidate(true);
                         this.Refresh();
+
+                        // Restart meter timer now that new controls are in place
+                        _meterTimer?.Start();
                     }));
                 }
             }

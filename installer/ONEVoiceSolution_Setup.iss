@@ -120,9 +120,10 @@ Filename: "powershell.exe"; \
   Flags: waituntilterminated runhidden
 
 ; ── Step 3: Launch ONE Voice Solution after install ───────────────────────────
+; NOTE: No skipifsilent flag — app ALWAYS relaunches after silent auto-update
 Filename: "{app}\{#AppExeName}"; \
   Description: "Launch ONE Voice Solution now"; \
-  Flags: nowait postinstall skipifsilent
+  Flags: nowait postinstall
 
 [UninstallRun]
 ; Remove VB-Audio on uninstall (optional — commented out by default since
