@@ -66,7 +66,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.57";
+        private const string APP_VERSION = "7.58";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -1397,6 +1397,10 @@ namespace WindowsFormsApp1
 
                         // Rebuild fresh UI
                         BuildUI();
+                        // Re-populate audio devices — BuildUI creates new _cboMic/_cboHeadset
+                        // combo boxes that are empty until PopulateDevices() fills them.
+                        // Without this, the mic/speaker dropdown buttons show nothing after restore.
+                        PopulateDevices();
                         this.ResumeLayout(true);
                         this.Invalidate(true);
                         this.Refresh();
