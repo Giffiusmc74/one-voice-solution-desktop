@@ -72,7 +72,7 @@ namespace WindowsFormsApp1.src
 
         // ── Per-channel volumes (0-100) ───────────────────────────────────────
         // Applied via WaveOutEvent.Volume — hardware-level, no sample processing.
-        private int _agentVol    = 80;
+        private int _agentVol    = 100;
         private int _customerVol = 100;
 
         // ── Device setters ────────────────────────────────────────────────────

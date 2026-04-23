@@ -66,7 +66,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.43";
+        private const string APP_VERSION = "7.44";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -486,10 +486,10 @@ namespace WindowsFormsApp1
 
             // ── 4 Meters ─────────────────────────────────────────────────────────────
             // 0: Customer Voice (RED)       — left side (AGENT HEARS)
-            // 1: Customer Recordings (BLUE) — left side
+            // 1: Agent Recordings (BLUE)    — left side (AGENT HEARS)
             // 2: Agent Voice (PURPLE)       — right side (CUSTOMER HEARS)
             // 3: Agent Recordings (GREEN)   — right side
-            string[] labels = { "CUSTOMER VOICE", "CUSTOMER RECORDING", "AGENT VOICE", "AGENT RECORDING" };
+            string[] labels = { "CUSTOMER VOICE", "AGENT RECORDING", "AGENT VOICE", "AGENT RECORDING" };
             Color[]  colors = { METER_RED, METER_BLUE, METER_PURPLE, METER_GREEN };
             string[] keys   = { "customerVoice", "agentScript_left", "myMicLevel", "agentScript" };
 
@@ -1671,7 +1671,7 @@ namespace WindowsFormsApp1
                 if (this.InvokeRequired) this.BeginInvoke(reset); else reset();
             };
 
-            int savedAgent    = (int)(AppSettings.Instance.GetVolume("agentScript",    0.48f) * 100);
+            int savedAgent    = (int)(AppSettings.Instance.GetVolume("agentScript",    1.0f) * 100);
             int savedCustomer = (int)(AppSettings.Instance.GetVolume("customerScript", 0.55f) * 100);
             bridge.SetInitialVolume("agent",    savedAgent);
             bridge.SetInitialVolume("customer", savedCustomer);
