@@ -70,6 +70,10 @@ namespace WindowsFormsApp1
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
+
+        // ── Background cache (prevents OutOfMemory from rapid GDI+ repaints) ─────
+        private Bitmap _bgCache = null;
+        private Size   _bgCacheSize = Size.Empty;
         private float SF(float pt) => Math.Max(7f, (float)Math.Round(pt * _scale, 1));
 
         // DPI helper
@@ -225,19 +229,38 @@ namespace WindowsFormsApp1
         }
 
         // ── Paint: space background + dark card + horizontal glow flare ─────────
+        // Background is cached to a Bitmap to prevent OutOfMemoryException from
+        // rapid GDI+ object allocation during minimize/restore repaint cascades.
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
-            var g = e.Graphics;
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-
             int W = this.ClientSize.Width;
             int H = this.ClientSize.Height;
 
-            // 1. Dark deep space background
-            g.FillRectangle(new SolidBrush(Color.FromArgb(5, 5, 12)), 0, 0, W, H);
+            // Rebuild cache only when size changes or cache is empty
+            if (_bgCache == null || _bgCacheSize != this.ClientSize)
+            {
+                _bgCache?.Dispose();
+                _bgCache = new Bitmap(Math.Max(1, W), Math.Max(1, H));
+                _bgCacheSize = this.ClientSize;
+                using (var bg = Graphics.FromImage(_bgCache))
+                {
+                    bg.SmoothingMode = SmoothingMode.AntiAlias;
+                    PaintBackground(bg, W, H);
+                }
+            }
 
-            // 2. Draw nebulas (simulated background image)
+            // Fast blit — no new GDI objects created on every repaint
+            e.Graphics.DrawImage(_bgCache, 0, 0);
+        }
+
+        private void PaintBackground(Graphics g, int W, int H)
+        {
+            // 1. Dark deep space background
+            using (var bgBrush = new SolidBrush(Color.FromArgb(5, 5, 12)))
+                g.FillRectangle(bgBrush, 0, 0, W, H);
+
+            // 2. Draw nebulas
             void DrawNebula(int nx, int ny, int nw, int nh, Color c) {
                 using (var gp = new GraphicsPath()) {
                     gp.AddEllipse(nx, ny, nw, nh);
@@ -248,95 +271,72 @@ namespace WindowsFormsApp1
                     }
                 }
             }
-
-            // Original ambient corner/top glows (dialed down slightly to not overwhelm)
-            DrawNebula(W / 2 - (int)(W * 0.4f), - (int)(H * 0.2f), (int)(W * 0.8f), (int)(H * 0.4f), Color.FromArgb(40, 255, 0, 0));
-            DrawNebula(- (int)(W * 0.2f), H - (int)(H * 0.4f), (int)(W * 0.6f), (int)(H * 0.6f), Color.FromArgb(25, 255, 0, 0));
+            DrawNebula(W / 2 - (int)(W * 0.4f), -(int)(H * 0.2f), (int)(W * 0.8f), (int)(H * 0.4f), Color.FromArgb(40, 255, 0, 0));
+            DrawNebula(-(int)(W * 0.2f), H - (int)(H * 0.4f), (int)(W * 0.6f), (int)(H * 0.6f), Color.FromArgb(25, 255, 0, 0));
             DrawNebula(W - (int)(W * 0.4f), H - (int)(H * 0.4f), (int)(W * 0.6f), (int)(H * 0.6f), Color.FromArgb(25, 0, 120, 255));
 
-            // 3. Static stars for depth
-            var rnd = new Random(W * H); // seeded by size
+            // 3. Static stars
+            var rnd = new Random(W * H);
             for (int i = 0; i < 800; i++) {
                 int sx = rnd.Next(W);
                 int sy = rnd.Next(H);
-                int alpha = rnd.Next(10, 80); // softer stars so they don't look like noise
+                int alpha = rnd.Next(10, 80);
                 float sz = rnd.Next(1, 3);
-                bool isGlow = rnd.Next(100) > 85; // 15% of stars glow
-
+                bool isGlow = rnd.Next(100) > 85;
                 if (isGlow) {
                     float glowRadius = sz * rnd.Next(2, 4);
                     using (var glowPath = new GraphicsPath()) {
                         glowPath.AddEllipse(sx - glowRadius, sy - glowRadius, glowRadius * 2, glowRadius * 2);
                         using (var pgb = new PathGradientBrush(glowPath)) {
-                            // Use a soft, deep blue/cyan for the glow to blend smoothly into the dark space background
                             pgb.CenterColor = Color.FromArgb(alpha + 40, 140, 180, 255);
-                            // Avoid grayish GDI+ fringing by blending to a transparent version of the same color
                             pgb.SurroundColors = new[] { Color.FromArgb(0, 140, 180, 255) };
                             g.FillPath(pgb, glowPath);
                         }
                     }
-                    alpha = rnd.Next(120, 255); // make the core of glowing stars brighter
+                    alpha = rnd.Next(120, 255);
                     sz += 1f;
                 }
-
                 using (var b = new SolidBrush(Color.FromArgb(alpha, 255, 255, 255)))
                     g.FillEllipse(b, sx - sz / 2f, sy - sz / 2f, sz, sz);
             }
 
             // 4. Horizontal red light flare
-            int cardPad  = (int)(18 * _scale);
-            int headerH  = (int)(90 * _scale);
-            int flareY   = cardPad + headerH; 
-            int flareX1  = (int)(30 * _scale);
-            int flareX2  = W - (int)(30 * _scale);
-
-            // Horizontal gradient flare: brand red (#FE0101) on both edges → pure white at center
-            // Outer soft glow pass (wide, low alpha)
-            int glowH2 = (int)(14f * _scale);
-            using (var lgb2 = new System.Drawing.Drawing2D.LinearGradientBrush(
-                new Rectangle(flareX1, flareY - glowH2 / 2, flareX2 - flareX1, glowH2),
+            int cardPad = (int)(18 * _scale);
+            int headerH = (int)(90 * _scale);
+            int flareY  = cardPad + headerH;
+            int flareX1 = (int)(30 * _scale);
+            int flareX2 = W - (int)(30 * _scale);
+            int glowH2  = (int)(14f * _scale);
+            using (var lgb2 = new LinearGradientBrush(
+                new Rectangle(flareX1, flareY - glowH2 / 2, Math.Max(1, flareX2 - flareX1), glowH2),
                 Color.FromArgb(60, 254, 1, 1), Color.FromArgb(60, 254, 1, 1), 0f))
             {
-                lgb2.InterpolationColors = new System.Drawing.Drawing2D.ColorBlend
-                {
-                    Colors = new[] { Color.FromArgb(60, 254, 1, 1), Color.FromArgb(20, 255, 255, 255), Color.FromArgb(60, 254, 1, 1) },
-                    Positions = new[] { 0f, 0.5f, 1f }
-                };
+                lgb2.InterpolationColors = new ColorBlend { Colors = new[] { Color.FromArgb(60, 254, 1, 1), Color.FromArgb(20, 255, 255, 255), Color.FromArgb(60, 254, 1, 1) }, Positions = new[] { 0f, 0.5f, 1f } };
                 using (var pen2 = new Pen(lgb2, glowH2)) g.DrawLine(pen2, flareX1, flareY, flareX2, flareY);
             }
-            // Mid glow pass
             int glowH = (int)(5f * _scale);
-            using (var lgb = new System.Drawing.Drawing2D.LinearGradientBrush(
-                new Rectangle(flareX1, flareY - glowH / 2, flareX2 - flareX1, glowH),
+            using (var lgb = new LinearGradientBrush(
+                new Rectangle(flareX1, flareY - glowH / 2, Math.Max(1, flareX2 - flareX1), glowH),
                 Color.FromArgb(180, 254, 1, 1), Color.FromArgb(180, 254, 1, 1), 0f))
             {
-                lgb.InterpolationColors = new System.Drawing.Drawing2D.ColorBlend
-                {
-                    Colors = new[] { Color.FromArgb(180, 254, 1, 1), Color.FromArgb(220, 255, 255, 255), Color.FromArgb(180, 254, 1, 1) },
-                    Positions = new[] { 0f, 0.5f, 1f }
-                };
+                lgb.InterpolationColors = new ColorBlend { Colors = new[] { Color.FromArgb(180, 254, 1, 1), Color.FromArgb(220, 255, 255, 255), Color.FromArgb(180, 254, 1, 1) }, Positions = new[] { 0f, 0.5f, 1f } };
                 using (var pen = new Pen(lgb, glowH)) g.DrawLine(pen, flareX1, flareY, flareX2, flareY);
             }
-            // Bright core line: full brand red on edges → pure white center
             int coreH = (int)(2f * _scale);
-            using (var lcore = new System.Drawing.Drawing2D.LinearGradientBrush(
-                new Rectangle(flareX1, flareY - 1, flareX2 - flareX1, Math.Max(2, coreH)),
+            using (var lcore = new LinearGradientBrush(
+                new Rectangle(flareX1, flareY - 1, Math.Max(1, flareX2 - flareX1), Math.Max(2, coreH)),
                 Color.FromArgb(255, 254, 1, 1), Color.FromArgb(255, 254, 1, 1), 0f))
             {
-                lcore.InterpolationColors = new System.Drawing.Drawing2D.ColorBlend
-                {
-                    Colors = new[] { Color.FromArgb(255, 254, 1, 1), Color.FromArgb(255, 255, 255, 255), Color.FromArgb(255, 254, 1, 1) },
-                    Positions = new[] { 0f, 0.5f, 1f }
-                };
+                lcore.InterpolationColors = new ColorBlend { Colors = new[] { Color.FromArgb(255, 254, 1, 1), Color.FromArgb(255, 255, 255, 255), Color.FromArgb(255, 254, 1, 1) }, Positions = new[] { 0f, 0.5f, 1f } };
                 using (var penCore = new Pen(lcore, Math.Max(1.5f, coreH))) g.DrawLine(penCore, flareX1, flareY, flareX2, flareY);
             }
 
             // 5. Window Border — red neon glow (multi-pass)
             using (var path = RoundedRect(new Rectangle(1, 1, W - 3, H - 3), (int)(15 * _scale)))
             {
-                using (var gp1 = new Pen(Color.FromArgb(18, 255, 0, 0), 18f * _scale)) g.DrawPath(gp1, path);
-                using (var gp2 = new Pen(Color.FromArgb(35, 255, 0, 0), 12f * _scale)) g.DrawPath(gp2, path);
-                using (var gp3 = new Pen(Color.FromArgb(60, 255, 0, 0), 7f * _scale))  g.DrawPath(gp3, path);
+                using (var gp1 = new Pen(Color.FromArgb(18, 255, 0, 0), 18f * _scale))  g.DrawPath(gp1, path);
+                using (var gp2 = new Pen(Color.FromArgb(35, 255, 0, 0), 12f * _scale))  g.DrawPath(gp2, path);
+                using (var gp3 = new Pen(Color.FromArgb(60, 255, 0, 0), 7f * _scale))   g.DrawPath(gp3, path);
                 using (var gp4 = new Pen(Color.FromArgb(100, 255, 0, 0), 3.5f * _scale)) g.DrawPath(gp4, path);
                 using (var gp5 = new Pen(Color.FromArgb(200, 255, 40, 40), 1.2f * _scale)) g.DrawPath(gp5, path);
             }
@@ -1351,6 +1351,11 @@ namespace WindowsFormsApp1
                     _wasMinimized = false;
                     this.BeginInvoke(new Action(() =>
                     {
+                        // Clear background cache so it rebuilds fresh after restore
+                        _bgCache?.Dispose();
+                        _bgCache = null;
+                        _bgCacheSize = Size.Empty;
+
                         // Stop meter timer FIRST so it cannot fire Invalidate on disposed controls
                         _meterTimer?.Stop();
 
