@@ -78,8 +78,9 @@ namespace WindowsFormsApp1
                                 $"A new version of ONE Voice Solution is available!\n\n" +
                                 $"Current version:  {currentVersion}\n" +
                                 $"New version:       {remoteVer}\n\n" +
-                                "Click OK to download and install the update now.\n" +
-                                "The app will restart automatically.",
+                                "Click OK to update now.\n\n" +
+                                "The app will close, install the update, and relaunch automatically.\n" +
+                                "You do NOT need to touch anything — just wait 30-45 seconds and it will come back on its own.",
                                 "Update Available",
                                 MessageBoxButtons.OKCancel,
                                 MessageBoxIcon.Information);

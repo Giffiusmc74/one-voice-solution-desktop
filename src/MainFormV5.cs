@@ -66,7 +66,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.53";
+        private const string APP_VERSION = "7.54";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -228,30 +228,41 @@ namespace WindowsFormsApp1
             Log.Info($"[UI] Screen={screen.DeviceName} DPI={dpi} WA={wa} FormSize={w}x{h} Scale={_scale:F2}");
         }
 
-        // ── Paint: space background + dark card + horizontal glow flare ─────────
+         // ── Paint: space background + dark card + horizontal glow flare ─────────
         // Background is cached to a Bitmap to prevent OutOfMemoryException from
         // rapid GDI+ object allocation during minimize/restore repaint cascades.
+        // NOTE: base.OnPaint is intentionally NOT called — calling it triggers
+        // recursive child-control repaints during restore which exhaust GDI+ memory.
+        protected override void OnPaintBackground(PaintEventArgs e) { /* suppress erase flash */ }
         protected override void OnPaint(PaintEventArgs e)
         {
-            base.OnPaint(e);
             int W = this.ClientSize.Width;
             int H = this.ClientSize.Height;
+            if (W <= 0 || H <= 0) return;
 
             // Rebuild cache only when size changes or cache is empty
             if (_bgCache == null || _bgCacheSize != this.ClientSize)
             {
-                _bgCache?.Dispose();
-                _bgCache = new Bitmap(Math.Max(1, W), Math.Max(1, H));
-                _bgCacheSize = this.ClientSize;
-                using (var bg = Graphics.FromImage(_bgCache))
+                try
                 {
-                    bg.SmoothingMode = SmoothingMode.AntiAlias;
-                    PaintBackground(bg, W, H);
+                    _bgCache?.Dispose();
+                    _bgCache = new Bitmap(W, H, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+                    _bgCacheSize = this.ClientSize;
+                    using (var bg = Graphics.FromImage(_bgCache))
+                    {
+                        bg.SmoothingMode = SmoothingMode.AntiAlias;
+                        PaintBackground(bg, W, H);
+                    }
+                }
+                catch
+                {
+                    // If cache build fails, fill with solid background — never crash
+                    try { e.Graphics.Clear(Color.FromArgb(5, 5, 12)); } catch { }
+                    return;
                 }
             }
-
             // Fast blit — no new GDI objects created on every repaint
-            e.Graphics.DrawImage(_bgCache, 0, 0);
+            try { e.Graphics.DrawImage(_bgCache, 0, 0); } catch { }
         }
 
         private void PaintBackground(Graphics g, int W, int H)
