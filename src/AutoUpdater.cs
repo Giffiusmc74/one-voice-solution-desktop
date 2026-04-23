@@ -11,9 +11,8 @@ namespace WindowsFormsApp1
 {
     /// <summary>
     /// Checks GitHub Releases for a newer version of ONE Voice Solution.
-    /// If found, silently downloads the installer, exits the current process,
-    /// then launches the installer — preventing two windows from appearing.
-    /// Runs entirely on a background thread — never blocks the UI.
+    /// If a newer version is found, shows a visible update dialog so the user
+    /// can approve the update. The installer handles its own UAC elevation.
     /// </summary>
     internal static class AutoUpdater
     {
@@ -26,7 +25,7 @@ namespace WindowsFormsApp1
 
         /// <summary>
         /// Fire-and-forget — safe to call from the UI thread.
-        /// All network I/O runs on a ThreadPool thread.
+        /// All network I/O runs on a background thread.
         /// </summary>
         public static void CheckAndUpdate(string currentVersion)
         {
@@ -66,45 +65,64 @@ namespace WindowsFormsApp1
                         if (string.IsNullOrEmpty(downloadUrl))
                             return;
 
-                        // Download installer to temp folder
-                        string tempPath = Path.Combine(
-                            Path.GetTempPath(), "ONEVoiceSolution_Update.exe");
-                        wc.DownloadFile(downloadUrl, tempPath);
-
-                        // ── CRITICAL: Exit THIS process BEFORE launching the installer.
-                        // If we launch the installer first (with /CLOSEAPPLICATIONS), InnoSetup
-                        // closes our process AND then re-launches the new version = two windows.
-                        // Instead: exit cleanly first, then the installer runs unattended.
-                        string installerPath = tempPath;
+                        // Show update dialog on the UI thread
                         var form = Application.OpenForms.Count > 0
                             ? Application.OpenForms[0] : null;
 
-                        if (form != null && !form.IsDisposed)
-                        {
-                            form.BeginInvoke(new Action(() =>
-                            {
-                                // Show tray notification so user knows what's happening
-                                try
-                                {
-                                    var notify = new NotifyIcon
-                                    {
-                                        Icon    = System.Drawing.SystemIcons.Information,
-                                        Visible = true
-                                    };
-                                    notify.ShowBalloonTip(4000, "ONE Voice Solution",
-                                        "Updating to the latest version. The app will reopen automatically.",
-                                        ToolTipIcon.Info);
-                                    Thread.Sleep(1500);
-                                    notify.Visible = false;
-                                    notify.Dispose();
-                                }
-                                catch { }
+                        if (form == null || form.IsDisposed)
+                            return;
 
-                                // Write a batch file that waits for this process to exit,
-                                // then launches the installer silently.
-                                // This guarantees zero overlap between old and new instances.
+                        form.BeginInvoke(new Action(() =>
+                        {
+                            var result = MessageBox.Show(
+                                $"A new version of ONE Voice Solution is available!\n\n" +
+                                $"Current version:  {currentVersion}\n" +
+                                $"New version:       {remoteVer}\n\n" +
+                                "Click OK to download and install the update now.\n" +
+                                "The app will restart automatically.",
+                                "Update Available",
+                                MessageBoxButtons.OKCancel,
+                                MessageBoxIcon.Information);
+
+                            if (result != DialogResult.OK)
+                                return;
+
+                            // Download on background thread, then install
+                            ThreadPool.QueueUserWorkItem(delegate
+                            {
                                 try
                                 {
+                                    string tempPath = Path.Combine(
+                                        Path.GetTempPath(), "ONEVoiceSolution_Update.exe");
+
+                                    // Show progress on UI thread
+                                    form.BeginInvoke(new Action(() =>
+                                    {
+                                        try
+                                        {
+                                            var notify = new NotifyIcon
+                                            {
+                                                Icon    = System.Drawing.SystemIcons.Information,
+                                                Visible = true
+                                            };
+                                            notify.ShowBalloonTip(5000, "ONE Voice Solution",
+                                                $"Downloading update v{remoteVer}... The app will restart when done.",
+                                                ToolTipIcon.Info);
+                                            Thread.Sleep(1000);
+                                            notify.Visible = false;
+                                            notify.Dispose();
+                                        }
+                                        catch { }
+                                    }));
+
+                                    using (var dlClient = new WebClient())
+                                    {
+                                        dlClient.Headers[HttpRequestHeader.UserAgent] = "ONEVoiceSolution-AutoUpdater/1.0";
+                                        dlClient.DownloadFile(downloadUrl, tempPath);
+                                    }
+
+                                    // Write batch: wait for this process to exit, then run installer.
+                                    // Inno Setup requests its own UAC elevation — no runas needed here.
                                     int pid = Process.GetCurrentProcess().Id;
                                     string batPath = Path.Combine(Path.GetTempPath(), "one_voice_update.bat");
                                     File.WriteAllText(batPath,
@@ -112,29 +130,37 @@ namespace WindowsFormsApp1
                                         $":wait\r\n" +
                                         $"tasklist /FI \"PID eq {pid}\" 2>NUL | find /I \"{pid}\" >NUL\r\n" +
                                         $"if not errorlevel 1 (timeout /t 1 /nobreak >NUL & goto wait)\r\n" +
-                                        $"\"{installerPath}\" /VERYSILENT /NORESTART\r\n");
+                                        $"\"{tempPath}\" /VERYSILENT /NORESTART\r\n");
 
                                     Process.Start(new ProcessStartInfo
                                     {
                                         FileName        = "cmd.exe",
                                         Arguments       = $"/C \"{batPath}\"",
                                         UseShellExecute = true,
-                                        WindowStyle     = ProcessWindowStyle.Hidden,
-                                        Verb            = "runas"
+                                        WindowStyle     = ProcessWindowStyle.Normal
+                                        // No Verb = "runas" — installer handles its own elevation
                                     });
-                                }
-                                catch { }
 
-                                // Exit this instance — the batch file will launch the installer
-                                // only after this process is fully gone.
-                                Application.Exit();
-                            }));
-                        }
+                                    // Exit so the batch file can run the installer cleanly
+                                    form.BeginInvoke(new Action(() => Application.Exit()));
+                                }
+                                catch (Exception ex)
+                                {
+                                    Log.Warn("[AutoUpdater] Download failed: " + ex.Message);
+                                    form.BeginInvoke(new Action(() =>
+                                        MessageBox.Show(
+                                            "Update download failed. Please download the latest version manually from your member portal.\n\nError: " + ex.Message,
+                                            "Update Failed",
+                                            MessageBoxButtons.OK,
+                                            MessageBoxIcon.Warning)));
+                                }
+                            });
+                        }));
                     }
                 }
                 catch (Exception ex)
                 {
-                    Log.Warn("[AutoUpdater] " + ex.Message);
+                    Log.Warn("[AutoUpdater] Version check failed: " + ex.Message);
                 }
             });
         }
