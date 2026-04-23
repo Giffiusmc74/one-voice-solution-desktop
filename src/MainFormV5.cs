@@ -1330,6 +1330,24 @@ namespace WindowsFormsApp1
             this.Activate();
         }
 
+        // Force full repaint when restored from minimize — prevents GDI corruption
+        protected override void WndProc(ref Message m)
+        {
+            const int WM_SIZE        = 0x0005;
+            const int SIZE_RESTORED  = 0;
+            const int SIZE_MAXIMIZED = 2;
+            base.WndProc(ref m);
+            if (m.Msg == WM_SIZE)
+            {
+                int sizeType = m.WParam.ToInt32();
+                if (sizeType == SIZE_RESTORED || sizeType == SIZE_MAXIMIZED)
+                {
+                    this.Invalidate(true);
+                    this.Refresh();
+                }
+            }
+        }
+
         // ── Meter timer ───────────────────────────────────────────────────────
         private void SetupMeterTimer()
         {
