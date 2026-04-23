@@ -66,7 +66,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.46";
+        private const string APP_VERSION = "7.48";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -1300,14 +1300,10 @@ namespace WindowsFormsApp1
             string iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Resources", "one_logo.ico");
             _trayIcon.Icon = File.Exists(iconPath) ? new Icon(iconPath) : SystemIcons.Application;
             _trayIcon.DoubleClick += (s, e) => RestoreFromTray();
+            // Minimize stays in taskbar — no tray hide
             this.Resize += (s, e) =>
             {
-                if (this.WindowState == FormWindowState.Minimized)
-                {
-                    this.ShowInTaskbar = false;
-                    _trayIcon.ShowBalloonTip(2000, "ONE Voice Solution",
-                        "Minimized to tray — double-click to restore.", ToolTipIcon.Info);
-                }
+                // Window stays in taskbar when minimized
             };
         }
 
