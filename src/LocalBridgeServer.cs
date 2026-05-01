@@ -58,8 +58,6 @@ namespace WindowsFormsApp1.src
 
         /// <summary>True while a recording is actively playing.</summary>
         public bool IsPlaying => isAudioPlaying;
-        private long   lastReadPosition;
-        private CancellationTokenSource cancellationTokenSource;
         private string _currentTmpPath;   // temp file for current playback — deleted on stop
 
         // ── Device numbers ────────────────────────────────────────────────────
@@ -206,11 +204,8 @@ namespace WindowsFormsApp1.src
             {
                 if (isAudioPlaying) StopAudioInternal();
 
-                _currentTmpPath  = tmpPath;
-                lastReadPosition = 0;
-                isAudioPlaying   = true;
-                cancellationTokenSource?.Cancel();
-                cancellationTokenSource = new CancellationTokenSource();
+                _currentTmpPath = tmpPath;
+                isAudioPlaying  = true;
 
                 // ── VB-Cable output (customer hears recording) ────────────────
                 // Card audio goes ONLY to VB Cable — NEVER to Jabra.
@@ -223,6 +218,23 @@ namespace WindowsFormsApp1.src
                     {
                         audioFileReader = new AudioFileReader(tmpPath);
                         audioFileReader.Volume = Math.Max(0f, Math.Min(1f, _customerVol / 100f));
+
+                        // ── Meter hook — driven by the exact samples going to VB Cable ──
+                        // This replaces the old separate file-reading loop which had a
+                        // race condition with temp-file deletion and could miss samples.
+                        audioFileReader.Sample += (s2, e2) =>
+                        {
+                            float max = 0f;
+                            for (int i = 0; i < e2.Count; i++)
+                            {
+                                float abs = Math.Abs(e2.Buffer[i]);
+                                if (abs > max) max = abs;
+                            }
+                            float level = Math.Min(1f, max * 2.0f);
+                            OnPlaybackLevel?.Invoke(level, "agent");    // green meter
+                            OnPlaybackLevel?.Invoke(level, "customer"); // blue meter
+                        };
+
                         waveOut = new WaveOutEvent { DeviceNumber = _cableDeviceNumber, DesiredLatency = 100 };
                         waveOut.Init(audioFileReader);
                         waveOut.Play();
@@ -247,49 +259,10 @@ namespace WindowsFormsApp1.src
                     return "{\"error\":\"VB-Cable not found — card not played\"}";
                 }
 
-                // ── Meter loop ────────────────────────────────────────────────
-                var token = cancellationTokenSource.Token;
-                Task.Run(() => ProcessAudioAndVisualizeIntensity_(tmpPath, token));
+                // Meter is driven by audioFileReader.Sample event above — no separate loop needed.
             }
 
             return "{\"ok\":true}";
-        }
-
-        // ── Meter loop ────────────────────────────────────────────────────────
-        private void ProcessAudioAndVisualizeIntensity_(string filePath, CancellationToken ct)
-        {
-            int bufferSize = 4096;
-            using (var reader = new AudioFileReader(filePath))
-            {
-                if (lastReadPosition > 0 && lastReadPosition < reader.Length)
-                    reader.Position = lastReadPosition;
-
-                var buffer = new float[bufferSize];
-                int samplesRead;
-                while ((samplesRead = reader.Read(buffer, 0, buffer.Length)) > 0
-                       && !ct.IsCancellationRequested
-                       && isAudioPlaying)
-                {
-                    double rms      = CalculateRMS(buffer, samplesRead);
-                    float  agentLvl = (float)Math.Min(1.0, rms * 8.0 * (_customerVol / 100.0));
-                    float  custLvl  = (float)Math.Min(1.0, rms * 8.0 * (_customerVol / 100.0));
-
-                    OnPlaybackLevel?.Invoke(agentLvl, "agent");
-                    OnPlaybackLevel?.Invoke(custLvl,  "customer");
-
-                    lastReadPosition = reader.Position;
-                    Thread.Sleep(75);
-                }
-                if (reader.Position >= reader.Length)
-                    lastReadPosition = 0;
-            }
-        }
-
-        private double CalculateRMS(float[] buffer, int samplesRead)
-        {
-            double sum = 0;
-            for (int i = 0; i < samplesRead; i++) sum += buffer[i] * buffer[i];
-            return Math.Sqrt(sum / samplesRead);
         }
 
         private void OnPlaybackStopped_Cable(object sender, StoppedEventArgs e)
@@ -346,8 +319,6 @@ namespace WindowsFormsApp1.src
         private void StopAudioInternal()
         {
             isAudioPlaying = false;
-            cancellationTokenSource?.Cancel();
-            cancellationTokenSource = null;
 
             try { waveOut?.Stop();  } catch { }
             try { waveOut?.Dispose(); } catch { }
