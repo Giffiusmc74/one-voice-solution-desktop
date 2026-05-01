@@ -1,5 +1,5 @@
 /*
- * LocalBridgeServer.cs  —  v7.64
+ * LocalBridgeServer.cs  —  v7.66
  * ONE Voice Solution
  *
  * Hosts a tiny HTTP server on localhost:9001 so the Script Dashboard
@@ -7,17 +7,22 @@
  *
  * AUDIO ARCHITECTURE:
  *   waveOut  → VB-Audio Cable Input  (customer hears the recording)
- *   Agent hears the recording via the app monitor path (portal CallBoard).
- *   Card audio NEVER goes to Jabra — this keeps the Jabra loopback (red meter)
- *   clean so it only captures customer voice from the softphone.
+ *   waveO    → Agent headset (WaveOut)  (agent hears the recording)
+ *
+ *   Red meter source = WasapiCapture on Jabra MIC device (NOT loopback).
+ *   Capturing the mic input means we hear ONLY what the softphone sends
+ *   to the Jabra mic (customer voice). Card audio playing OUT through the
+ *   Jabra speaker is never captured, so the red meter stays clean.
  *
  * VOLUME — uses AudioFileReader.Volume (software-level float 0.0-1.0).
  *   This is reliable across ALL drivers including Jabra.
  *   WaveOutEvent.Volume is ignored by many drivers — not used here.
  *
  *   /volume { channel:"customer", volume:0-100 } → audioFileReader.Volume
+ *   /volume { channel:"agent",    volume:0-100 } → audioFileReader2.Volume
  */
 using NAudio.Wave;
+using NAudio.Wave.SampleProviders;
 using Newtonsoft.Json;
 using NLog;
 using System;
@@ -53,6 +58,9 @@ namespace WindowsFormsApp1.src
         private WaveOutEvent    waveOut;           // → VB-Cable (customer)
         private AudioFileReader audioFileReader;
 
+        private WaveOutEvent    waveO;             // → Agent headset (agent hears recording)
+        private AudioFileReader audioFileReader2;
+
         private readonly object _playLock = new object();
         private bool   isAudioPlaying;
 
@@ -62,10 +70,12 @@ namespace WindowsFormsApp1.src
 
         // ── Device numbers ────────────────────────────────────────────────────
         private int _cableDeviceNumber  = -1;  // VB-Cable — found by name on startup
+        private int _agentDeviceNumber  = -1;  // Agent headset WaveOut device number
 
         // ── Per-channel volumes (0-100) ───────────────────────────────────────
         // Applied via AudioFileReader.Volume — software-level, works on ALL drivers.
         private int _customerVol = 100;
+        private int _agentVol    = 100;
 
         // ── Device setters ────────────────────────────────────────────────────
         /// <summary>VB-Cable WaveOut device number (-1 = not found).</summary>
@@ -76,6 +86,13 @@ namespace WindowsFormsApp1.src
         {
             _cableDeviceNumber = deviceNumber;
             _log.Info($"[Bridge] Cable device → #{deviceNumber}");
+        }
+
+        /// <summary>Called by MainFormV5 on startup/change after agent headset is selected.</summary>
+        public void SetAgentDevice(int deviceNumber)
+        {
+            _agentDeviceNumber = deviceNumber;
+            _log.Info($"[Bridge] Agent device → #{deviceNumber}");
         }
 
         public void SetInitialVolume(string channel, int volume)
@@ -98,7 +115,11 @@ namespace WindowsFormsApp1.src
                     _customerVol = volume;
                     if (audioFileReader != null) audioFileReader.Volume = volume / 100f;
                 }
-                // "agent" channel volume is handled by the app monitor path — no waveO here.
+                else if (channel == "agent")
+                {
+                    _agentVol = volume;
+                    if (audioFileReader2 != null) audioFileReader2.Volume = volume / 100f;
+                }
             }
         }
 
@@ -208,10 +229,6 @@ namespace WindowsFormsApp1.src
                 isAudioPlaying  = true;
 
                 // ── VB-Cable output (customer hears recording) ────────────────
-                // Card audio goes ONLY to VB Cable — NEVER to Jabra.
-                // This keeps the Jabra loopback (red meter) clean.
-                // Only create if VB-Cable was found. Never fall back to device -1
-                // (default device = system speakers / Jabra).
                 if (_cableDeviceNumber >= 0)
                 {
                     try
@@ -219,10 +236,9 @@ namespace WindowsFormsApp1.src
                         audioFileReader = new AudioFileReader(tmpPath);
                         audioFileReader.Volume = Math.Max(0f, Math.Min(1f, _customerVol / 100f));
 
-                        // ── Meter hook (NAudio 2.x) — MeteringSampleProvider sits between
-                        // AudioFileReader and WaveOut, firing StreamVolume on every 1024 samples.
-                        // This is the correct NAudio 2.2.1 API (AudioFileReader has no Sample event).
-                        var metering = new NAudio.Wave.SampleProviders.MeteringSampleProvider(audioFileReader);
+                        // MeteringSampleProvider fires StreamVolume every 1024 samples
+                        // — drives green meter (agent script level) and blue meter (customer script level).
+                        var metering = new MeteringSampleProvider(audioFileReader);
                         metering.StreamVolume += (s2, e2) =>
                         {
                             float max = 0f;
@@ -260,7 +276,36 @@ namespace WindowsFormsApp1.src
                     return "{\"error\":\"VB-Cable not found — card not played\"}";
                 }
 
-                // Meter is driven by audioFileReader.Sample event above — no separate loop needed.
+                // ── Agent headset output (agent hears recording) ──────────────
+                // This is a SEPARATE stream from VB-Cable so the agent can hear
+                // the card through their headset. The red meter uses WasapiCapture
+                // on the Jabra MIC device (not loopback), so this playback path
+                // is never captured by the red meter.
+                if (_agentDeviceNumber >= 0)
+                {
+                    try
+                    {
+                        audioFileReader2 = new AudioFileReader(tmpPath);
+                        audioFileReader2.Volume = Math.Max(0f, Math.Min(1f, _agentVol / 100f));
+
+                        waveO = new WaveOutEvent { DeviceNumber = _agentDeviceNumber, DesiredLatency = 100 };
+                        waveO.Init(audioFileReader2);
+                        waveO.Play();
+                        waveO.PlaybackStopped += OnPlaybackStopped_Agent;
+                        _log.Info($"[Bridge] Agent WaveOut → device #{_agentDeviceNumber} vol={_agentVol}%");
+                    }
+                    catch (Exception ex)
+                    {
+                        // Non-fatal — VB-Cable path is still playing. Agent just won't hear it locally.
+                        _log.Warn($"[Bridge] Agent WaveOut failed (non-fatal): {ex.Message}");
+                        try { audioFileReader2?.Dispose(); } catch { }
+                        audioFileReader2 = null; waveO = null;
+                    }
+                }
+                else
+                {
+                    _log.Warn("[Bridge] No agent headset device set — agent monitor path skipped.");
+                }
             }
 
             return "{\"ok\":true}";
@@ -268,10 +313,35 @@ namespace WindowsFormsApp1.src
 
         private void OnPlaybackStopped_Cable(object sender, StoppedEventArgs e)
         {
-            isAudioPlaying = false;
-            try { audioFileReader?.Dispose(); audioFileReader = null; waveOut?.Dispose(); waveOut = null; } catch { }
+            // Cable stream finished — this is the authoritative stop signal.
+            // Stop and dispose the agent monitor stream too.
+            lock (_playLock)
+            {
+                isAudioPlaying = false;
+
+                try { waveOut?.Dispose();       } catch { }
+                try { audioFileReader?.Dispose(); } catch { }
+                waveOut = null; audioFileReader = null;
+
+                try { waveO?.Stop();             } catch { }
+                try { waveO?.Dispose();          } catch { }
+                try { audioFileReader2?.Dispose(); } catch { }
+                waveO = null; audioFileReader2 = null;
+            }
             DeleteCurrentTmpFile();
             OnPlaybackStopped?.Invoke();
+        }
+
+        private void OnPlaybackStopped_Agent(object sender, StoppedEventArgs e)
+        {
+            // Agent stream finished (may finish slightly before or after cable stream).
+            // Only dispose the agent-side resources here — do not touch cable stream.
+            lock (_playLock)
+            {
+                try { waveO?.Dispose();          } catch { }
+                try { audioFileReader2?.Dispose(); } catch { }
+                waveO = null; audioFileReader2 = null;
+            }
         }
 
         private void DeleteCurrentTmpFile()
@@ -304,7 +374,11 @@ namespace WindowsFormsApp1.src
                     _customerVol = volume;
                     if (audioFileReader != null) audioFileReader.Volume = volume / 100f;
                 }
-                // "agent" channel: no waveO — handled by app monitor path
+                else if (channel == "agent")
+                {
+                    _agentVol = volume;
+                    if (audioFileReader2 != null) audioFileReader2.Volume = volume / 100f;
+                }
             }
             _log.Info($"[Bridge] Volume {channel} → {volume}%");
             return "{\"ok\":true,\"channel\":\"" + channel + "\",\"volume\":" + volume + "}";
@@ -325,6 +399,11 @@ namespace WindowsFormsApp1.src
             try { waveOut?.Dispose(); } catch { }
             try { audioFileReader?.Dispose(); } catch { }
             waveOut = null; audioFileReader = null;
+
+            try { waveO?.Stop();  } catch { }
+            try { waveO?.Dispose(); } catch { }
+            try { audioFileReader2?.Dispose(); } catch { }
+            waveO = null; audioFileReader2 = null;
 
             DeleteCurrentTmpFile();
         }

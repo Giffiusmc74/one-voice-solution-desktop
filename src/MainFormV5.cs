@@ -66,7 +66,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.65";
+        private const string APP_VERSION = "7.66";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -147,8 +147,11 @@ namespace WindowsFormsApp1
         private Label    _lblAgentScriptVol;
         private Label    _lblCustomerScriptVol;
 
-        // Loopback capture for Customer Voice meter
-        private WasapiLoopbackCapture  _loopbackCapture;
+        // Mic capture for Customer Voice meter (WasapiCapture on Jabra mic — NOT loopback).
+        // Using mic capture means we hear ONLY what comes INTO the Jabra mic (customer voice
+        // from the softphone). Card audio playing OUT through the Jabra speaker is never captured,
+        // so the red meter stays clean even though waveO plays cards to the headset.
+        private WasapiCapture  _loopbackCapture;
         private float                  _customerVoiceVolume = 1.0f;
 
         [DllImport("user32.dll")]
@@ -1583,7 +1586,10 @@ namespace WindowsFormsApp1
         // ── Loopback capture ──────────────────────────────────────────────
         // Targets the Jabra render device explicitly so we capture ONLY what the
         // softphone sends to the agent's headset (customer voice).
-        // Card audio never goes to Jabra (waveO removed), so no IsPlaying guard needed.
+        // Red meter = WasapiCapture on Jabra MIC device.
+        // This captures ONLY what comes INTO the Jabra mic (customer voice via softphone).
+        // Card audio playing OUT through the Jabra speaker is never captured here,
+        // so the red meter stays clean even though waveO plays cards to the headset.
         private void StartLoopbackCapture()
         {
             try
@@ -1591,18 +1597,23 @@ namespace WindowsFormsApp1
                 try { _loopbackCapture?.StopRecording(); _loopbackCapture?.Dispose(); } catch { }
                 _loopbackCapture = null;
 
-                // Use the Jabra device explicitly — not the Windows default device.
-                // _activeSpeakerDevice is set in PopulateDevices() which runs before this.
-                if (_activeSpeakerDevice != null)
+                // Use the Jabra MIC device (capture endpoint) — NOT loopback.
+                // _activeMicDevice is set in PopulateDevices() which runs before this.
+                if (_activeMicDevice != null)
                 {
-                    _loopbackCapture = new WasapiLoopbackCapture(_activeSpeakerDevice);
-                    Log.Info($"[Audio] Loopback targeting: {_activeSpeakerDevice.FriendlyName}");
+                    _loopbackCapture = new WasapiCapture(_activeMicDevice, false);
+                    Log.Info($"[Audio] Mic capture targeting: {_activeMicDevice.FriendlyName}");
                 }
                 else
                 {
-                    _loopbackCapture = new WasapiLoopbackCapture();
-                    Log.Warn("[Audio] No speaker device found — loopback using system default.");
+                    // Fallback: use default capture device
+                    _loopbackCapture = new WasapiCapture();
+                    Log.Warn("[Audio] No mic device found — mic capture using system default.");
                 }
+
+                // Force IEEE float format so DataAvailable always delivers 32-bit float samples.
+                // This eliminates branching on device-native format (16-bit PCM vs 32-bit PCM vs float).
+                _loopbackCapture.WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(16000, 1);
 
                 _loopbackCapture.DataAvailable += (s, e) =>
                 {
@@ -1650,6 +1661,9 @@ namespace WindowsFormsApp1
                     {
                         _activeSpeakerDevice = rends[selIdx];
                         Log.Info($"[Audio] Initial speaker: {rends[selIdx].FriendlyName}");
+                        // Tell the bridge which WaveOut device to use for agent monitor (waveO)
+                        int agentNum = FindWaveOutDeviceNumber(rends[selIdx].FriendlyName);
+                        LocalBridgeServer.Instance.SetAgentDevice(agentNum);
                         try
                         {
                             int savedPct = AppSettings.Instance.SpeakerSystemVolume;
@@ -1690,6 +1704,9 @@ namespace WindowsFormsApp1
                         AppSettings.Instance.HeadsetDevice = _cboHeadset.Text;
                         AppSettings.Instance.Save();
                         Log.Info($"[Audio] Speaker changed: {rends[si].FriendlyName}");
+                        // Update bridge agent device when headset selection changes
+                        int agentNumNew = FindWaveOutDeviceNumber(rends[si].FriendlyName);
+                        LocalBridgeServer.Instance.SetAgentDevice(agentNumNew);
                         try
                         {
                             float cur = _activeSpeakerDevice.AudioEndpointVolume.MasterVolumeLevelScalar;
