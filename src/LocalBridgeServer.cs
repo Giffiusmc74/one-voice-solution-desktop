@@ -1,5 +1,5 @@
 /*
- * LocalBridgeServer.cs  —  v7.69
+ * LocalBridgeServer.cs  —  v7.70
  * ONE Voice Solution
  *
  * Hosts a tiny HTTP server on localhost:9001 so the Script Dashboard
@@ -235,6 +235,9 @@ namespace WindowsFormsApp1.src
                 _currentTmpPath = tmpPath;
                 isAudioPlaying  = true;
 
+                // LOG 1: device numbers at play time
+                _log.Info($"[Bridge] cable=#{_cableDeviceNumber} agent=#{_agentDeviceNumber}");
+
                 // ── VB-Cable output (customer hears recording) ────────────────
                 if (_cableDeviceNumber >= 0)
                 {
@@ -254,6 +257,8 @@ namespace WindowsFormsApp1.src
                                 float abs = Math.Abs(ch);
                                 if (abs > max) max = abs;
                             }
+                            // LOG 3: meter firing
+                            _log.Info($"[Meter] rec={max:F4}");
                             float level = Math.Min(1f, max * 2.0f);
                             OnPlaybackLevel?.Invoke(level, "agent");    // green meter
                             OnPlaybackLevel?.Invoke(level, "customer"); // blue meter
@@ -264,6 +269,7 @@ namespace WindowsFormsApp1.src
                         waveOut.Play();
                         waveOut.PlaybackStopped += OnPlaybackStopped_Cable;
                         _log.Info($"[Bridge] Cable WaveOut → device #{_cableDeviceNumber} vol={_customerVol}%");
+                        _log.Info("[Bridge] waveOut started"); // LOG 2a
                     }
                     catch (Exception ex)
                     {
@@ -300,6 +306,7 @@ namespace WindowsFormsApp1.src
                         waveO.Play();
                         waveO.PlaybackStopped += OnPlaybackStopped_Agent;
                         _log.Info($"[Bridge] Agent WaveOut → device #{_agentDeviceNumber} vol={_agentVol}%");
+                        _log.Info("[Bridge] waveO started"); // LOG 2b
                     }
                     catch (Exception ex)
                     {

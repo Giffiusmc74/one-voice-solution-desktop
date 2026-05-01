@@ -66,7 +66,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.69";
+        private const string APP_VERSION = "7.70";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -1609,8 +1609,12 @@ namespace WindowsFormsApp1
                     Log.Warn("[Audio] No speaker device found — loopback using system default.");
                 }
 
+                int _loopbackLogCount = 0;
                 _loopbackCapture.DataAvailable += (s, e) =>
                 {
+                    // LOG 4: loopback firing (first 5 only)
+                    if (_loopbackLogCount < 5) { _loopbackLogCount++; Log.Info($"[Loopback] bytes={e.BytesRecorded} isCardPlaying={LocalBridgeServer.Instance.IsCardPlaying}"); }
+
                     // Suppress red meter while a card is playing — card audio bleeds into loopback.
                     // The moment the card stops, suppression lifts and customer voice drives the meter.
                     if (LocalBridgeServer.Instance.IsCardPlaying) return;
@@ -1688,6 +1692,9 @@ namespace WindowsFormsApp1
                         LocalBridgeServer.Instance.SetAgentDevice(agentNum);
                         Log.Info($"[Audio] Cable Device #: {LocalBridgeServer.Instance.CableDeviceNumber}");
                         Log.Info($"[Audio] Agent Device #: {agentNum}");
+                        // LOG 5: agent device name
+                        string agentDevName = agentNum >= 0 ? WaveOut.GetCapabilities(agentNum).ProductName : "(none)";
+                        Log.Info($"[Audio] agent name={agentDevName}");
                         try
                         {
                             int savedPct = AppSettings.Instance.SpeakerSystemVolume;
