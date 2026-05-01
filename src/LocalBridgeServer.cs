@@ -1,5 +1,5 @@
 /*
- * LocalBridgeServer.cs  —  v7.67
+ * LocalBridgeServer.cs  —  v7.69
  * ONE Voice Solution
  *
  * Hosts a tiny HTTP server on localhost:9001 so the Script Dashboard
@@ -284,11 +284,11 @@ namespace WindowsFormsApp1.src
                 }
 
                 // ── Agent headset output (agent hears recording) ──────────────
-                // This is a SEPARATE stream from VB-Cable so the agent can hear
-                // the card through their headset. The red meter uses WasapiCapture
-                // on the Jabra MIC device (not loopback), so this playback path
-                // is never captured by the red meter.
-                if (_agentDeviceNumber >= 0)
+                // Separate stream so the agent hears the card through their headset.
+                // Guard: _agentDeviceNumber must not equal _cableDeviceNumber — if they
+                // match, the agent device was incorrectly resolved to VB Cable and we
+                // must skip to avoid playing the card twice to VB Cable.
+                if (_agentDeviceNumber >= 0 && _agentDeviceNumber != _cableDeviceNumber)
                 {
                     try
                     {

@@ -66,7 +66,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.68";
+        private const string APP_VERSION = "7.69";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -1671,10 +1671,23 @@ namespace WindowsFormsApp1
                     {
                         _activeSpeakerDevice = rends[selIdx];
                         Log.Info($"[Audio] Initial speaker: {rends[selIdx].FriendlyName}");
-                        // Tell the bridge which WaveOut device to use for agent monitor (waveO)
+                        // Tell the bridge which WaveOut device to use for agent monitor (waveO).
+                        // NEVER fall back to default — default may be VB Cable, which would route
+                        // agent monitor audio to VB Cable instead of the headset.
                         int agentNum = FindWaveOutDeviceNumber(rends[selIdx].FriendlyName);
-                        if (agentNum < 0) agentNum = GetDefaultWaveOutDeviceIndex();
+                        // Hard-block VB Cable from being used as agent device
+                        if (agentNum >= 0)
+                        {
+                            var caps = WaveOut.GetCapabilities(agentNum);
+                            if (caps.ProductName.IndexOf("CABLE", StringComparison.OrdinalIgnoreCase) >= 0)
+                            {
+                                Log.Warn($"[Audio] Agent device #{agentNum} is VB Cable — blocked. Agent monitor disabled.");
+                                agentNum = -1;
+                            }
+                        }
                         LocalBridgeServer.Instance.SetAgentDevice(agentNum);
+                        Log.Info($"[Audio] Cable Device #: {LocalBridgeServer.Instance.CableDeviceNumber}");
+                        Log.Info($"[Audio] Agent Device #: {agentNum}");
                         try
                         {
                             int savedPct = AppSettings.Instance.SpeakerSystemVolume;
@@ -1716,10 +1729,22 @@ namespace WindowsFormsApp1
                         AppSettings.Instance.HeadsetDevice = _cboHeadset.Text;
                         AppSettings.Instance.Save();
                         Log.Info($"[Audio] Speaker changed: {rends[si].FriendlyName}");
-                        // Update bridge agent device when headset selection changes
+                        // Update bridge agent device when headset selection changes.
+                        // No default fallback — default may be VB Cable.
                         int agentNumNew = FindWaveOutDeviceNumber(rends[si].FriendlyName);
-                        if (agentNumNew < 0) agentNumNew = GetDefaultWaveOutDeviceIndex();
+                        // Hard-block VB Cable from being used as agent device
+                        if (agentNumNew >= 0)
+                        {
+                            var caps2 = WaveOut.GetCapabilities(agentNumNew);
+                            if (caps2.ProductName.IndexOf("CABLE", StringComparison.OrdinalIgnoreCase) >= 0)
+                            {
+                                Log.Warn($"[Audio] Agent device #{agentNumNew} is VB Cable — blocked.");
+                                agentNumNew = -1;
+                            }
+                        }
                         LocalBridgeServer.Instance.SetAgentDevice(agentNumNew);
+                        Log.Info($"[Audio] Cable Device #: {LocalBridgeServer.Instance.CableDeviceNumber}");
+                        Log.Info($"[Audio] Agent Device #: {agentNumNew}");
                         try
                         {
                             float cur = _activeSpeakerDevice.AudioEndpointVolume.MasterVolumeLevelScalar;
