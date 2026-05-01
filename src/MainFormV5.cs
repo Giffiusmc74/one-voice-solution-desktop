@@ -1,5 +1,5 @@
 /*
- * MainFormV5.cs  —  ONE Voice Solution v7.75
+ * MainFormV5.cs  —  ONE Voice Solution v7.76
  *
  * UI REDESIGN v7.31+ (footer / branding version in APP_VERSION below):
  *   - Complete visual overhaul to match design mock exactly.
@@ -28,6 +28,7 @@ using NAudio.CoreAudioApi;
 using NAudio.Wave;
 using NLog;
 using System;
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
@@ -66,7 +67,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.75";
+        private const string APP_VERSION = "7.76";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -96,6 +97,8 @@ namespace WindowsFormsApp1
         private float _customerVoiceLevel  = 0f;
         private float _agentScriptLevel    = 0f;
         private float _customerScriptLevel = 0f;
+        /// <summary>Throttles [Bridge→UI] diagnostic lines (~500ms).</summary>
+        private readonly Stopwatch _bridgeUiDiagSw = Stopwatch.StartNew();
 
         // ── UI Controls ───────────────────────────────────────────────────────
         private PictureBox  _logoBox;
@@ -147,9 +150,12 @@ namespace WindowsFormsApp1
         private Label    _lblAgentScriptVol;
         private Label    _lblCustomerScriptVol;
 
-        // Loopback capture for Customer Voice meter
+        // Loopback capture(s) for Customer Voice (RED): VB-Cable (Dialpad/customer to cable) + default render (YouTube/browser).
         private WasapiLoopbackCapture  _loopbackCapture;
+        private WasapiLoopbackCapture  _loopbackDefaultCapture;
         private float                  _customerVoiceVolume = 1.0f;
+        /// <summary>VB-Cable loopback includes mic passthrough toward customer — subtract mic-correlated level so RED does not track agent solo speech.</summary>
+        private const float RedMicPassthroughBleedCoupling = 0.88f;
 
         [DllImport("user32.dll")]
         private static extern int SendMessage(IntPtr hWnd, int Msg, int wParam, int lParam);
@@ -927,6 +933,7 @@ namespace WindowsFormsApp1
                     _dbCustomerVoice = Math.Max(-20, Math.Min(6, _dbCustomerVoice + delta));
                     _customerVoiceVolume = DbToLinear(_dbCustomerVoice);
                     AppSettings.Instance.SpeakerSystemVolume = DbToPercent(_dbCustomerVoice);
+                    ApplyCustomerVoiceListenEndpointVolume();
                     _customerVoiceMeter?.Invalidate();
                     break;
                 case 1:
@@ -1305,9 +1312,10 @@ namespace WindowsFormsApp1
             switch (key)
             {
                 case "customerVoice":   return DbToPercent(_dbCustomerVoice);
-                case "agentScript_left":return DbToPercent(_dbCustomerScript);
+                // Bridge script rings: DbToPercent(-20) is 0 — would clamp arc off even when levels fire.
+                case "agentScript_left":return Math.Max(1, DbToPercent(_dbCustomerScript));
                 case "myMicLevel":      return DbToPercent(_dbAgentVoice);
-                case "agentScript":     return DbToPercent(_dbAgentScript);
+                case "agentScript":     return Math.Max(1, DbToPercent(_dbAgentScript));
                 default: return 50;
             }
         }
@@ -1403,6 +1411,7 @@ namespace WindowsFormsApp1
                         // combo boxes that are empty until PopulateDevices() fills them.
                         // Without this, the mic/speaker dropdown buttons show nothing after restore.
                         PopulateDevices();
+                        StartLoopbackCapture();
                         this.ResumeLayout(true);
                         this.Invalidate(true);
                         this.Refresh();
@@ -1583,30 +1592,96 @@ namespace WindowsFormsApp1
         }
 
         // ── Loopback capture ──────────────────────────────────────────────────
+        private float DecodeLoopbackPeak(byte[] buffer, int bytesRecorded)
+        {
+            if (bytesRecorded < 4) return 0f;
+            float max = 0f;
+            for (int i = 0; i + 4 <= bytesRecorded; i += 4)
+            {
+                float sample = Math.Abs(BitConverter.ToSingle(buffer, i)) * _customerVoiceVolume;
+                if (sample > max) max = sample;
+            }
+            return Math.Min(1f, max * 2.85f);
+        }
+
+        private void PushCustomerVoicePeak(float level)
+        {
+            if (level > _customerVoiceLevel) _customerVoiceLevel = level;
+        }
+
         private void StartLoopbackCapture()
         {
             try
             {
                 try { _loopbackCapture?.StopRecording(); _loopbackCapture?.Dispose(); } catch { }
+                try { _loopbackDefaultCapture?.StopRecording(); _loopbackDefaultCapture?.Dispose(); } catch { }
                 _loopbackCapture = null;
-                _loopbackCapture = new WasapiLoopbackCapture();
-                _loopbackCapture.DataAvailable += (s, e) =>
+                _loopbackDefaultCapture = null;
+
+                MMDevice defaultRender = null;
+                try { defaultRender = _deviceEnum.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia); }
+                catch { /* no default */ }
+
+                if (_activeVBCableDevice == null)
                 {
-                    if (e.BytesRecorded < 4) return;
-                    if (LocalBridgeServer.Instance.IsPlaying) { _customerVoiceLevel = 0f; return; }
-                    float max = 0f;
-                    for (int i = 0; i + 4 <= e.BytesRecorded; i += 4)
-                    {
-                        float sample = Math.Abs(BitConverter.ToSingle(e.Buffer, i)) * _customerVoiceVolume;
-                        if (sample > max) max = sample;
-                    }
-                    float level = Math.Min(1f, max * 2.85f);
-                    if (level > _customerVoiceLevel) _customerVoiceLevel = level;
-                };
+                    Log.Warn("[Audio] No VB-Cable device — RED loopback uses default playback device only.");
+                    _loopbackCapture = new WasapiLoopbackCapture();
+                    _loopbackCapture.DataAvailable += LoopbackDefault_DataAvailable_PushRed;
+                    _loopbackCapture.StartRecording();
+                    Log.Info("[Audio] Loopback capture started (single: default).");
+                    return;
+                }
+
+                // Cable: Dialpad / apps routed to VB-Cable (customer toward agent path).
+                Log.Info($"[Audio] Loopback capture → VB-Cable render '{_activeVBCableDevice.FriendlyName}'");
+                _loopbackCapture = new WasapiLoopbackCapture(_activeVBCableDevice);
+                _loopbackCapture.DataAvailable += LoopbackCable_DataAvailable_PushRed;
                 _loopbackCapture.StartRecording();
+
+                // Second tap: default speakers/headphones (YouTube, browser sim customer) — usually NOT the cable endpoint.
+                bool defaultSameAsCable = defaultRender != null &&
+                    string.Equals(defaultRender.ID, _activeVBCableDevice.ID, StringComparison.OrdinalIgnoreCase);
+                if (!defaultSameAsCable && defaultRender != null)
+                {
+                    Log.Info($"[Audio] Loopback capture → default render '{defaultRender.FriendlyName}' (browser / system playback)");
+                    _loopbackDefaultCapture = new WasapiLoopbackCapture(defaultRender);
+                    _loopbackDefaultCapture.DataAvailable += LoopbackDefault_DataAvailable_PushRed;
+                    _loopbackDefaultCapture.StartRecording();
+                }
+
                 Log.Info("[Audio] Loopback capture started.");
             }
             catch (Exception ex) { Log.Warn($"[Audio] Loopback failed: {ex.Message}"); }
+        }
+
+        private void LoopbackCable_DataAvailable_PushRed(object sender, WaveInEventArgs e)
+        {
+            if (e.BytesRecorded < 4) return;
+            if (LocalBridgeServer.Instance.IsPlaying) { _customerVoiceLevel = 0f; return; }
+            float raw = DecodeLoopbackPeak(e.Buffer, e.BytesRecorded);
+            float bleed = _micLevel * RedMicPassthroughBleedCoupling;
+            PushCustomerVoicePeak(Math.Max(0f, raw - bleed));
+        }
+
+        private void LoopbackDefault_DataAvailable_PushRed(object sender, WaveInEventArgs e)
+        {
+            if (e.BytesRecorded < 4) return;
+            if (LocalBridgeServer.Instance.IsPlaying) { _customerVoiceLevel = 0f; return; }
+            PushCustomerVoicePeak(DecodeLoopbackPeak(e.Buffer, e.BytesRecorded));
+        }
+
+        /// <summary>CUSTOMER VOICE volume affects Windows master volume on the agent headset render device.</summary>
+        private void ApplyCustomerVoiceListenEndpointVolume()
+        {
+            if (_activeSpeakerDevice == null) return;
+            try
+            {
+                _activeSpeakerDevice.AudioEndpointVolume.MasterVolumeLevelScalar = DbToLinear(_dbCustomerVoice);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"[Audio] Could not set customer-voice listen level on headset: {ex.Message}");
+            }
         }
 
         // ── Device population ─────────────────────────────────────────────────
@@ -1638,6 +1713,8 @@ namespace WindowsFormsApp1
                         _activeSpeakerDevice = rends[selIdx];
                         int waveOutNum = FindWaveOutDeviceNumber(rends[selIdx].FriendlyName);
                         LocalBridgeServer.Instance.SetOutputDevice(waveOutNum);
+                        LocalBridgeServer.Instance.SetAgentRenderDevice(_activeSpeakerDevice);
+                        ApplyCustomerVoiceListenEndpointVolume();
                         Log.Info($"[Audio] Initial speaker: {rends[selIdx].FriendlyName} → WaveOut #{waveOutNum}");
                         try
                         {
@@ -1680,6 +1757,8 @@ namespace WindowsFormsApp1
                         AppSettings.Instance.Save();
                         int waveOutNum = FindWaveOutDeviceNumber(rends[si].FriendlyName);
                         LocalBridgeServer.Instance.SetOutputDevice(waveOutNum);
+                        LocalBridgeServer.Instance.SetAgentRenderDevice(_activeSpeakerDevice);
+                        ApplyCustomerVoiceListenEndpointVolume();
                         Log.Info($"[Audio] Speaker changed: {rends[si].FriendlyName} → WaveOut #{waveOutNum}");
                         try
                         {
@@ -1765,6 +1844,7 @@ namespace WindowsFormsApp1
         private void StartBridgeServer()
         {
             var bridge = LocalBridgeServer.Instance;
+            Log.Info("[Bridge→UI] Script meters: bridge channel 'agent'(headset)→BLUE left ring; 'customer'(VB-Cable)→GREEN right. RED=loopback only. Dial arcs use Min(level, slider%) — if BLUE/GREEN sliders ~0%, rings stay dark.");
             bridge.OnPlaybackLevel += (level, channel) =>
             {
                 if (this.IsDisposed) return;
@@ -1781,6 +1861,14 @@ namespace WindowsFormsApp1
                     {
                         if (level * 0.85f > _agentScriptLevel) _agentScriptLevel = level * 0.85f;
                         _agentScriptMeter?.Invalidate();
+                    }
+
+                    if (_bridgeUiDiagSw.ElapsedMilliseconds >= 500)
+                    {
+                        _bridgeUiDiagSw.Restart();
+                        int capBlue  = GetVolumePercent("agentScript_left");
+                        int capGreen = GetVolumePercent("agentScript");
+                        Log.Info($"[Bridge→UI] rx ch={channel} rawLvl={level:F3} → BLUE(left)_lvl={_customerScriptLevel:F3} cap={capBlue}% GREEN(right)_lvl={_agentScriptLevel:F3} cap={capGreen}% RED(loopback)={_customerVoiceLevel:F3} panelNull BLUE={_customerScriptMeter == null} GREEN={_agentScriptMeter == null} bridgePlaying={LocalBridgeServer.Instance.IsPlaying}");
                     }
                 };
                 if (this.InvokeRequired) this.BeginInvoke(update); else update();
@@ -1945,6 +2033,8 @@ namespace WindowsFormsApp1
             try { _micPassWaveOut?.Dispose(); } catch { }
             try { _loopbackCapture?.StopRecording(); } catch { }
             try { _loopbackCapture?.Dispose(); } catch { }
+            try { _loopbackDefaultCapture?.StopRecording(); } catch { }
+            try { _loopbackDefaultCapture?.Dispose(); } catch { }
             _trayIcon?.Dispose();
             base.OnFormClosing(e);
         }
