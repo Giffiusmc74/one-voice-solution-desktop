@@ -1678,8 +1678,8 @@ namespace WindowsFormsApp1
                         // Hard-block VB Cable from being used as agent device
                         if (agentNum >= 0)
                         {
-                            var caps = WaveOut.GetCapabilities(agentNum);
-                            if (caps.ProductName.IndexOf("CABLE", StringComparison.OrdinalIgnoreCase) >= 0)
+                            var woCaps = WaveOut.GetCapabilities(agentNum);
+                            if (woCaps.ProductName.IndexOf("CABLE", StringComparison.OrdinalIgnoreCase) >= 0)
                             {
                                 Log.Warn($"[Audio] Agent device #{agentNum} is VB Cable — blocked. Agent monitor disabled.");
                                 agentNum = -1;
