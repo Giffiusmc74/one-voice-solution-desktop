@@ -66,7 +66,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.73";
+        private const string APP_VERSION = "7.74";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -147,10 +147,8 @@ namespace WindowsFormsApp1
         private Label    _lblAgentScriptVol;
         private Label    _lblCustomerScriptVol;
 
-        // WasapiLoopbackCapture on the Jabra render device.
-        // Captures what the softphone plays OUT (customer voice). Card bleed is suppressed
-        // via LocalBridgeServer.IsCardPlaying flag while a recording is active.
-        private WasapiLoopbackCapture _loopbackCapture;
+        // Loopback capture for Customer Voice meter
+        private WasapiLoopbackCapture  _loopbackCapture;
         private float                  _customerVoiceVolume = 1.0f;
 
         [DllImport("user32.dll")]
@@ -1582,61 +1580,23 @@ namespace WindowsFormsApp1
             return -1;
         }
 
-        // ── Loopback capture ──────────────────────────────────────────────
-        // Red meter = WasapiLoopbackCapture on the Jabra render device.
-        // Captures what the softphone plays OUT through the Jabra speaker (customer voice).
-        // Card audio also plays through Jabra (via waveO) so it would bleed into the red meter.
-        // The _cardPlaying suppression flag (set by LocalBridgeServer) zeroes the red level
-        // during card playback so the red meter only shows customer voice.
+        // ── Loopback capture ──────────────────────────────────────────────────
         private void StartLoopbackCapture()
         {
             try
             {
                 try { _loopbackCapture?.StopRecording(); _loopbackCapture?.Dispose(); } catch { }
                 _loopbackCapture = null;
-
-                // Target the Jabra render device explicitly — not the system default.
-                // _activeSpeakerDevice is set in PopulateDevices() which runs before this.
-                if (_activeSpeakerDevice != null)
-                {
-                    _loopbackCapture = new WasapiLoopbackCapture(_activeSpeakerDevice);
-                    Log.Info($"[Audio] Loopback targeting: {_activeSpeakerDevice.FriendlyName}");
-                }
-                else
-                {
-                    // Fallback: use default render device
-                    _loopbackCapture = new WasapiLoopbackCapture();
-                    Log.Warn("[Audio] No speaker device found — loopback using system default.");
-                }
-
-                int _loopbackLogCount = 0;
+                _loopbackCapture = new WasapiLoopbackCapture();
                 _loopbackCapture.DataAvailable += (s, e) =>
                 {
-                    // LOG 4: loopback firing (first 5 only)
-                    if (_loopbackLogCount < 5) { _loopbackLogCount++; Log.Info($"[Loopback] bytes={e.BytesRecorded} isCardPlaying={LocalBridgeServer.Instance.IsCardPlaying}"); }
-
-                    // Suppress red meter while a card is playing — card audio bleeds into loopback.
-                    // The moment the card stops, suppression lifts and customer voice drives the meter.
-                    if (LocalBridgeServer.Instance.IsCardPlaying) return;
-
                     if (e.BytesRecorded < 4) return;
-                    var fmt = _loopbackCapture.WaveFormat;
+                    if (LocalBridgeServer.Instance.IsPlaying) { _customerVoiceLevel = 0f; return; }
                     float max = 0f;
-                    if (fmt.Encoding == WaveFormatEncoding.IeeeFloat)
+                    for (int i = 0; i + 4 <= e.BytesRecorded; i += 4)
                     {
-                        for (int i = 0; i + 4 <= e.BytesRecorded; i += 4)
-                        {
-                            float sample = Math.Abs(BitConverter.ToSingle(e.Buffer, i)) * _customerVoiceVolume;
-                            if (sample > max) max = sample;
-                        }
-                    }
-                    else if (fmt.BitsPerSample == 16)
-                    {
-                        for (int i = 0; i + 2 <= e.BytesRecorded; i += 2)
-                        {
-                            float sample = Math.Abs(BitConverter.ToInt16(e.Buffer, i) / 32768f) * _customerVoiceVolume;
-                            if (sample > max) max = sample;
-                        }
+                        float sample = Math.Abs(BitConverter.ToSingle(e.Buffer, i)) * _customerVoiceVolume;
+                        if (sample > max) max = sample;
                     }
                     float level = Math.Min(1f, max * 2.85f);
                     if (level > _customerVoiceLevel) _customerVoiceLevel = level;
@@ -1674,13 +1634,9 @@ namespace WindowsFormsApp1
                     if (selIdx >= 0 && selIdx < rends.Count)
                     {
                         _activeSpeakerDevice = rends[selIdx];
-                        Log.Info($"[Audio] Initial speaker: {rends[selIdx].FriendlyName}");
-                        // Tell the bridge which WaveOut device to use for agent monitor (waveO).
-                        // NEVER fall back to default — default may be VB Cable, which would route
-                        // agent monitor audio to VB Cable instead of the headset.
-                        // Pass the exact MMDevice to the bridge — no index lookup needed.
-                        LocalBridgeServer.Instance.SetAgentMMDevice(rends[selIdx]);
-                        Log.Info($"[Audio] Agent MMDevice: '{rends[selIdx].FriendlyName}'");
+                        int waveOutNum = FindWaveOutDeviceNumber(rends[selIdx].FriendlyName);
+                        LocalBridgeServer.Instance.SetOutputDevice(waveOutNum);
+                        Log.Info($"[Audio] Initial speaker: {rends[selIdx].FriendlyName} → WaveOut #{waveOutNum}");
                         try
                         {
                             int savedPct = AppSettings.Instance.SpeakerSystemVolume;
@@ -1703,7 +1659,6 @@ namespace WindowsFormsApp1
                 {
                     Log.Info($"[Audio] VB-Cable: '{_activeVBCableDevice.FriendlyName}'");
                     int cableNum = FindWaveOutDeviceNumber(_activeVBCableDevice.FriendlyName);
-                    // VB Cable should always match — no fallback needed (don’t route VB Cable to default output).
                     LocalBridgeServer.Instance.SetCableDevice(cableNum);
                 }
                 else
@@ -1721,12 +1676,9 @@ namespace WindowsFormsApp1
                         _activeSpeakerDevice = rends[si];
                         AppSettings.Instance.HeadsetDevice = _cboHeadset.Text;
                         AppSettings.Instance.Save();
-                        Log.Info($"[Audio] Speaker changed: {rends[si].FriendlyName}");
-                        // Update bridge agent device when headset selection changes.
-                        // No default fallback — default may be VB Cable.
-                        // Pass the exact MMDevice — no index lookup needed.
-                        LocalBridgeServer.Instance.SetAgentMMDevice(rends[si]);
-                        Log.Info($"[Audio] Agent MMDevice changed: '{rends[si].FriendlyName}'");
+                        int waveOutNum = FindWaveOutDeviceNumber(rends[si].FriendlyName);
+                        LocalBridgeServer.Instance.SetOutputDevice(waveOutNum);
+                        Log.Info($"[Audio] Speaker changed: {rends[si].FriendlyName} → WaveOut #{waveOutNum}");
                         try
                         {
                             float cur = _activeSpeakerDevice.AudioEndpointVolume.MasterVolumeLevelScalar;
@@ -1779,43 +1731,27 @@ namespace WindowsFormsApp1
             return -1;
         }
 
-        /// <summary>
-        /// Returns the WaveOut device index that corresponds to the Windows default render device.
-        /// Uses MMDeviceEnumerator to identify the default device name, then matches against WaveOut.
-        /// Returns -1 if no match is found.
-        /// </summary>
-        private int GetDefaultWaveOutDeviceIndex()
-        {
-            try
-            {
-                using (var enumerator = new MMDeviceEnumerator())
-                {
-                    var defaultDevice = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
-                    string defaultName = defaultDevice.FriendlyName;
-                    Log.Info($"[Audio] Default render device: '{defaultName}'");
-                    // FindWaveOutDeviceNumber is now pure — returns -1 on no match, no recursion.
-                    return FindWaveOutDeviceNumber(defaultName);
-                }
-            }
-            catch (Exception ex)
-            {
-                Log.Warn($"[Audio] GetDefaultWaveOutDeviceIndex failed: {ex.Message}");
-                return -1;
-            }
-        }
-
         // ── Local Bridge Server ───────────────────────────────────────────────
         private void StartBridgeServer()
         {
             var bridge = LocalBridgeServer.Instance;
             bridge.OnPlaybackLevel += (level, channel) =>
             {
-                // Float assignment is atomic on x86/x64 — safe to write from audio thread.
-                // The UI timer polls these values and calls Invalidate() on its own tick.
-                if (channel == "agent")
-                    _agentScriptLevel = Math.Max(_agentScriptLevel, level * 0.85f);
-                else
-                    _customerScriptLevel = Math.Max(_customerScriptLevel, level * 0.85f);
+                if (this.IsDisposed) return;
+                Action update = () =>
+                {
+                    if (channel == "agent")
+                    {
+                        if (level * 0.85f > _agentScriptLevel) _agentScriptLevel = level * 0.85f;
+                        _agentScriptMeter?.Invalidate();
+                    }
+                    else
+                    {
+                        if (level * 0.85f > _customerScriptLevel) _customerScriptLevel = level * 0.85f;
+                        _customerScriptMeter?.Invalidate();
+                    }
+                };
+                if (this.InvokeRequired) this.BeginInvoke(update); else update();
             };
             bridge.OnPlaybackStopped += () =>
             {

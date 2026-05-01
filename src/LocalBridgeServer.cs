@@ -1,31 +1,24 @@
 /*
- * LocalBridgeServer.cs  —  v7.73
+ * LocalBridgeServer.cs  —  v7.28
  * ONE Voice Solution
  *
  * Hosts a tiny HTTP server on localhost:9001 so the Script Dashboard
  * can send real-time play commands to the desktop app.
  *
  * AUDIO ARCHITECTURE:
- *   waveOut      → VB-Audio Cable Input  (customer hears the recording)
- *                  Uses WaveOutEvent with device index — VB Cable is always found by name.
- *   _agentOut    → Agent headset (WasapiOut + MMDevice)  (agent hears the recording)
- *                  Uses the exact MMDevice selected in the headset dropdown.
- *                  No index lookup, no truncation, no VB Cable collision possible.
+ *   waveOut  → VB-Audio Cable Input  (customer hears the recording)
+ *   waveO    → outputDeviceNumber    (agent hears the recording)
+ *   Single meter loop fires OnPlaybackLevel for both meters.
  *
- *   Red meter source = WasapiLoopbackCapture on Jabra render device.
- *   Captures what the softphone plays out (customer voice).
- *   Card audio also bleeds into loopback via _agentOut — suppressed by
- *   IsCardPlaying flag in MainFormV5 DataAvailable handler.
+ * VOLUME — uses WaveOutEvent.Volume (hardware-level float 0.0-1.0).
+ *   This sets volume at the device driver level with ZERO sample processing,
+ *   so it cannot cause clipping or garbling regardless of slider position.
+ *   VolumeSampleProvider is NOT used anywhere in this class.
  *
- * VOLUME — uses AudioFileReader.Volume (software-level float 0.0-1.0).
- *   This is reliable across ALL drivers including Jabra.
- *
- *   /volume { channel:"customer", volume:0-100 } → audioFileReader.Volume
- *   /volume { channel:"agent",    volume:0-100 } → audioFileReader2.Volume
+ *   /volume { channel:"agent",    volume:0-100 } → waveO.Volume
+ *   /volume { channel:"customer", volume:0-100 } → waveOut.Volume
  */
-using NAudio.CoreAudioApi;
 using NAudio.Wave;
-using NAudio.Wave.SampleProviders;
 using Newtonsoft.Json;
 using NLog;
 using System;
@@ -61,31 +54,39 @@ namespace WindowsFormsApp1.src
         private WaveOutEvent    waveOut;           // → VB-Cable (customer)
         private AudioFileReader audioFileReader;
 
-        private WasapiOut       _agentOut;         // → Agent headset (WasapiOut, MMDevice-based)
+        private WaveOutEvent    waveO;             // → headset (agent)
         private AudioFileReader audioFileReader2;
 
         private readonly object _playLock = new object();
         private bool   isAudioPlaying;
 
-        /// <summary>True while a recording is actively playing.</summary>
+        /// <summary>True while a recording is actively playing. Used by MainFormV5 to suppress loopback meter during playback.</summary>
         public bool IsPlaying => isAudioPlaying;
+        private long   lastReadPosition;
+        private CancellationTokenSource cancellationTokenSource;
+        private string _currentTmpPath;   // temp file for current playback — deleted on stop
 
-        /// <summary>
-        /// True while a card recording is actively playing.
-        /// Used by MainFormV5 to suppress the red meter during playback.
-        /// </summary>
-        public bool IsCardPlaying => isAudioPlaying;
-        private string _currentTmpPath;
-
-        // ── Device state ──────────────────────────────────────────────────────
-        private int       _cableDeviceNumber = -1;   // WaveOut index for VB-Cable
-        private MMDevice  _agentMMDevice     = null; // MMDevice for agent headset (set by MainFormV5)
+        // ── Device numbers ────────────────────────────────────────────────────
+        private int outputDeviceNumber = -1;   // headset (agent) — set by dropdown
+        private int _cableDeviceNumber  = -1;  // VB-Cable — found by name on startup
 
         // ── Per-channel volumes (0-100) ───────────────────────────────────────
-        private int _customerVol = 100;
+        // Applied via WaveOutEvent.Volume — hardware-level, no sample processing.
         private int _agentVol    = 100;
+        private int _customerVol = 100;
 
         // ── Device setters ────────────────────────────────────────────────────
+        /// <summary>Called by MainFormV5 when the headset dropdown changes.</summary>
+        public void SetOutputDevice(int deviceNumber)
+        {
+            outputDeviceNumber = deviceNumber;
+            _log.Info($"[Bridge] Agent device → #{deviceNumber}");
+        }
+
+        /// <summary>Current headset WaveOut device number (-1 = default).</summary>
+        public int OutputDeviceNumber => outputDeviceNumber;
+
+        /// <summary>VB-Cable WaveOut device number (-1 = not found).</summary>
         public int CableDeviceNumber => _cableDeviceNumber;
 
         /// <summary>Called by MainFormV5 on startup after VB-Cable is found.</summary>
@@ -95,23 +96,16 @@ namespace WindowsFormsApp1.src
             _log.Info($"[Bridge] Cable device → #{deviceNumber}");
         }
 
-        /// <summary>
-        /// Called by MainFormV5 on startup/change after agent headset is selected.
-        /// Passes the exact MMDevice — no index lookup needed.
-        /// </summary>
-        public void SetAgentMMDevice(MMDevice device)
-        {
-            _agentMMDevice = device;
-            _log.Info($"[Bridge] Agent MMDevice → '{(device != null ? device.FriendlyName : "null")}'");
-        }
-
         public void SetInitialVolume(string channel, int volume)
         {
             SetVolume(channel, volume);
             _log.Info($"[Bridge] Initial volume {channel} → {volume}%");
         }
 
-        /// <summary>Updates the volume for a channel in real-time.</summary>
+        /// <summary>
+        /// Updates the volume for a channel in real-time. 
+        /// Called by MainFormV5 sliders for zero-latency updates.
+        /// </summary>
         public void SetVolume(string channel, int volume)
         {
             volume = Math.Max(0, Math.Min(100, volume));
@@ -122,7 +116,7 @@ namespace WindowsFormsApp1.src
                     _customerVol = volume;
                     if (audioFileReader != null) audioFileReader.Volume = volume / 100f;
                 }
-                else if (channel == "agent")
+                else
                 {
                     _agentVol = volume;
                     if (audioFileReader2 != null) audioFileReader2.Volume = volume / 100f;
@@ -232,44 +226,25 @@ namespace WindowsFormsApp1.src
             {
                 if (isAudioPlaying) StopAudioInternal();
 
-                _currentTmpPath = tmpPath;
-                isAudioPlaying  = true;
+                _currentTmpPath  = tmpPath;
+                lastReadPosition = 0;
+                isAudioPlaying   = true;
+                cancellationTokenSource?.Cancel();
+                cancellationTokenSource = new CancellationTokenSource();
 
-                _log.Info($"[Bridge] cable=#{_cableDeviceNumber} agentMMDevice='{(_agentMMDevice != null ? _agentMMDevice.FriendlyName : "null")}'");
-
-                // Normalised playback format — 48 kHz, 16-bit, stereo.
-                // Both paths use MediaFoundationResampler so the meter fires reliably
-                // and WasapiOut never rejects the format.
-                var normalFormat = new WaveFormat(48000, 16, 2);
-
-                // ── VB-Cable output (customer hears recording) ────────────
+                // ── VB-Cable output (customer hears recording) ────────────────
+                // Only create if VB-Cable was found. Never fall back to device -1
+                // (default device = computer speakers).
                 if (_cableDeviceNumber >= 0)
                 {
                     try
                     {
                         audioFileReader = new AudioFileReader(tmpPath);
+                        // Use AudioFileReader.Volume (software gain) — reliable on ALL drivers.
+                        // WaveOutEvent.Volume is ignored by many drivers (e.g. Jabra).
                         audioFileReader.Volume = Math.Max(0f, Math.Min(1f, _customerVol / 100f));
-
-                        // Resample to normalised format — ensures meter fires reliably.
-                        var resampler1 = new MediaFoundationResampler(audioFileReader, normalFormat) { ResamplerQuality = 60 };
-
-                        // MeteringSampleProvider drives green meter (agent) and blue meter (customer).
-                        var metering = new MeteringSampleProvider(resampler1.ToSampleProvider());
-                        metering.StreamVolume += (s2, e2) =>
-                        {
-                            float max = 0f;
-                            foreach (var ch in e2.MaxSampleValues)
-                            {
-                                float abs = Math.Abs(ch);
-                                if (abs > max) max = abs;
-                            }
-                            float level = Math.Min(1f, max * 2.0f);
-                            OnPlaybackLevel?.Invoke(level, "agent");    // green meter
-                            OnPlaybackLevel?.Invoke(level, "customer"); // blue meter
-                        };
-
                         waveOut = new WaveOutEvent { DeviceNumber = _cableDeviceNumber, DesiredLatency = 100 };
-                        waveOut.Init(metering);
+                        waveOut.Init(audioFileReader);
                         waveOut.Play();
                         waveOut.PlaybackStopped += OnPlaybackStopped_Cable;
                         _log.Info($"[Bridge] Cable WaveOut → device #{_cableDeviceNumber} vol={_customerVol}%");
@@ -279,84 +254,92 @@ namespace WindowsFormsApp1.src
                         _log.Warn($"[Bridge] Cable WaveOut failed: {ex.Message}");
                         try { audioFileReader?.Dispose(); } catch { }
                         audioFileReader = null; waveOut = null;
-                        isAudioPlaying = false;
-                        OnPlaybackStopped?.Invoke();
-                        return "{\"error\":\"Cable WaveOut failed: " + ex.Message.Replace("\"", "'") + "\"}";
                     }
                 }
                 else
                 {
-                    _log.Warn("[Bridge] No VB-Cable found — cannot play card. Aborting.");
+                    _log.Info("[Bridge] No VB-Cable — skipping cable output.");
+                }
+
+                // ── Headset output (agent hears recording) ────────────────────
+                try
+                {
+                    audioFileReader2 = new AudioFileReader(tmpPath);
+                    // Use AudioFileReader.Volume (software gain) — reliable on ALL drivers.
+                    // WaveOutEvent.Volume is ignored by many drivers (e.g. Jabra).
+                    audioFileReader2.Volume = Math.Max(0f, Math.Min(1f, _agentVol / 100f));
+                    waveO = new WaveOutEvent { DeviceNumber = outputDeviceNumber, DesiredLatency = 100 };
+                    waveO.Init(audioFileReader2);
+                    waveO.Play();
+                    waveO.PlaybackStopped += OnPlaybackStopped_Agent;
+                    _log.Info($"[Bridge] Agent WaveOut → device #{outputDeviceNumber} vol={_agentVol}%");
+                }
+                catch (Exception ex)
+                {
+                    _log.Error($"[Bridge] Agent WaveOut failed (device #{outputDeviceNumber}): {ex.Message}. No fallback.");
+                    try { audioFileReader2?.Dispose(); } catch { }
+                    audioFileReader2 = null; waveO = null;
                     isAudioPlaying = false;
-                    DeleteCurrentTmpFile();
-                    return "{\"error\":\"VB-Cable not found — card not played\"}";
+                    OnPlaybackStopped?.Invoke();
                 }
 
-                // ── Agent headset output (WasapiOut + MMDevice) ───────────────
-                // Separate AudioFileReader (reader2) — fully independent from VB-Cable path.
-                // Both resamplers normalise to 48 kHz/16-bit/stereo before playback.
-                if (_agentMMDevice != null)
-                {
-                    try
-                    {
-                        audioFileReader2 = new AudioFileReader(tmpPath);
-                        audioFileReader2.Volume = Math.Max(0f, Math.Min(1f, _agentVol / 100f));
-
-                        var resampler2 = new MediaFoundationResampler(audioFileReader2, normalFormat) { ResamplerQuality = 60 };
-
-                        _agentOut = new WasapiOut(_agentMMDevice, AudioClientShareMode.Shared, true, 50);
-                        _log.Info("[Bridge] Agent WasapiOut init...");
-                        _agentOut.Init(resampler2);
-                        _log.Info("[Bridge] Agent WasapiOut play...");
-                        _agentOut.Play();
-                        _agentOut.PlaybackStopped += OnPlaybackStopped_Agent;
-                        _log.Info($"[Bridge] Agent WasapiOut → '{_agentMMDevice.FriendlyName}' vol={_agentVol}%");
-                    }
-                    catch (Exception ex)
-                    {
-                        // Non-fatal — VB-Cable path is still playing.
-                        _log.Warn($"[Bridge] Agent WasapiOut FAILED (non-fatal): {ex.Message}");
-                        _log.Warn($"[Bridge] Agent WasapiOut stack: {ex.StackTrace}");
-                        try { audioFileReader2?.Dispose(); } catch { }
-                        audioFileReader2 = null; _agentOut = null;
-                    }
-                }
-                else
-                {
-                    _log.Warn("[Bridge] No agent MMDevice set — agent monitor path skipped.");
-                }
+                // ── Meter loop ────────────────────────────────────────────────
+                var token = cancellationTokenSource.Token;
+                Task.Run(() => ProcessAudioAndVisualizeIntensity_(tmpPath, token));
             }
 
             return "{\"ok\":true}";
         }
 
+        // ── Meter loop ────────────────────────────────────────────────────────
+        private void ProcessAudioAndVisualizeIntensity_(string filePath, CancellationToken ct)
+        {
+            int bufferSize = 4096;
+            using (var reader = new AudioFileReader(filePath))
+            {
+                if (lastReadPosition > 0 && lastReadPosition < reader.Length)
+                    reader.Position = lastReadPosition;
+
+                var buffer = new float[bufferSize];
+                int samplesRead;
+                while ((samplesRead = reader.Read(buffer, 0, buffer.Length)) > 0
+                       && !ct.IsCancellationRequested
+                       && isAudioPlaying)
+                {
+                    double rms      = CalculateRMS(buffer, samplesRead);
+                    float  agentLvl = (float)Math.Min(1.0, rms * 8.0 * (_agentVol    / 100.0));
+                    float  custLvl  = (float)Math.Min(1.0, rms * 8.0 * (_customerVol / 100.0));
+
+                    OnPlaybackLevel?.Invoke(agentLvl, "agent");
+                    OnPlaybackLevel?.Invoke(custLvl,  "customer");
+
+                    lastReadPosition = reader.Position;
+                    Thread.Sleep(75);
+                }
+                if (reader.Position >= reader.Length)
+                    lastReadPosition = 0;
+            }
+        }
+
+        private double CalculateRMS(float[] buffer, int samplesRead)
+        {
+            double sum = 0;
+            for (int i = 0; i < samplesRead; i++) sum += buffer[i] * buffer[i];
+            return Math.Sqrt(sum / samplesRead);
+        }
+
         private void OnPlaybackStopped_Cable(object sender, StoppedEventArgs e)
         {
-            lock (_playLock)
-            {
-                isAudioPlaying = false;
-
-                try { waveOut?.Dispose();        } catch { }
-                try { audioFileReader?.Dispose(); } catch { }
-                waveOut = null; audioFileReader = null;
-
-                try { _agentOut?.Stop();          } catch { }
-                try { _agentOut?.Dispose();       } catch { }
-                try { audioFileReader2?.Dispose(); } catch { }
-                _agentOut = null; audioFileReader2 = null;
-            }
-            DeleteCurrentTmpFile();
-            OnPlaybackStopped?.Invoke();
+            try { audioFileReader?.Dispose(); audioFileReader = null; waveOut?.Dispose(); waveOut = null; } catch { }
+            // Temp file cleanup is handled by OnPlaybackStopped_Agent (fires last)
         }
 
         private void OnPlaybackStopped_Agent(object sender, StoppedEventArgs e)
         {
-            lock (_playLock)
-            {
-                try { _agentOut?.Dispose();       } catch { }
-                try { audioFileReader2?.Dispose(); } catch { }
-                _agentOut = null; audioFileReader2 = null;
-            }
+            isAudioPlaying = false;
+            try { audioFileReader2?.Dispose(); audioFileReader2 = null; waveO?.Dispose(); waveO = null; } catch { }
+            DeleteCurrentTmpFile();
+            OnPlaybackStopped?.Invoke();
         }
 
         private void DeleteCurrentTmpFile()
@@ -376,20 +359,23 @@ namespace WindowsFormsApp1.src
         }
 
         // ── /volume ───────────────────────────────────────────────────────────
+        // Uses AudioFileReader.Volume (software gain, works on ALL drivers including Jabra).
+        // WaveOutEvent.Volume is ignored by many drivers — AudioFileReader.Volume is reliable.
+        // AudioFileReader.Volume range: 0.0-1.0 (same as slider / 100).
         private string HandleVolume(string body)
         {
             dynamic data    = JsonConvert.DeserializeObject(body);
             int     volume  = Math.Max(0, Math.Min(100, (int?)data?.volume ?? 80));
-            string  channel = (string)data?.channel ?? "customer";
+            string  channel = (string)data?.channel ?? "agent";
 
             lock (_playLock)
             {
                 if (channel == "customer")
                 {
                     _customerVol = volume;
-                    if (audioFileReader != null) audioFileReader.Volume = volume / 100f;
+                    if (audioFileReader  != null) audioFileReader.Volume  = volume / 100f;
                 }
-                else if (channel == "agent")
+                else
                 {
                     _agentVol = volume;
                     if (audioFileReader2 != null) audioFileReader2.Volume = volume / 100f;
@@ -409,16 +395,18 @@ namespace WindowsFormsApp1.src
         private void StopAudioInternal()
         {
             isAudioPlaying = false;
+            cancellationTokenSource?.Cancel();
+            cancellationTokenSource = null;
 
-            try { waveOut?.Stop();   } catch { }
+            try { waveOut?.Stop();  } catch { }
             try { waveOut?.Dispose(); } catch { }
             try { audioFileReader?.Dispose(); } catch { }
             waveOut = null; audioFileReader = null;
 
-            try { _agentOut?.Stop();  } catch { }
-            try { _agentOut?.Dispose(); } catch { }
+            try { waveO?.Stop();    } catch { }
+            try { waveO?.Dispose(); } catch { }
             try { audioFileReader2?.Dispose(); } catch { }
-            _agentOut = null; audioFileReader2 = null;
+            waveO = null; audioFileReader2 = null;
 
             DeleteCurrentTmpFile();
         }

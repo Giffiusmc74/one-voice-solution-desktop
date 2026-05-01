@@ -194,8 +194,6 @@ namespace WindowsFormsApp1.src
 
         private void OnLoopbackDataAvailable(object sender, WaveInEventArgs e)
         {
-            try
-            {
             // Apply incoming audio volume control
             float currentIncomingVolume = GetIncomingAudioVolume();
             
@@ -248,13 +246,8 @@ namespace WindowsFormsApp1.src
             }
             catch (ObjectDisposedException)
             {
-                // Form disposed before invoke — safe to ignore
-            }
-            } // end outer try
-            catch (Exception ex)
-            {
-                // Any device-level change (e.g. Windows volume slider) must not crash the app
-                System.Diagnostics.Debug.WriteLine($"[AudioService] OnLoopbackDataAvailable error (non-fatal): {ex.Message}");
+                // Handle or ignore the exception
+                // This can happen if the form is disposed before the invoke is executed
             }
         }
 
@@ -274,28 +267,20 @@ namespace WindowsFormsApp1.src
 
         private void OnLoopbackRecordingStopped(object sender, StoppedEventArgs e)
         {
-            try
-            {
             if (loopbackCapture != null)
             {
-                try { loopbackCapture.Dispose(); } catch { }
-                loopbackCapture = null;
+                loopbackCapture.Dispose();
             }
 
             if (waveOutSecond != null)
             {
-                try { waveOutSecond.Stop(); } catch { }
-                try { waveOutSecond.Dispose(); } catch { }
+                waveOutSecond.Stop();
+                waveOutSecond.Dispose();
             }
 
             if (e.Exception != null)
             {
-                System.Diagnostics.Debug.WriteLine($"[AudioService] Loopback recording stopped with error: {e.Exception.Message}");
-            }
-            } // end try
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[AudioService] OnLoopbackRecordingStopped error (non-fatal): {ex.Message}");
+                MessageBox.Show($"An error occurred: {e.Exception.Message}");
             }
         }
 
