@@ -219,15 +219,16 @@ namespace WindowsFormsApp1.src
                         audioFileReader = new AudioFileReader(tmpPath);
                         audioFileReader.Volume = Math.Max(0f, Math.Min(1f, _customerVol / 100f));
 
-                        // ── Meter hook — driven by the exact samples going to VB Cable ──
-                        // This replaces the old separate file-reading loop which had a
-                        // race condition with temp-file deletion and could miss samples.
-                        audioFileReader.Sample += (s2, e2) =>
+                        // ── Meter hook (NAudio 2.x) — MeteringSampleProvider sits between
+                        // AudioFileReader and WaveOut, firing StreamVolume on every 1024 samples.
+                        // This is the correct NAudio 2.2.1 API (AudioFileReader has no Sample event).
+                        var metering = new NAudio.Wave.SampleProviders.MeteringSampleProvider(audioFileReader);
+                        metering.StreamVolume += (s2, e2) =>
                         {
                             float max = 0f;
-                            for (int i = 0; i < e2.Count; i++)
+                            foreach (var ch in e2.MaxSampleValues)
                             {
-                                float abs = Math.Abs(e2.Buffer[i]);
+                                float abs = Math.Abs(ch);
                                 if (abs > max) max = abs;
                             }
                             float level = Math.Min(1f, max * 2.0f);
@@ -236,7 +237,7 @@ namespace WindowsFormsApp1.src
                         };
 
                         waveOut = new WaveOutEvent { DeviceNumber = _cableDeviceNumber, DesiredLatency = 100 };
-                        waveOut.Init(audioFileReader);
+                        waveOut.Init(metering);
                         waveOut.Play();
                         waveOut.PlaybackStopped += OnPlaybackStopped_Cable;
                         _log.Info($"[Bridge] Cable WaveOut → device #{_cableDeviceNumber} vol={_customerVol}%");
