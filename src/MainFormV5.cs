@@ -66,7 +66,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.66";
+        private const string APP_VERSION = "7.67";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -147,11 +147,10 @@ namespace WindowsFormsApp1
         private Label    _lblAgentScriptVol;
         private Label    _lblCustomerScriptVol;
 
-        // Mic capture for Customer Voice meter (WasapiCapture on Jabra mic — NOT loopback).
-        // Using mic capture means we hear ONLY what comes INTO the Jabra mic (customer voice
-        // from the softphone). Card audio playing OUT through the Jabra speaker is never captured,
-        // so the red meter stays clean even though waveO plays cards to the headset.
-        private WasapiCapture  _loopbackCapture;
+        // WasapiLoopbackCapture on the Jabra render device.
+        // Captures what the softphone plays OUT (customer voice). Card bleed is suppressed
+        // via LocalBridgeServer.IsCardPlaying flag while a recording is active.
+        private WasapiLoopbackCapture _loopbackCapture;
         private float                  _customerVoiceVolume = 1.0f;
 
         [DllImport("user32.dll")]
@@ -1584,12 +1583,11 @@ namespace WindowsFormsApp1
         }
 
         // ── Loopback capture ──────────────────────────────────────────────
-        // Targets the Jabra render device explicitly so we capture ONLY what the
-        // softphone sends to the agent's headset (customer voice).
-        // Red meter = WasapiCapture on Jabra MIC device.
-        // This captures ONLY what comes INTO the Jabra mic (customer voice via softphone).
-        // Card audio playing OUT through the Jabra speaker is never captured here,
-        // so the red meter stays clean even though waveO plays cards to the headset.
+        // Red meter = WasapiLoopbackCapture on the Jabra render device.
+        // Captures what the softphone plays OUT through the Jabra speaker (customer voice).
+        // Card audio also plays through Jabra (via waveO) so it would bleed into the red meter.
+        // The _cardPlaying suppression flag (set by LocalBridgeServer) zeroes the red level
+        // during card playback so the red meter only shows customer voice.
         private void StartLoopbackCapture()
         {
             try
@@ -1597,32 +1595,44 @@ namespace WindowsFormsApp1
                 try { _loopbackCapture?.StopRecording(); _loopbackCapture?.Dispose(); } catch { }
                 _loopbackCapture = null;
 
-                // Use the Jabra MIC device (capture endpoint) — NOT loopback.
-                // _activeMicDevice is set in PopulateDevices() which runs before this.
-                if (_activeMicDevice != null)
+                // Target the Jabra render device explicitly — not the system default.
+                // _activeSpeakerDevice is set in PopulateDevices() which runs before this.
+                if (_activeSpeakerDevice != null)
                 {
-                    _loopbackCapture = new WasapiCapture(_activeMicDevice, false);
-                    Log.Info($"[Audio] Mic capture targeting: {_activeMicDevice.FriendlyName}");
+                    _loopbackCapture = new WasapiLoopbackCapture(_activeSpeakerDevice);
+                    Log.Info($"[Audio] Loopback targeting: {_activeSpeakerDevice.FriendlyName}");
                 }
                 else
                 {
-                    // Fallback: use default capture device
-                    _loopbackCapture = new WasapiCapture();
-                    Log.Warn("[Audio] No mic device found — mic capture using system default.");
+                    // Fallback: use default render device
+                    _loopbackCapture = new WasapiLoopbackCapture();
+                    Log.Warn("[Audio] No speaker device found — loopback using system default.");
                 }
-
-                // Force IEEE float format so DataAvailable always delivers 32-bit float samples.
-                // This eliminates branching on device-native format (16-bit PCM vs 32-bit PCM vs float).
-                _loopbackCapture.WaveFormat = WaveFormat.CreateIeeeFloatWaveFormat(16000, 1);
 
                 _loopbackCapture.DataAvailable += (s, e) =>
                 {
+                    // Suppress red meter while a card is playing — card audio bleeds into loopback.
+                    // The moment the card stops, suppression lifts and customer voice drives the meter.
+                    if (LocalBridgeServer.Instance.IsCardPlaying) return;
+
                     if (e.BytesRecorded < 4) return;
+                    var fmt = _loopbackCapture.WaveFormat;
                     float max = 0f;
-                    for (int i = 0; i + 4 <= e.BytesRecorded; i += 4)
+                    if (fmt.Encoding == WaveFormatEncoding.IeeeFloat)
                     {
-                        float sample = Math.Abs(BitConverter.ToSingle(e.Buffer, i)) * _customerVoiceVolume;
-                        if (sample > max) max = sample;
+                        for (int i = 0; i + 4 <= e.BytesRecorded; i += 4)
+                        {
+                            float sample = Math.Abs(BitConverter.ToSingle(e.Buffer, i)) * _customerVoiceVolume;
+                            if (sample > max) max = sample;
+                        }
+                    }
+                    else if (fmt.BitsPerSample == 16)
+                    {
+                        for (int i = 0; i + 2 <= e.BytesRecorded; i += 2)
+                        {
+                            float sample = Math.Abs(BitConverter.ToInt16(e.Buffer, i) / 32768f) * _customerVoiceVolume;
+                            if (sample > max) max = sample;
+                        }
                     }
                     float level = Math.Min(1f, max * 2.85f);
                     if (level > _customerVoiceLevel) _customerVoiceLevel = level;

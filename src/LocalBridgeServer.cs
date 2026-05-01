@@ -1,5 +1,5 @@
 /*
- * LocalBridgeServer.cs  —  v7.66
+ * LocalBridgeServer.cs  —  v7.67
  * ONE Voice Solution
  *
  * Hosts a tiny HTTP server on localhost:9001 so the Script Dashboard
@@ -9,10 +9,10 @@
  *   waveOut  → VB-Audio Cable Input  (customer hears the recording)
  *   waveO    → Agent headset (WaveOut)  (agent hears the recording)
  *
- *   Red meter source = WasapiCapture on Jabra MIC device (NOT loopback).
- *   Capturing the mic input means we hear ONLY what the softphone sends
- *   to the Jabra mic (customer voice). Card audio playing OUT through the
- *   Jabra speaker is never captured, so the red meter stays clean.
+ *   Red meter source = WasapiLoopbackCapture on Jabra render device.
+ *   Captures what the softphone plays out (customer voice).
+ *   Card audio also bleeds into loopback via waveO — suppressed by
+ *   IsCardPlaying flag in MainFormV5 DataAvailable handler.
  *
  * VOLUME — uses AudioFileReader.Volume (software-level float 0.0-1.0).
  *   This is reliable across ALL drivers including Jabra.
@@ -66,6 +66,13 @@ namespace WindowsFormsApp1.src
 
         /// <summary>True while a recording is actively playing.</summary>
         public bool IsPlaying => isAudioPlaying;
+
+        /// <summary>
+        /// True while a card recording is actively playing.
+        /// Used by MainFormV5 to suppress the red meter during playback
+        /// (card audio bleeds into the Jabra loopback — suppression keeps red clean).
+        /// </summary>
+        public bool IsCardPlaying => isAudioPlaying;
         private string _currentTmpPath;   // temp file for current playback — deleted on stop
 
         // ── Device numbers ────────────────────────────────────────────────────
