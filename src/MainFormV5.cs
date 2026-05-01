@@ -66,7 +66,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.63";
+        private const string APP_VERSION = "7.64";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -1580,18 +1580,33 @@ namespace WindowsFormsApp1
             return -1;
         }
 
-        // ── Loopback capture ──────────────────────────────────────────────────
+        // ── Loopback capture ──────────────────────────────────────────────
+        // Targets the Jabra render device explicitly so we capture ONLY what the
+        // softphone sends to the agent's headset (customer voice).
+        // Card audio never goes to Jabra (waveO removed), so no IsPlaying guard needed.
         private void StartLoopbackCapture()
         {
             try
             {
                 try { _loopbackCapture?.StopRecording(); _loopbackCapture?.Dispose(); } catch { }
                 _loopbackCapture = null;
-                _loopbackCapture = new WasapiLoopbackCapture();
+
+                // Use the Jabra device explicitly — not the Windows default device.
+                // _activeSpeakerDevice is set in PopulateDevices() which runs before this.
+                if (_activeSpeakerDevice != null)
+                {
+                    _loopbackCapture = new WasapiLoopbackCapture(_activeSpeakerDevice);
+                    Log.Info($"[Audio] Loopback targeting: {_activeSpeakerDevice.FriendlyName}");
+                }
+                else
+                {
+                    _loopbackCapture = new WasapiLoopbackCapture();
+                    Log.Warn("[Audio] No speaker device found — loopback using system default.");
+                }
+
                 _loopbackCapture.DataAvailable += (s, e) =>
                 {
                     if (e.BytesRecorded < 4) return;
-                    if (LocalBridgeServer.Instance.IsPlaying) { _customerVoiceLevel = 0f; return; }
                     float max = 0f;
                     for (int i = 0; i + 4 <= e.BytesRecorded; i += 4)
                     {
@@ -1634,9 +1649,7 @@ namespace WindowsFormsApp1
                     if (selIdx >= 0 && selIdx < rends.Count)
                     {
                         _activeSpeakerDevice = rends[selIdx];
-                        int waveOutNum = FindWaveOutDeviceNumber(rends[selIdx].FriendlyName);
-                        LocalBridgeServer.Instance.SetOutputDevice(waveOutNum);
-                        Log.Info($"[Audio] Initial speaker: {rends[selIdx].FriendlyName} → WaveOut #{waveOutNum}");
+                        Log.Info($"[Audio] Initial speaker: {rends[selIdx].FriendlyName}");
                         try
                         {
                             int savedPct = AppSettings.Instance.SpeakerSystemVolume;
@@ -1676,9 +1689,7 @@ namespace WindowsFormsApp1
                         _activeSpeakerDevice = rends[si];
                         AppSettings.Instance.HeadsetDevice = _cboHeadset.Text;
                         AppSettings.Instance.Save();
-                        int waveOutNum = FindWaveOutDeviceNumber(rends[si].FriendlyName);
-                        LocalBridgeServer.Instance.SetOutputDevice(waveOutNum);
-                        Log.Info($"[Audio] Speaker changed: {rends[si].FriendlyName} → WaveOut #{waveOutNum}");
+                        Log.Info($"[Audio] Speaker changed: {rends[si].FriendlyName}");
                         try
                         {
                             float cur = _activeSpeakerDevice.AudioEndpointVolume.MasterVolumeLevelScalar;
