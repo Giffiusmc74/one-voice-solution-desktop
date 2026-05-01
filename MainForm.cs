@@ -81,10 +81,10 @@ namespace WindowsFormsApp1
                 
                 DataUtils.MigrateData(); // Centralize and migrate data first
 
-                PopulateComboBox();
-                InitializeTrackBar();
-                //StartMicrophoneCaptureNew();
-                AudioService.Instance.StartLoopbackCapture(cmbBoxSpeaker.Text, cmbBoxSpeaker2.Text);//StartLoopbackCapture();
+                // ── CORRECT INIT ORDER: Populate → Restore Saved → Start Audio ──────────
+                PopulateComboBox();        // 1. List all available devices (no auto-default to index 0)
+                InitializeTrackBar();      // 2. Restore saved mic/speaker selection from disk
+                StartAudioWithSavedDevices(); // 3. ONLY NOW start audio with the restored devices
 
                 manager = DataUtils.LoadMacros(DataUtils.MacrosPath);
                 scriptManager = DataUtils.LoadScripts(DataUtils.ScriptsPath);
@@ -425,32 +425,59 @@ namespace WindowsFormsApp1
 
         private void cmbBoxSpeaker_SelectedIndexChanged(object sender, EventArgs e)
         {
-            System.Windows.Forms.ToolTip toolTip1 = new System.Windows.Forms.ToolTip();
-            toolTip1.AutoPopDelay = 0;
-            toolTip1.InitialDelay = 0;
-            toolTip1.ReshowDelay = 0;
-            toolTip1.ShowAlways = true;
-            toolTip1.SetToolTip(this.cmbBoxSpeaker, cmbBoxSpeaker.Items[cmbBoxSpeaker.SelectedIndex].ToString());
+            try
+            {
+                if (cmbBoxSpeaker.SelectedItem == null) return;
+                string selected = cmbBoxSpeaker.SelectedItem.ToString();
+                toolTip1.SetToolTip(this.cmbBoxSpeaker, selected);
+
+                // Save immediately so restart always uses the last selected speaker
+                volumeValue["cmbSpeaker1Value"] = selected;
+                DataUtils.SaveVolumeValue(volumeValue, DataUtils.VolumeDataPath);
+                logger.Info($"[Audio] Speaker 1 selection saved: {selected}");
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "[Audio] Error saving speaker selection.");
+            }
         }
 
         private void comboBoxMicroPhone_SelectedIndexChanged(object sender, EventArgs e)
         {
-            System.Windows.Forms.ToolTip toolTip1 = new System.Windows.Forms.ToolTip();
-            toolTip1.AutoPopDelay = 0;
-            toolTip1.InitialDelay = 0;
-            toolTip1.ReshowDelay = 0;
-            toolTip1.ShowAlways = true;
-            toolTip1.SetToolTip(this.comboBoxMicroPhone, comboBoxMicroPhone.Items[comboBoxMicroPhone.SelectedIndex].ToString());
+            try
+            {
+                if (comboBoxMicroPhone.SelectedItem == null) return;
+                string selected = comboBoxMicroPhone.SelectedItem.ToString();
+                toolTip1.SetToolTip(this.comboBoxMicroPhone, selected);
+
+                // Save immediately so restart always uses the last selected mic
+                volumeValue["cmbMicValue"] = selected;
+                DataUtils.SaveVolumeValue(volumeValue, DataUtils.VolumeDataPath);
+                logger.Info($"[Audio] Mic selection saved: {selected}");
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "[Audio] Error saving mic selection.");
+            }
         }
 
         private void cmbBoxSpeaker2_SelectedIndexChanged(object sender, EventArgs e)
         {
-            System.Windows.Forms.ToolTip toolTip1 = new System.Windows.Forms.ToolTip();
-            toolTip1.AutoPopDelay = 0;
-            toolTip1.InitialDelay = 0;
-            toolTip1.ReshowDelay = 0;
-            toolTip1.ShowAlways = true;
-            toolTip1.SetToolTip(this.cmbBoxSpeaker2, cmbBoxSpeaker2.Items[cmbBoxSpeaker2.SelectedIndex].ToString());
+            try
+            {
+                if (cmbBoxSpeaker2.SelectedItem == null) return;
+                string selected = cmbBoxSpeaker2.SelectedItem.ToString();
+                toolTip1.SetToolTip(this.cmbBoxSpeaker2, selected);
+
+                // Save immediately
+                volumeValue["cmbSpeaker2Value"] = selected;
+                DataUtils.SaveVolumeValue(volumeValue, DataUtils.VolumeDataPath);
+                logger.Info($"[Audio] Speaker 2 selection saved: {selected}");
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "[Audio] Error saving speaker 2 selection.");
+            }
         }
 
         private void cmbBoxSpeaker2_MouseMove(object sender, MouseEventArgs e)
@@ -486,14 +513,41 @@ namespace WindowsFormsApp1
                     volumeA1Speaker.Value = volumeValue.ContainsKey("volumeA1Speaker") && int.TryParse(volumeValue["volumeA1Speaker"], out int A1Speaker) ? A1Speaker : 100;
                     volumeA2Speaker.Value = volumeValue.ContainsKey("volumeA2Speaker") && int.TryParse(volumeValue["volumeA2Speaker"], out int A2Speaker) ? A2Speaker : 100;
 
-                    string cmbItem = volumeValue.ContainsKey("cmbMicValue") ? volumeValue["cmbMicValue"] : "";
-                    SelectItemInComboBox(comboBoxMicroPhone, cmbItem);
+                    // Restore mic selection — validate the saved device still exists
+                    string savedMic = volumeValue.ContainsKey("cmbMicValue") ? volumeValue["cmbMicValue"] : "";
+                    if (!string.IsNullOrEmpty(savedMic))
+                    {
+                        bool micFound = TrySelectItemInComboBox(comboBoxMicroPhone, savedMic);
+                        if (!micFound)
+                        {
+                            logger.Warn($"[Audio] Saved microphone '{savedMic}' not found. Prompting user to reselect.");
+                            MessageBox.Show(
+                                $"Your previous microphone ('{savedMic.Split(':')[0].Trim()}') is not available.\n\nPlease select your microphone from the dropdown.",
+                                "Audio Device Not Found",
+                                MessageBoxButtons.OK,
+                                MessageBoxIcon.Warning);
+                        }
+                    }
 
-                    cmbItem = volumeValue.ContainsKey("cmbSpeaker1Value") ? volumeValue["cmbSpeaker1Value"] : "";
-                    SelectItemInComboBox(cmbBoxSpeaker, cmbItem);
+                    // Restore speaker selection — validate the saved device still exists
+                    string savedSpeaker1 = volumeValue.ContainsKey("cmbSpeaker1Value") ? volumeValue["cmbSpeaker1Value"] : "";
+                    if (!string.IsNullOrEmpty(savedSpeaker1))
+                    {
+                        bool spk1Found = TrySelectItemInComboBox(cmbBoxSpeaker, savedSpeaker1);
+                        if (!spk1Found)
+                        {
+                            logger.Warn($"[Audio] Saved speaker '{savedSpeaker1}' not found. Prompting user to reselect.");
+                            MessageBox.Show(
+                                $"Your previous speaker ('{savedSpeaker1.Split(':')[0].Trim()}') is not available.\n\nPlease select your speaker from the dropdown.",
+                                "Audio Device Not Found",
+                                MessageBoxButtons.OK,
+                                MessageBoxIcon.Warning);
+                        }
+                    }
 
-                    cmbItem = volumeValue.ContainsKey("cmbSpeaker2Value") ? volumeValue["cmbSpeaker2Value"] : "";
-                    SelectItemInComboBox(cmbBoxSpeaker2, cmbItem);
+                    string savedSpeaker2 = volumeValue.ContainsKey("cmbSpeaker2Value") ? volumeValue["cmbSpeaker2Value"] : "";
+                    if (!string.IsNullOrEmpty(savedSpeaker2))
+                        TrySelectItemInComboBox(cmbBoxSpeaker2, savedSpeaker2);
                 }
                 else
                 {
@@ -683,30 +737,108 @@ namespace WindowsFormsApp1
 
         private void SelectItemInComboBox(System.Windows.Forms.ComboBox comboBox, string searchString)
         {
+            TrySelectItemInComboBox(comboBox, searchString);
+        }
+
+        /// <summary>
+        /// Tries to select a saved device in a combo box. Returns true if found, false if not.
+        /// Does NOT default to index 0 if not found.
+        /// </summary>
+        private bool TrySelectItemInComboBox(System.Windows.Forms.ComboBox comboBox, string searchString)
+        {
             try
             {
                 if (string.IsNullOrEmpty(searchString) || searchString == "NONE")
-                    return;
+                    return false;
 
-                if (searchString.Contains(":"))
-                {
-                    searchString = searchString.Substring(0, searchString.Length - 3);
-                }
-                // Loop through all items in the ComboBox
+                // Strip the :index suffix for matching
+                string matchName = searchString.Contains(":")
+                    ? searchString.Substring(0, searchString.LastIndexOf(':'))
+                    : searchString;
+
                 for (int i = 0; i < comboBox.Items.Count; i++)
                 {
-                    if (comboBox.Items[i].ToString().Contains(searchString))
+                    string itemName = comboBox.Items[i].ToString();
+                    string itemBaseName = itemName.Contains(":")
+                        ? itemName.Substring(0, itemName.LastIndexOf(':'))
+                        : itemName;
+
+                    if (itemBaseName.ToLower().Contains(matchName.ToLower()) ||
+                        matchName.ToLower().Contains(itemBaseName.ToLower()))
                     {
                         comboBox.SelectedIndex = i;
-                        return;
+                        return true;
                     }
+                }
+
+                logger.Warn($"[Audio] Device not found in list: '{searchString}'");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                logger.Error(ex, "[Audio] Error selecting item in combo box.");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Starts audio capture and loopback ONLY after saved devices have been restored.
+        /// Auto-starts mic capture with the selected device — no button click required.
+        /// </summary>
+        private void StartAudioWithSavedDevices()
+        {
+            try
+            {
+                // Start loopback capture (customer voice monitor) with selected speaker
+                string speaker1 = cmbBoxSpeaker.SelectedItem?.ToString() ?? "";
+                string speaker2 = cmbBoxSpeaker2.SelectedItem?.ToString() ?? "NONE";
+
+                if (!string.IsNullOrEmpty(speaker1))
+                {
+                    logger.Info($"[Audio] Starting loopback capture on speaker: {speaker1}");
+                    AudioService.Instance.StartLoopbackCapture(speaker1, speaker2);
+                }
+                else
+                {
+                    logger.Warn("[Audio] No speaker selected — loopback capture not started.");
+                }
+
+                // Auto-start mic capture with the selected microphone
+                string micDevice = comboBoxMicroPhone.SelectedItem?.ToString() ?? "";
+                if (!string.IsNullOrEmpty(micDevice))
+                {
+                    logger.Info($"[Audio] Auto-starting mic capture with: {micDevice}");
+
+                    if (AudioService.Instance.waveIn != null)
+                    {
+                        try { AudioService.Instance.waveIn.StopRecording(); } catch { }
+                        try { AudioService.Instance.waveIn.Dispose(); } catch { }
+                    }
+                    if (AudioService.Instance.waveOut != null)
+                    {
+                        try { AudioService.Instance.waveOut.Stop(); } catch { }
+                        try { AudioService.Instance.waveOut.Dispose(); } catch { }
+                    }
+
+                    // Set output device number for script playback
+                    string deviceSpeaker = speaker1.Contains(":") ? speaker1.Substring(0, speaker1.LastIndexOf(':')) : speaker1;
+                    AudioService.Instance.outputDeviceNumber = FindWaveOutDeviceNumber(deviceSpeaker);
+
+                    AudioService.Instance.StartMicrophoneCaptureNew(micDevice);
+                }
+                else
+                {
+                    logger.Warn("[Audio] No microphone selected — mic capture not started.");
                 }
             }
             catch (Exception ex)
             {
-                logger.Error(ex, "An error occurred while performing an operation.");
-                logger.Error("ExceptionMessage: " + ex.Message);
-                logger.Error("Exception: " + ex.ToString());
+                logger.Error(ex, "[Audio] Error starting audio with saved devices.");
+                MessageBox.Show(
+                    $"Audio could not start: {ex.Message}\n\nPlease check your device selections and try again.",
+                    "Audio Start Error",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
             }
         }
 
@@ -720,14 +852,8 @@ namespace WindowsFormsApp1
                     if (capabilities.ProductName.ToLower().Contains("cable"))
                         continue;// excluding virtual cable
                     comboBoxMicroPhone.Items.Add(capabilities.ProductName + ":" + i.ToString());
-                    //cmbBoxMicroPhone2.Items.Add(capabilities.ProductName + ":" + i.ToString());
                 }
-
-                if (comboBoxMicroPhone.Items.Count > 0)
-                    comboBoxMicroPhone.SelectedIndex = 0;
-
-                //if (cmbBoxMicroPhone2.Items.Count > 0)
-                //    cmbBoxMicroPhone2.SelectedIndex = 0;
+                // DO NOT default to index 0 — saved selection will be restored in InitializeTrackBar
 
                 cmbBoxSpeaker.Items.Clear();
                 cmbBoxSpeaker2.Items.Clear();
@@ -741,12 +867,7 @@ namespace WindowsFormsApp1
                     cmbBoxSpeaker.Items.Add(capabilities.ProductName + ":" + i.ToString());
                     cmbBoxSpeaker2.Items.Add(capabilities.ProductName + ":" + i.ToString());
                 }
-
-                if (cmbBoxSpeaker.Items.Count > 0)
-                    cmbBoxSpeaker.SelectedIndex = 0;
-
-                if (cmbBoxSpeaker2.Items.Count > 0)
-                    cmbBoxSpeaker2.SelectedIndex = 0;
+                // DO NOT default to index 0 — saved selection will be restored in InitializeTrackBar
 
                 //if (cmbBoxSpeaker2.Items.Count > 0)
                 //{

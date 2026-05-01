@@ -194,6 +194,8 @@ namespace WindowsFormsApp1.src
 
         private void OnLoopbackDataAvailable(object sender, WaveInEventArgs e)
         {
+            try
+            {
             // Apply incoming audio volume control
             float currentIncomingVolume = GetIncomingAudioVolume();
             
@@ -246,8 +248,13 @@ namespace WindowsFormsApp1.src
             }
             catch (ObjectDisposedException)
             {
-                // Handle or ignore the exception
-                // This can happen if the form is disposed before the invoke is executed
+                // Form disposed before invoke — safe to ignore
+            }
+            } // end outer try
+            catch (Exception ex)
+            {
+                // Any device-level change (e.g. Windows volume slider) must not crash the app
+                System.Diagnostics.Debug.WriteLine($"[AudioService] OnLoopbackDataAvailable error (non-fatal): {ex.Message}");
             }
         }
 
@@ -267,20 +274,28 @@ namespace WindowsFormsApp1.src
 
         private void OnLoopbackRecordingStopped(object sender, StoppedEventArgs e)
         {
+            try
+            {
             if (loopbackCapture != null)
             {
-                loopbackCapture.Dispose();
+                try { loopbackCapture.Dispose(); } catch { }
+                loopbackCapture = null;
             }
 
             if (waveOutSecond != null)
             {
-                waveOutSecond.Stop();
-                waveOutSecond.Dispose();
+                try { waveOutSecond.Stop(); } catch { }
+                try { waveOutSecond.Dispose(); } catch { }
             }
 
             if (e.Exception != null)
             {
-                MessageBox.Show($"An error occurred: {e.Exception.Message}");
+                System.Diagnostics.Debug.WriteLine($"[AudioService] Loopback recording stopped with error: {e.Exception.Message}");
+            }
+            } // end try
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AudioService] OnLoopbackRecordingStopped error (non-fatal): {ex.Message}");
             }
         }
 
