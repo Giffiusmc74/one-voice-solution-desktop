@@ -227,6 +227,7 @@
       <SubType>Component</SubType>
     </Compile>
     <Compile Include="src\SimpleHTTPServer.cs" />
+    <Compile Include="src\UpdateProgressForm.cs" />
     <Compile Include="src\TimeAPI.cs" />
     <Compile Include="TestForm.cs">
       <SubType>Form</SubType>
