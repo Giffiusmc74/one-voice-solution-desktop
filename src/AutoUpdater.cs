@@ -11,8 +11,8 @@ namespace WindowsFormsApp1
 {
     /// <summary>
     /// Checks GitHub Releases for a newer version of ONE Voice Solution.
-    /// Shows a dark-themed UpdateProgressForm during download + install.
-    /// No visible command prompt windows. UAC prompt appears on top naturally.
+    /// If a newer version is found, shows a visible update dialog so the user
+    /// can approve the update. The installer handles its own UAC elevation.
     /// </summary>
     internal static class AutoUpdater
     {
@@ -72,18 +72,15 @@ namespace WindowsFormsApp1
                         if (form == null || form.IsDisposed)
                             return;
 
-                        string capturedUrl = downloadUrl;
-                        string capturedVer = remoteVer;
-
                         form.BeginInvoke(new Action(() =>
                         {
                             var result = MessageBox.Show(
                                 $"A new version of ONE Voice Solution is available!\n\n" +
                                 $"Current version:  {currentVersion}\n" +
-                                $"New version:       {capturedVer}\n\n" +
+                                $"New version:       {remoteVer}\n\n" +
                                 "Click OK to update now.\n\n" +
                                 "The app will close, install the update, and relaunch automatically.\n" +
-                                "You do NOT need to touch anything — just wait and it will come back on its own.",
+                                "You do NOT need to touch anything — just wait 30-45 seconds and it will come back on its own.",
                                 "Update Available",
                                 MessageBoxButtons.OKCancel,
                                 MessageBoxIcon.Information);
@@ -91,15 +88,7 @@ namespace WindowsFormsApp1
                             if (result != DialogResult.OK)
                                 return;
 
-                            // Show the progress splash immediately on the UI thread
-                            var splash = new UpdateProgressForm(capturedVer);
-                            splash.Show(form);
-                            splash.StartMarquee();
-                            splash.SetStatus("Downloading update...");
-                            splash.SetDetail($"Downloading ONE Voice Solution v{capturedVer}");
-                            Application.DoEvents();
-
-                            // Download + install on background thread
+                            // Download on background thread, then install
                             ThreadPool.QueueUserWorkItem(delegate
                             {
                                 try
@@ -107,42 +96,34 @@ namespace WindowsFormsApp1
                                     string tempPath = Path.Combine(
                                         Path.GetTempPath(), "ONEVoiceSolution_Update.exe");
 
-                                    // Download with progress
+                                    // Show progress on UI thread
+                                    form.BeginInvoke(new Action(() =>
+                                    {
+                                        try
+                                        {
+                                            var notify = new NotifyIcon
+                                            {
+                                                Icon    = System.Drawing.SystemIcons.Information,
+                                                Visible = true
+                                            };
+                                            notify.ShowBalloonTip(5000, "ONE Voice Solution",
+                                                $"Downloading update v{remoteVer}... The app will restart when done.",
+                                                ToolTipIcon.Info);
+                                            Thread.Sleep(1000);
+                                            notify.Visible = false;
+                                            notify.Dispose();
+                                        }
+                                        catch { }
+                                    }));
+
                                     using (var dlClient = new WebClient())
                                     {
                                         dlClient.Headers[HttpRequestHeader.UserAgent] = "ONEVoiceSolution-AutoUpdater/1.0";
-
-                                        dlClient.DownloadProgressChanged += (s, e) =>
-                                        {
-                                            try
-                                            {
-                                                splash.SetProgress(e.ProgressPercentage);
-                                                splash.SetDetail($"Downloading... {e.ProgressPercentage}%  ({e.BytesReceived / 1024:N0} KB)");
-                                            }
-                                            catch { }
-                                        };
-
-                                        dlClient.DownloadFileCompleted += (s, e) =>
-                                        {
-                                            try
-                                            {
-                                                splash.SetProgress(100);
-                                                splash.SetStatus("Installing update...");
-                                                splash.SetDetail("Please approve the Windows security prompt if it appears.");
-                                                splash.StartCountdown();
-                                            }
-                                            catch { }
-                                        };
-
-                                        // Synchronous download so we can sequence the install after
-                                        dlClient.DownloadFile(capturedUrl, tempPath);
+                                        dlClient.DownloadFile(downloadUrl, tempPath);
                                     }
 
-                                    Log.Info($"[AutoUpdater] Downloaded v{capturedVer} to {tempPath}");
-
-                                    // Write batch: wait for this process to exit, then run installer silently.
-                                    // /SILENT shows the Inno Setup progress window (handles UAC on top).
-                                    // /NORESTART prevents automatic reboot.
+                                    // Write batch: wait for this process to exit, then run installer.
+                                    // Inno Setup requests its own UAC elevation — no runas needed here.
                                     int pid = Process.GetCurrentProcess().Id;
                                     string batPath = Path.Combine(Path.GetTempPath(), "one_voice_update.bat");
                                     File.WriteAllText(batPath,
@@ -150,34 +131,29 @@ namespace WindowsFormsApp1
                                         $":wait\r\n" +
                                         $"tasklist /FI \"PID eq {pid}\" 2>NUL | find /I \"{pid}\" >NUL\r\n" +
                                         $"if not errorlevel 1 (timeout /t 1 /nobreak >NUL & goto wait)\r\n" +
-                                        $"\"{tempPath}\" /SILENT /NORESTART\r\n");
+                                        $"\"{tempPath}\" /VERYSILENT /NORESTART\r\n");
 
-                                    // Launch batch hidden — no black window
                                     Process.Start(new ProcessStartInfo
                                     {
                                         FileName        = "cmd.exe",
                                         Arguments       = $"/C \"{batPath}\"",
-                                        UseShellExecute = false,
-                                        CreateNoWindow  = true
+                                        UseShellExecute = true,
+                                        WindowStyle     = ProcessWindowStyle.Normal
+                                        // No Verb = "runas" — installer handles its own elevation
                                     });
-
-                                    Log.Info("[AutoUpdater] Installer batch launched. Exiting app.");
 
                                     // Exit so the batch file can run the installer cleanly
                                     form.BeginInvoke(new Action(() => Application.Exit()));
                                 }
                                 catch (Exception ex)
                                 {
-                                    Log.Warn("[AutoUpdater] Download/install failed: " + ex.Message);
+                                    Log.Warn("[AutoUpdater] Download failed: " + ex.Message);
                                     form.BeginInvoke(new Action(() =>
-                                    {
-                                        try { splash.Close(); splash.Dispose(); } catch { }
                                         MessageBox.Show(
-                                            "Update failed. Please download the latest version manually from your member portal.\n\nError: " + ex.Message,
+                                            "Update download failed. Please download the latest version manually from your member portal.\n\nError: " + ex.Message,
                                             "Update Failed",
                                             MessageBoxButtons.OK,
-                                            MessageBoxIcon.Warning);
-                                    }));
+                                            MessageBoxIcon.Warning)));
                                 }
                             });
                         }));

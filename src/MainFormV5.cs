@@ -66,7 +66,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.62";
+        private const string APP_VERSION = "7.63";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -151,12 +151,6 @@ namespace WindowsFormsApp1
         private WasapiLoopbackCapture  _loopbackCapture;
         private float                  _customerVoiceVolume = 1.0f;
 
-        // ── Init guards ───────────────────────────────────────────────────────
-        // Prevents SelectedIndexChanged from firing during device population
-        private bool _isInitializing = false;
-        // Prevents audio from starting more than once
-        private bool _audioRunning   = false;
-
         [DllImport("user32.dll")]
         private static extern int SendMessage(IntPtr hWnd, int Msg, int wParam, int lParam);
         [DllImport("user32.dll")]
@@ -173,16 +167,8 @@ namespace WindowsFormsApp1
             SetupTrayIcon();
             SetupMeterTimer();
             LoadSettings();
-
-            // INIT ORDER: Populate → Set (saved devices) → Start audio
-            // _isInitializing suppresses SelectedIndexChanged during population
-            _isInitializing = true;
             PopulateDevices();
-            _isInitializing = false;
-
-            // Start audio ONCE with the verified selected devices
-            StartAudioWithDevices();
-
+            StartAudioCapture();
             StartHeartbeat();
             StartBridgeServer();
             StartLoopbackCapture();
@@ -1106,22 +1092,12 @@ namespace WindowsFormsApp1
             this.Controls.Add(_cboHeadset);
 
             _cboMic.SelectedIndexChanged += (s, e) => {
-                if (_isInitializing) return; // suppress during init
                 if (_cboMic.SelectedIndex >= 0) {
                     btnMic.Tag = TruncateDevice(_cboMic.Text, 22) + "   \u25BC";
                     btnMic.Invalidate();
-                    // Save immediately so restart always restores the correct device
-                    AppSettings.Instance.MicDevice = _cboMic.Text;
-                    AppSettings.Instance.Save();
-                    Log.Info($"[Audio] Mic selection changed by user: '{_cboMic.Text}' — restarting capture.");
-                    // Restart mic capture with the newly selected device
-                    _audioRunning = false;
-                    StartAudioCapture(_cboMic.Text);
-                    _audioRunning = true;
                 }
             };
             _cboHeadset.SelectedIndexChanged += (s, e) => {
-                if (_isInitializing) return; // suppress during init
                 if (_cboHeadset.SelectedIndex >= 0) {
                     btnSpk.Tag = TruncateDevice(_cboHeadset.Text, 22) + "   \u25BC";
                     btnSpk.Invalidate();
@@ -1467,32 +1443,6 @@ namespace WindowsFormsApp1
         }
 
         // ── Audio capture (microphone) ────────────────────────────────────────
-        // ── Single audio start entry point ─────────────────────────────────────────
-        // Called ONCE after init. Guards against double-start.
-        private void StartAudioWithDevices()
-        {
-            if (_audioRunning)
-            {
-                Log.Warn("[Audio] StartAudioWithDevices called but audio already running — skipped.");
-                return;
-            }
-
-            string micName = _cboMic?.SelectedIndex >= 0 ? _cboMic.Text : AppSettings.Instance.MicDevice;
-
-            if (string.IsNullOrWhiteSpace(micName))
-            {
-                Log.Warn("[Audio] No mic selected — audio not started. User must select a microphone.");
-                MessageBox.Show(
-                    "Please select your microphone from the dropdown to start audio.",
-                    "No Microphone Selected", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-
-            Log.Info($"[Audio] StartAudioWithDevices: mic='{micName}'");
-            _audioRunning = true;
-            StartAudioCapture(micName);
-        }
-
         private void StartAudioCapture(string deviceName = null)
         {
             try { _micCapture?.StopRecording(); } catch { }
@@ -1637,56 +1587,19 @@ namespace WindowsFormsApp1
             {
                 try { _loopbackCapture?.StopRecording(); _loopbackCapture?.Dispose(); } catch { }
                 _loopbackCapture = null;
-
-                // Customer Voice meter must ONLY capture from VB Cable Output (softphone return audio).
-                // Using the default system loopback captures ALL output including bridge recordings,
-                // which causes the red meter to bleed when cards play.
-                // Three separate paths: Jabra mic | localhost bridge | VB Cable customer audio
-                MMDevice vbCableRenderDevice = null;
-                try
-                {
-                    var renders = _deviceEnum.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
-                    vbCableRenderDevice = renders.FirstOrDefault(d =>
-                        d.FriendlyName.IndexOf("CABLE",    StringComparison.OrdinalIgnoreCase) >= 0 ||
-                        d.FriendlyName.IndexOf("VB-Audio", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                        d.FriendlyName.IndexOf("Virtual",  StringComparison.OrdinalIgnoreCase) >= 0);
-                }
-                catch (Exception ex) { Log.Warn($"[Audio] VB Cable render lookup failed: {ex.Message}"); }
-
-                if (vbCableRenderDevice != null)
-                {
-                    Log.Info($"[Audio] Loopback capture targeting VB Cable render: '{vbCableRenderDevice.FriendlyName}'");
-                    _loopbackCapture = new WasapiLoopbackCapture(vbCableRenderDevice);
-                }
-                else
-                {
-                    // VB Cable not found — fall back to default loopback with a warning
-                    Log.Warn("[Audio] VB Cable render device not found — falling back to default loopback. Customer meter may bleed.");
-                    _loopbackCapture = new WasapiLoopbackCapture();
-                }
-
+                _loopbackCapture = new WasapiLoopbackCapture();
                 _loopbackCapture.DataAvailable += (s, e) =>
                 {
-                    try
+                    if (e.BytesRecorded < 4) return;
+                    if (LocalBridgeServer.Instance.IsPlaying) { _customerVoiceLevel = 0f; return; }
+                    float max = 0f;
+                    for (int i = 0; i + 4 <= e.BytesRecorded; i += 4)
                     {
-                        if (e.BytesRecorded < 4) return;
-                        // When bridge is playing a recording, zero out the customer meter
-                        // (belt-and-suspenders: VB Cable loopback should not carry bridge audio anyway)
-                        if (LocalBridgeServer.Instance.IsPlaying) { _customerVoiceLevel = 0f; return; }
-                        float max = 0f;
-                        for (int i = 0; i + 4 <= e.BytesRecorded; i += 4)
-                        {
-                            float sample = Math.Abs(BitConverter.ToSingle(e.Buffer, i)) * _customerVoiceVolume;
-                            if (sample > max) max = sample;
-                        }
-                        float level = Math.Min(1f, max * 2.85f);
-                        if (level > _customerVoiceLevel) _customerVoiceLevel = level;
+                        float sample = Math.Abs(BitConverter.ToSingle(e.Buffer, i)) * _customerVoiceVolume;
+                        if (sample > max) max = sample;
                     }
-                    catch (Exception ex)
-                    {
-                        // Windows audio device state changes must not crash the app
-                        Log.Warn($"[Audio] Loopback DataAvailable error (non-fatal): {ex.Message}");
-                    }
+                    float level = Math.Min(1f, max * 2.85f);
+                    if (level > _customerVoiceLevel) _customerVoiceLevel = level;
                 };
                 _loopbackCapture.StartRecording();
                 Log.Info("[Audio] Loopback capture started.");
@@ -1703,40 +1616,8 @@ namespace WindowsFormsApp1
                 foreach (var d in caps) _cboMic.Items.Add(d.FriendlyName);
                 if (_cboMic.Items.Count > 0)
                 {
-                    // Exact match first
                     int idx = _cboMic.Items.IndexOf(AppSettings.Instance.MicDevice);
-                    // Fuzzy match: find item whose name contains or is contained by the saved name
-                    if (idx < 0 && !string.IsNullOrEmpty(AppSettings.Instance.MicDevice))
-                    {
-                        string saved = AppSettings.Instance.MicDevice.ToLower();
-                        for (int i = 0; i < _cboMic.Items.Count; i++)
-                        {
-                            string item = _cboMic.Items[i].ToString().ToLower();
-                            if (item.Contains(saved) || saved.Contains(item)) { idx = i; break; }
-                        }
-                    }
-                    if (idx >= 0)
-                    {
-                        string matched = _cboMic.Items[idx].ToString();
-                        string saved   = AppSettings.Instance.MicDevice;
-                        if (matched == saved)
-                            Log.Info($"[Audio] Mic exact match: '{matched}'");
-                        else
-                            Log.Info($"[Audio] Mic fuzzy match: saved='{saved}' → matched='{matched}'");
-                        _cboMic.SelectedIndex = idx;
-                    }
-                    else if (!string.IsNullOrEmpty(AppSettings.Instance.MicDevice))
-                    {
-                        // Saved device not found — warn but do NOT default to index 0
-                        Log.Warn($"[Audio] Saved mic '{AppSettings.Instance.MicDevice}' not found — no fallback. User must reselect.");
-                        MessageBox.Show(
-                            $"Your previous microphone ('{AppSettings.Instance.MicDevice}') is not available.\nPlease select your microphone from the dropdown.",
-                            "Audio Device Missing", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    }
-                    else
-                    {
-                        // No saved device at all — leave unselected, do not default to index 0
-                    }
+                    _cboMic.SelectedIndex = idx >= 0 ? idx : 0;
                     _cboMic.BackColor = ONE_BLUE_SEL;
                     _cboMic.ForeColor = Color.White;
                 }
@@ -1744,33 +1625,8 @@ namespace WindowsFormsApp1
                 foreach (var d in rends) _cboHeadset.Items.Add(d.FriendlyName);
                 if (_cboHeadset.Items.Count > 0)
                 {
-                    // Exact match first
                     int idx = _cboHeadset.Items.IndexOf(AppSettings.Instance.HeadsetDevice);
-                    // Fuzzy match
-                    if (idx < 0 && !string.IsNullOrEmpty(AppSettings.Instance.HeadsetDevice))
-                    {
-                        string savedSpk = AppSettings.Instance.HeadsetDevice.ToLower();
-                        for (int i = 0; i < _cboHeadset.Items.Count; i++)
-                        {
-                            string item = _cboHeadset.Items[i].ToString().ToLower();
-                            if (item.Contains(savedSpk) || savedSpk.Contains(item)) { idx = i; break; }
-                        }
-                    }
-                    if (idx >= 0)
-                    {
-                        string matched = _cboHeadset.Items[idx].ToString();
-                        string savedH  = AppSettings.Instance.HeadsetDevice;
-                        if (matched == savedH)
-                            Log.Info($"[Audio] Speaker exact match: '{matched}'");
-                        else
-                            Log.Info($"[Audio] Speaker fuzzy match: saved='{savedH}' → matched='{matched}'");
-                        _cboHeadset.SelectedIndex = idx;
-                    }
-                    else
-                    {
-                        // No match — do NOT default to index 0
-                        Log.Warn($"[Audio] Saved speaker '{AppSettings.Instance.HeadsetDevice}' not found — no fallback.");
-                    }
+                    _cboHeadset.SelectedIndex = idx >= 0 ? idx : 0;
                     _cboHeadset.BackColor = ONE_BLUE_SEL;
                     _cboHeadset.ForeColor = Color.White;
 
@@ -1812,7 +1668,6 @@ namespace WindowsFormsApp1
 
                 _cboHeadset.SelectedIndexChanged += (s2, e2) =>
                 {
-                    if (_isInitializing) return; // suppress during init
                     _cboHeadset.BackColor = ONE_BLUE_SEL;
                     _cboHeadset.ForeColor = Color.White;
                     int si = _cboHeadset.SelectedIndex;
