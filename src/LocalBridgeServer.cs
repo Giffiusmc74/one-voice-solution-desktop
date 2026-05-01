@@ -1,5 +1,5 @@
 /*
- * LocalBridgeServer.cs  —  v7.72
+ * LocalBridgeServer.cs  —  v7.73
  * ONE Voice Solution
  *
  * Hosts a tiny HTTP server on localhost:9001 so the Script Dashboard
@@ -237,7 +237,12 @@ namespace WindowsFormsApp1.src
 
                 _log.Info($"[Bridge] cable=#{_cableDeviceNumber} agentMMDevice='{(_agentMMDevice != null ? _agentMMDevice.FriendlyName : "null")}'");
 
-                // ── VB-Cable output (customer hears recording) ────────────────
+                // Normalised playback format — 48 kHz, 16-bit, stereo.
+                // Both paths use MediaFoundationResampler so the meter fires reliably
+                // and WasapiOut never rejects the format.
+                var normalFormat = new WaveFormat(48000, 16, 2);
+
+                // ── VB-Cable output (customer hears recording) ────────────
                 if (_cableDeviceNumber >= 0)
                 {
                     try
@@ -245,8 +250,11 @@ namespace WindowsFormsApp1.src
                         audioFileReader = new AudioFileReader(tmpPath);
                         audioFileReader.Volume = Math.Max(0f, Math.Min(1f, _customerVol / 100f));
 
+                        // Resample to normalised format — ensures meter fires reliably.
+                        var resampler1 = new MediaFoundationResampler(audioFileReader, normalFormat) { ResamplerQuality = 60 };
+
                         // MeteringSampleProvider drives green meter (agent) and blue meter (customer).
-                        var metering = new MeteringSampleProvider(audioFileReader);
+                        var metering = new MeteringSampleProvider(resampler1.ToSampleProvider());
                         metering.StreamVolume += (s2, e2) =>
                         {
                             float max = 0f;
@@ -285,12 +293,8 @@ namespace WindowsFormsApp1.src
                 }
 
                 // ── Agent headset output (WasapiOut + MMDevice) ───────────────
-                // Uses the exact MMDevice the user selected — no index, no truncation,
-                // no VB Cable collision possible.
-                // Uses a separate AudioFileReader (reader2) so VB-Cable and headset
-                // streams are fully independent — neither consumes the other.
-                // WasapiOut requires the source format to match the device mix format;
-                // we use MediaFoundationResampler to convert if needed.
+                // Separate AudioFileReader (reader2) — fully independent from VB-Cable path.
+                // Both resamplers normalise to 48 kHz/16-bit/stereo before playback.
                 if (_agentMMDevice != null)
                 {
                     try
@@ -298,28 +302,11 @@ namespace WindowsFormsApp1.src
                         audioFileReader2 = new AudioFileReader(tmpPath);
                         audioFileReader2.Volume = Math.Max(0f, Math.Min(1f, _agentVol / 100f));
 
-                        // Get the device's preferred mix format (sample rate / channels)
-                        var deviceFormat = _agentMMDevice.AudioClient.MixFormat;
-                        _log.Info($"[Bridge] Agent device mix format: {deviceFormat.SampleRate}Hz {deviceFormat.Channels}ch");
-                        _log.Info($"[Bridge] Source format: {audioFileReader2.WaveFormat.SampleRate}Hz {audioFileReader2.WaveFormat.Channels}ch");
-
-                        // Resample to device mix format if needed
-                        IWaveProvider sourceForAgent;
-                        if (audioFileReader2.WaveFormat.SampleRate != deviceFormat.SampleRate ||
-                            audioFileReader2.WaveFormat.Channels   != deviceFormat.Channels)
-                        {
-                            var targetFormat = WaveFormat.CreateIeeeFloatWaveFormat(deviceFormat.SampleRate, deviceFormat.Channels);
-                            sourceForAgent = new MediaFoundationResampler(audioFileReader2, targetFormat) { ResamplerQuality = 60 };
-                            _log.Info($"[Bridge] Resampling agent stream to {deviceFormat.SampleRate}Hz {deviceFormat.Channels}ch");
-                        }
-                        else
-                        {
-                            sourceForAgent = audioFileReader2.ToWaveProvider();
-                        }
+                        var resampler2 = new MediaFoundationResampler(audioFileReader2, normalFormat) { ResamplerQuality = 60 };
 
                         _agentOut = new WasapiOut(_agentMMDevice, AudioClientShareMode.Shared, true, 50);
                         _log.Info("[Bridge] Agent WasapiOut init...");
-                        _agentOut.Init(sourceForAgent);
+                        _agentOut.Init(resampler2);
                         _log.Info("[Bridge] Agent WasapiOut play...");
                         _agentOut.Play();
                         _agentOut.PlaybackStopped += OnPlaybackStopped_Agent;
