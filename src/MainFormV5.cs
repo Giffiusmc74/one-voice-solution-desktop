@@ -66,7 +66,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.67";
+        private const string APP_VERSION = "7.68";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -1673,6 +1673,7 @@ namespace WindowsFormsApp1
                         Log.Info($"[Audio] Initial speaker: {rends[selIdx].FriendlyName}");
                         // Tell the bridge which WaveOut device to use for agent monitor (waveO)
                         int agentNum = FindWaveOutDeviceNumber(rends[selIdx].FriendlyName);
+                        if (agentNum < 0) agentNum = GetDefaultWaveOutDeviceIndex();
                         LocalBridgeServer.Instance.SetAgentDevice(agentNum);
                         try
                         {
@@ -1696,6 +1697,7 @@ namespace WindowsFormsApp1
                 {
                     Log.Info($"[Audio] VB-Cable: '{_activeVBCableDevice.FriendlyName}'");
                     int cableNum = FindWaveOutDeviceNumber(_activeVBCableDevice.FriendlyName);
+                    // VB Cable should always match — no fallback needed (don’t route VB Cable to default output).
                     LocalBridgeServer.Instance.SetCableDevice(cableNum);
                 }
                 else
@@ -1716,6 +1718,7 @@ namespace WindowsFormsApp1
                         Log.Info($"[Audio] Speaker changed: {rends[si].FriendlyName}");
                         // Update bridge agent device when headset selection changes
                         int agentNumNew = FindWaveOutDeviceNumber(rends[si].FriendlyName);
+                        if (agentNumNew < 0) agentNumNew = GetDefaultWaveOutDeviceIndex();
                         LocalBridgeServer.Instance.SetAgentDevice(agentNumNew);
                         try
                         {
@@ -1769,27 +1772,43 @@ namespace WindowsFormsApp1
             return -1;
         }
 
+        /// <summary>
+        /// Returns the WaveOut device index that corresponds to the Windows default render device.
+        /// Uses MMDeviceEnumerator to identify the default device name, then matches against WaveOut.
+        /// Returns -1 if no match is found.
+        /// </summary>
+        private int GetDefaultWaveOutDeviceIndex()
+        {
+            try
+            {
+                using (var enumerator = new MMDeviceEnumerator())
+                {
+                    var defaultDevice = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+                    string defaultName = defaultDevice.FriendlyName;
+                    Log.Info($"[Audio] Default render device: '{defaultName}'");
+                    // FindWaveOutDeviceNumber is now pure — returns -1 on no match, no recursion.
+                    return FindWaveOutDeviceNumber(defaultName);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"[Audio] GetDefaultWaveOutDeviceIndex failed: {ex.Message}");
+                return -1;
+            }
+        }
+
         // ── Local Bridge Server ───────────────────────────────────────────────
         private void StartBridgeServer()
         {
             var bridge = LocalBridgeServer.Instance;
             bridge.OnPlaybackLevel += (level, channel) =>
             {
-                if (this.IsDisposed) return;
-                Action update = () =>
-                {
-                    if (channel == "agent")
-                    {
-                        if (level * 0.85f > _agentScriptLevel) _agentScriptLevel = level * 0.85f;
-                        _agentScriptMeter?.Invalidate();
-                    }
-                    else
-                    {
-                        if (level * 0.85f > _customerScriptLevel) _customerScriptLevel = level * 0.85f;
-                        _customerScriptMeter?.Invalidate();
-                    }
-                };
-                if (this.InvokeRequired) this.BeginInvoke(update); else update();
+                // Float assignment is atomic on x86/x64 — safe to write from audio thread.
+                // The UI timer polls these values and calls Invalidate() on its own tick.
+                if (channel == "agent")
+                    _agentScriptLevel = Math.Max(_agentScriptLevel, level * 0.85f);
+                else
+                    _customerScriptLevel = Math.Max(_customerScriptLevel, level * 0.85f);
             };
             bridge.OnPlaybackStopped += () =>
             {
