@@ -1,14 +1,14 @@
 /*
- * MainFormV5.cs  —  ONE Voice Solution v7.38
+ * MainFormV5.cs  —  ONE Voice Solution v7.75
  *
- * UI REDESIGN v7.38:
+ * UI REDESIGN v7.31+ (footer / branding version in APP_VERSION below):
  *   - Complete visual overhaul to match design mock exactly.
  *   - Dark space background with 800 static and glowing stars.
  *   - ONE logo (top-left) + "The Geniusness Is In The Simplicity" tagline centered in header.
  *   - 4 circular neon glow meters with live frequency tracking capped at static volume %.
  *   - Unified [– VOLUME +] pill-shaped controls below meters.
  *   - Custom GDI+ drawn device icons for MICROPHONE (red) and SPEAKER (blue).
- *   - Footer: "One United Global LLC 2026. V 7.38"
+ *   - Footer: "One United Global LLC 2026. V {APP_VERSION}"
  *   - ALL audio logic, routing, and meter data connections mapped accurately.
  *
  * v7.30 changes (audio):
@@ -66,7 +66,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.74";
+        private const string APP_VERSION = "7.75";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -171,6 +171,8 @@ namespace WindowsFormsApp1
             StartAudioCapture();
             StartHeartbeat();
             StartBridgeServer();
+            AudioService.Instance.ScriptPlaybackToCustomerLevelChanged += OnScriptPlaybackToCustomerLevel;
+            AudioService.Instance.ScriptPlaybackAgentHeadsetLevelChanged += OnScriptPlaybackAgentHeadsetLevel;
             StartLoopbackCapture();
             if (!string.IsNullOrEmpty(agentNameOverride) && _lblAgentName != null)
                 _lblAgentName.Text = "Agent: " + agentNameOverride;
@@ -1731,6 +1733,34 @@ namespace WindowsFormsApp1
             return -1;
         }
 
+        // ── Script playback meters (ScriptsForm) ──────────────────────────────
+        // Dedicated AudioService channels avoid feeding live VoIP AudioIntensityChanged into these rings.
+        private void OnScriptPlaybackToCustomerLevel(object sender, AudioIntensityEventArgs e)
+        {
+            if (IsDisposed) return;
+            float peaked = Math.Min(1f, e.Intensity / 100f * 0.95f) * 0.85f;
+            void tick()
+            {
+                if (IsDisposed) return;
+                if (peaked > _agentScriptLevel) _agentScriptLevel = peaked;
+                _agentScriptMeter?.Invalidate();
+            }
+            if (InvokeRequired) BeginInvoke((Action)tick); else tick();
+        }
+
+        private void OnScriptPlaybackAgentHeadsetLevel(object sender, AudioIntensityEventArgs e)
+        {
+            if (IsDisposed) return;
+            float peaked = Math.Min(1f, e.Intensity / 100f * 0.95f) * 0.85f;
+            void tick()
+            {
+                if (IsDisposed) return;
+                if (peaked > _customerScriptLevel) _customerScriptLevel = peaked;
+                _customerScriptMeter?.Invalidate();
+            }
+            if (InvokeRequired) BeginInvoke((Action)tick); else tick();
+        }
+
         // ── Local Bridge Server ───────────────────────────────────────────────
         private void StartBridgeServer()
         {
@@ -1740,15 +1770,17 @@ namespace WindowsFormsApp1
                 if (this.IsDisposed) return;
                 Action update = () =>
                 {
+                    // Bridge: "agent" = headset playback; "customer" = VB-Cable toward caller.
+                    // Left AGENT RECORDING meter = headset; right = cable toward customer.
                     if (channel == "agent")
-                    {
-                        if (level * 0.85f > _agentScriptLevel) _agentScriptLevel = level * 0.85f;
-                        _agentScriptMeter?.Invalidate();
-                    }
-                    else
                     {
                         if (level * 0.85f > _customerScriptLevel) _customerScriptLevel = level * 0.85f;
                         _customerScriptMeter?.Invalidate();
+                    }
+                    else
+                    {
+                        if (level * 0.85f > _agentScriptLevel) _agentScriptLevel = level * 0.85f;
+                        _agentScriptMeter?.Invalidate();
                     }
                 };
                 if (this.InvokeRequired) this.BeginInvoke(update); else update();
@@ -1900,6 +1932,8 @@ namespace WindowsFormsApp1
         // ── Form close ────────────────────────────────────────────────────────
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
+            AudioService.Instance.ScriptPlaybackToCustomerLevelChanged -= OnScriptPlaybackToCustomerLevel;
+            AudioService.Instance.ScriptPlaybackAgentHeadsetLevelChanged -= OnScriptPlaybackAgentHeadsetLevel;
             HeartbeatService.Instance.Stop();
             LocalBridgeServer.Instance.Stop();
             _meterTimer?.Stop();

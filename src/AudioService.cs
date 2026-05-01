@@ -42,6 +42,12 @@ namespace WindowsFormsApp1.src
 
         public event EventHandler<AudioIntensityEventArgs> AudioRecIntensityChanged;
 
+        /// <summary>Fires only for script/recording playback sent toward the customer (e.g. VB-Cable). Not used by live VoIP meters.</summary>
+        public event EventHandler<AudioIntensityEventArgs> ScriptPlaybackToCustomerLevelChanged;
+
+        /// <summary>Fires only for script/recording playback in the agent headset. Not used by live VoIP speaker metering.</summary>
+        public event EventHandler<AudioIntensityEventArgs> ScriptPlaybackAgentHeadsetLevelChanged;
+
         // Microphone volume control
         private float microphoneVolume = 1.0f;
         private bool isMicrophoneMuted = false;
@@ -59,7 +65,9 @@ namespace WindowsFormsApp1.src
         // Public methods to trigger meter updates from script playback
         public void TriggerRecordingMeterUpdate(int intensity)
         {
-            AudioRecIntensityChanged?.Invoke(this, new AudioIntensityEventArgs(intensity));
+            var args = new AudioIntensityEventArgs(intensity);
+            AudioRecIntensityChanged?.Invoke(this, args);
+            ScriptPlaybackToCustomerLevelChanged?.Invoke(this, args);
         }
 
         /// <summary>
@@ -118,7 +126,9 @@ namespace WindowsFormsApp1.src
 
         public void TriggerSpeakerMeterUpdate(int intensity)
         {
-            AudioIntensityChanged?.Invoke(this, new AudioIntensityEventArgs(intensity));
+            var args = new AudioIntensityEventArgs(intensity);
+            AudioIntensityChanged?.Invoke(this, args);
+            ScriptPlaybackAgentHeadsetLevelChanged?.Invoke(this, args);
         }
 
         public void TriggerMicMeterUpdate(int intensity)
@@ -564,7 +574,9 @@ namespace WindowsFormsApp1.src
                     int intensity = (int)(rms * 400); // Boosted for better meter visibility
                     intensity = Math.Min(intensity, 100); // Cap at 100
 
-                    AudioRecIntensityChanged?.Invoke(this,new AudioIntensityEventArgs(intensity));
+                    var ia = new AudioIntensityEventArgs(intensity);
+                    AudioRecIntensityChanged?.Invoke(this, ia);
+                    ScriptPlaybackToCustomerLevelChanged?.Invoke(this, ia);
 
                     //// Update your AudioIntensityMeter control on the UI thread
                     //if (audioIntensityMeterRecIn.InvokeRequired && audioIntensityMeterRecOut.InvokeRequired)
@@ -610,7 +622,9 @@ namespace WindowsFormsApp1.src
 
         private void RefreshIntensityMeter()
         {
-            AudioRecIntensityChanged?.Invoke(this, new AudioIntensityEventArgs(0));            
+            var zero = new AudioIntensityEventArgs(0);
+            AudioRecIntensityChanged?.Invoke(this, zero);
+            ScriptPlaybackToCustomerLevelChanged?.Invoke(this, zero);
         }
 
         private double CalculateRMS(float[] buffer, int samplesRead)

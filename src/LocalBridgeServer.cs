@@ -1,5 +1,5 @@
 /*
- * LocalBridgeServer.cs  —  v7.28
+ * LocalBridgeServer.cs  —  v7.75 (bridge/meter tap)
  * ONE Voice Solution
  *
  * Hosts a tiny HTTP server on localhost:9001 so the Script Dashboard
@@ -62,7 +62,6 @@ namespace WindowsFormsApp1.src
 
         /// <summary>True while a recording is actively playing. Used by MainFormV5 to suppress loopback meter during playback.</summary>
         public bool IsPlaying => isAudioPlaying;
-        private long   lastReadPosition;
         private CancellationTokenSource cancellationTokenSource;
         private string _currentTmpPath;   // temp file for current playback — deleted on stop
 
@@ -227,7 +226,6 @@ namespace WindowsFormsApp1.src
                 if (isAudioPlaying) StopAudioInternal();
 
                 _currentTmpPath  = tmpPath;
-                lastReadPosition = 0;
                 isAudioPlaying   = true;
                 cancellationTokenSource?.Cancel();
                 cancellationTokenSource = new CancellationTokenSource();
@@ -292,20 +290,31 @@ namespace WindowsFormsApp1.src
         }
 
         // ── Meter loop ────────────────────────────────────────────────────────
+        /// <summary>
+        /// Third decoder reads the same file sequentially — never assign Position from the live
+        /// playback AudioFileReaders: MF IMFSourceReader.SetCurrentPosition throws COMException
+        /// 0xC00D36B2 (&quot;invalid state&quot;) when seeking tracks opened by parallel readers.
+        /// Pace reads by decoded duration so this loop finishes with playback instead of racing to EOF.
+        /// </summary>
         private void ProcessAudioAndVisualizeIntensity_(string filePath, CancellationToken ct)
         {
             int bufferSize = 4096;
             using (var reader = new AudioFileReader(filePath))
             {
-                if (lastReadPosition > 0 && lastReadPosition < reader.Length)
-                    reader.Position = lastReadPosition;
+                var wf        = reader.WaveFormat;
+                int channels  = Math.Max(1, wf.Channels);
+                double rateHz = Math.Max(1.0, wf.SampleRate);
 
                 var buffer = new float[bufferSize];
-                int samplesRead;
-                while ((samplesRead = reader.Read(buffer, 0, buffer.Length)) > 0
-                       && !ct.IsCancellationRequested
-                       && isAudioPlaying)
+                while (!ct.IsCancellationRequested && isAudioPlaying)
                 {
+                    int samplesRead = reader.Read(buffer, 0, buffer.Length);
+                    if (samplesRead <= 0)
+                    {
+                        Thread.Sleep(50);
+                        continue;
+                    }
+
                     double rms      = CalculateRMS(buffer, samplesRead);
                     float  agentLvl = (float)Math.Min(1.0, rms * 8.0 * (_agentVol    / 100.0));
                     float  custLvl  = (float)Math.Min(1.0, rms * 8.0 * (_customerVol / 100.0));
@@ -313,11 +322,11 @@ namespace WindowsFormsApp1.src
                     OnPlaybackLevel?.Invoke(agentLvl, "agent");
                     OnPlaybackLevel?.Invoke(custLvl,  "customer");
 
-                    lastReadPosition = reader.Position;
-                    Thread.Sleep(75);
+                    int frames = samplesRead / channels;
+                    int sleepMs = (int)Math.Round(frames / rateHz * 1000.0);
+                    sleepMs = Math.Max(1, Math.Min(sleepMs, 250));
+                    Thread.Sleep(sleepMs);
                 }
-                if (reader.Position >= reader.Length)
-                    lastReadPosition = 0;
             }
         }
 
