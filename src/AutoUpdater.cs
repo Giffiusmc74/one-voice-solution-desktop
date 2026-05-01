@@ -2,7 +2,9 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
+using System.Net.Http;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Newtonsoft.Json.Linq;
 using NLog;
@@ -27,43 +29,56 @@ namespace WindowsFormsApp1
         /// Fire-and-forget — safe to call from the UI thread.
         /// All network I/O runs on a background thread.
         /// </summary>
+        // Shared HttpClient — handles redirects and TLS 1.2 automatically
+        private static readonly HttpClient _http = CreateHttpClient();
+
+        private static HttpClient CreateHttpClient()
+        {
+            // Force TLS 1.2 for .NET 4.8 compatibility with GitHub
+            ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls;
+            var handler = new HttpClientHandler { AllowAutoRedirect = true, MaxAutomaticRedirections = 10 };
+            var client  = new HttpClient(handler);
+            client.DefaultRequestHeaders.Add("User-Agent", "ONEVoiceSolution-AutoUpdater/1.0");
+            return client;
+        }
+
         public static void CheckAndUpdate(string currentVersion)
         {
             ThreadPool.QueueUserWorkItem(delegate
             {
                 try
                 {
-                    using (var wc = new WebClient())
+                    // Fetch latest release metadata
+                    var task = _http.GetStringAsync(API_URL);
+                    task.Wait();
+                    string json = task.Result;
+
+                    var release = JObject.Parse(json);
+
+                    string tagName   = (string)release["tag_name"] ?? string.Empty;
+                    string remoteVer = tagName.TrimStart('v');
+
+                    if (!IsNewer(remoteVer, currentVersion))
+                        return;  // already up to date
+
+                    // Find the .exe installer asset
+                    string downloadUrl = null;
+                    var assets = release["assets"] as JArray;
+                    if (assets != null)
                     {
-                        wc.Headers[HttpRequestHeader.UserAgent] = "ONEVoiceSolution-AutoUpdater/1.0";
-
-                        string json = wc.DownloadString(API_URL);
-                        var release = JObject.Parse(json);
-
-                        string tagName   = (string)release["tag_name"] ?? string.Empty;
-                        string remoteVer = tagName.TrimStart('v');
-
-                        if (!IsNewer(remoteVer, currentVersion))
-                            return;  // already up to date
-
-                        // Find the .exe installer asset
-                        string downloadUrl = null;
-                        var assets = release["assets"] as JArray;
-                        if (assets != null)
+                        foreach (JObject asset in assets)
                         {
-                            foreach (JObject asset in assets)
+                            string name = (string)asset["name"] ?? string.Empty;
+                            if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
                             {
-                                string name = (string)asset["name"] ?? string.Empty;
-                                if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
-                                {
-                                    downloadUrl = (string)asset["browser_download_url"];
-                                    break;
-                                }
+                                downloadUrl = (string)asset["browser_download_url"];
+                                break;
                             }
                         }
+                    }
 
-                        if (string.IsNullOrEmpty(downloadUrl))
-                            return;
+                    if (string.IsNullOrEmpty(downloadUrl))
+                        return;
 
                         // Show update dialog on the UI thread
                         var form = Application.OpenForms.Count > 0
@@ -107,36 +122,44 @@ namespace WindowsFormsApp1
                                     string tempPath = Path.Combine(
                                         Path.GetTempPath(), "ONEVoiceSolution_Update.exe");
 
-                                    // Download with progress
-                                    using (var dlClient = new WebClient())
+                    // Download with progress using HttpClient (handles GitHub redirects + TLS 1.2)
+                    {
+                        var response = _http.GetAsync(capturedUrl, HttpCompletionOption.ResponseHeadersRead).Result;
+                        response.EnsureSuccessStatusCode();
+
+                        long totalBytes = response.Content.Headers.ContentLength ?? -1;
+                        using (var stream    = response.Content.ReadAsStreamAsync().Result)
+                        using (var fileStream = File.Create(tempPath))
+                        {
+                            byte[] buffer = new byte[81920];
+                            long   downloaded = 0;
+                            int    read;
+                            while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
+                            {
+                                fileStream.Write(buffer, 0, read);
+                                downloaded += read;
+                                if (totalBytes > 0)
+                                {
+                                    int pct = (int)(downloaded * 100 / totalBytes);
+                                    try
                                     {
-                                        dlClient.Headers[HttpRequestHeader.UserAgent] = "ONEVoiceSolution-AutoUpdater/1.0";
-
-                                        dlClient.DownloadProgressChanged += (s, e) =>
-                                        {
-                                            try
-                                            {
-                                                splash.SetProgress(e.ProgressPercentage);
-                                                splash.SetDetail($"Downloading... {e.ProgressPercentage}%  ({e.BytesReceived / 1024:N0} KB)");
-                                            }
-                                            catch { }
-                                        };
-
-                                        dlClient.DownloadFileCompleted += (s, e) =>
-                                        {
-                                            try
-                                            {
-                                                splash.SetProgress(100);
-                                                splash.SetStatus("Installing update...");
-                                                splash.SetDetail("Please approve the Windows security prompt if it appears.");
-                                                splash.StartCountdown();
-                                            }
-                                            catch { }
-                                        };
-
-                                        // Synchronous download so we can sequence the install after
-                                        dlClient.DownloadFile(capturedUrl, tempPath);
+                                        splash.SetProgress(pct);
+                                        splash.SetDetail($"Downloading... {pct}%  ({downloaded / 1024:N0} KB)");
                                     }
+                                    catch { }
+                                }
+                            }
+                        }
+
+                        try
+                        {
+                            splash.SetProgress(100);
+                            splash.SetStatus("Installing update...");
+                            splash.SetDetail("Please approve the Windows security prompt if it appears.");
+                            splash.StartCountdown();
+                        }
+                        catch { }
+                    }
 
                                     Log.Info($"[AutoUpdater] Downloaded v{capturedVer} to {tempPath}");
 
