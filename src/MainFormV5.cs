@@ -1637,12 +1637,41 @@ namespace WindowsFormsApp1
             {
                 try { _loopbackCapture?.StopRecording(); _loopbackCapture?.Dispose(); } catch { }
                 _loopbackCapture = null;
-                _loopbackCapture = new WasapiLoopbackCapture();
+
+                // Customer Voice meter must ONLY capture from VB Cable Output (softphone return audio).
+                // Using the default system loopback captures ALL output including bridge recordings,
+                // which causes the red meter to bleed when cards play.
+                // Three separate paths: Jabra mic | localhost bridge | VB Cable customer audio
+                MMDevice vbCableRenderDevice = null;
+                try
+                {
+                    var renders = _deviceEnum.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active);
+                    vbCableRenderDevice = renders.FirstOrDefault(d =>
+                        d.FriendlyName.IndexOf("CABLE",    StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        d.FriendlyName.IndexOf("VB-Audio", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        d.FriendlyName.IndexOf("Virtual",  StringComparison.OrdinalIgnoreCase) >= 0);
+                }
+                catch (Exception ex) { Log.Warn($"[Audio] VB Cable render lookup failed: {ex.Message}"); }
+
+                if (vbCableRenderDevice != null)
+                {
+                    Log.Info($"[Audio] Loopback capture targeting VB Cable render: '{vbCableRenderDevice.FriendlyName}'");
+                    _loopbackCapture = new WasapiLoopbackCapture(vbCableRenderDevice);
+                }
+                else
+                {
+                    // VB Cable not found — fall back to default loopback with a warning
+                    Log.Warn("[Audio] VB Cable render device not found — falling back to default loopback. Customer meter may bleed.");
+                    _loopbackCapture = new WasapiLoopbackCapture();
+                }
+
                 _loopbackCapture.DataAvailable += (s, e) =>
                 {
                     try
                     {
                         if (e.BytesRecorded < 4) return;
+                        // When bridge is playing a recording, zero out the customer meter
+                        // (belt-and-suspenders: VB Cable loopback should not carry bridge audio anyway)
                         if (LocalBridgeServer.Instance.IsPlaying) { _customerVoiceLevel = 0f; return; }
                         float max = 0f;
                         for (int i = 0; i + 4 <= e.BytesRecorded; i += 4)
@@ -1655,7 +1684,7 @@ namespace WindowsFormsApp1
                     }
                     catch (Exception ex)
                     {
-                        // Windows audio device state changes (e.g. volume slider) must not crash the app
+                        // Windows audio device state changes must not crash the app
                         Log.Warn($"[Audio] Loopback DataAvailable error (non-fatal): {ex.Message}");
                     }
                 };
