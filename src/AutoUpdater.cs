@@ -11,14 +11,17 @@ using NLog;
 namespace WindowsFormsApp1
 {
     /// <summary>
-    /// Checks GitHub releases for a newer version and auto-installs it.
-    /// Uses HttpClient with TLS 1.2 + redirect support to avoid WebClient failures.
+    /// Checks the ONE Voice portal for updates and downloads the installer directly.
+    /// Uses the portal API (not GitHub) so the download works reliably from any version.
+    /// HttpClient with TLS 1.2 + redirect support — no WebClient failures.
     /// Shows a dark progress splash during download — no black cmd windows.
     /// </summary>
     internal static class AutoUpdater
     {
         private static readonly Logger Log = LogManager.GetCurrentClassLogger();
-        private const string API_URL = "https://api.github.com/repos/Giffiusmc74/one-voice-solution-desktop/releases/latest";
+
+        // Portal version check endpoint — public, no auth required
+        private const string VERSION_URL = "https://onevoiceapp.manus.space/api/desktop/version";
 
         // Shared HttpClient — handles redirects and TLS 1.2 automatically on .NET 4.8
         private static readonly HttpClient _http = CreateHttpClient();
@@ -29,11 +32,12 @@ namespace WindowsFormsApp1
                 SecurityProtocolType.Tls12 | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls;
             var handler = new HttpClientHandler
             {
-                AllowAutoRedirect    = true,
+                AllowAutoRedirect        = true,
                 MaxAutomaticRedirections = 10
             };
             var client = new HttpClient(handler);
             client.DefaultRequestHeaders.Add("User-Agent", "ONEVoiceSolution-AutoUpdater/1.0");
+            client.Timeout = TimeSpan.FromSeconds(30);
             return client;
         }
 
@@ -47,39 +51,25 @@ namespace WindowsFormsApp1
             {
                 try
                 {
-                    // ── 1. Fetch latest release metadata ──────────────────────────────
-                    string json = _http.GetStringAsync(API_URL).Result;
-                    var release = JObject.Parse(json);
+                    // ── 1. Fetch latest version from portal ───────────────────────────
+                    string json = _http.GetStringAsync(VERSION_URL).Result;
+                    var info = JObject.Parse(json);
 
-                    string tagName   = (string)release["tag_name"] ?? string.Empty;
-                    string remoteVer = tagName.TrimStart('v');
+                    string remoteVer   = ((string)info["version"]     ?? string.Empty).Trim();
+                    string downloadUrl = ((string)info["downloadUrl"] ?? string.Empty).Trim();
+
+                    if (string.IsNullOrEmpty(remoteVer) || string.IsNullOrEmpty(downloadUrl))
+                    {
+                        Log.Warn("[AutoUpdater] Portal returned empty version or downloadUrl.");
+                        return;
+                    }
 
                     if (!IsNewer(remoteVer, currentVersion))
                         return; // already up to date
 
-                    // ── 2. Find .exe installer asset ───────────────────────────────────
-                    string downloadUrl = null;
-                    var assets = release["assets"] as JArray;
-                    if (assets != null)
-                    {
-                        foreach (JObject asset in assets)
-                        {
-                            string name = (string)asset["name"] ?? string.Empty;
-                            if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
-                            {
-                                downloadUrl = (string)asset["browser_download_url"];
-                                break;
-                            }
-                        }
-                    }
+                    Log.Info($"[AutoUpdater] Update available: {currentVersion} → {remoteVer}");
 
-                    if (string.IsNullOrEmpty(downloadUrl))
-                    {
-                        Log.Warn("[AutoUpdater] No .exe asset found in release " + remoteVer);
-                        return;
-                    }
-
-                    // ── 3. Prompt user on the UI thread ────────────────────────────────
+                    // ── 2. Prompt user on the UI thread ────────────────────────────────
                     var form = Application.OpenForms.Count > 0 ? Application.OpenForms[0] : null;
                     if (form == null || form.IsDisposed)
                         return;
@@ -111,7 +101,7 @@ namespace WindowsFormsApp1
                         splash.SetDetail($"Downloading ONE Voice Solution v{capturedVer}");
                         Application.DoEvents();
 
-                        // ── 4. Download + install on background thread ─────────────────
+                        // ── 3. Download + install on background thread ─────────────────
                         ThreadPool.QueueUserWorkItem(delegate
                         {
                             try
@@ -166,7 +156,7 @@ namespace WindowsFormsApp1
 
                                 Log.Info($"[AutoUpdater] Downloaded v{capturedVer} to {tempPath}");
 
-                                // ── 5. Write hidden batch: wait for this PID to exit, then run installer ──
+                                // ── 4. Write hidden batch: wait for this PID to exit, then run installer ──
                                 int    pid     = Process.GetCurrentProcess().Id;
                                 string batPath = Path.Combine(Path.GetTempPath(), "one_voice_update.bat");
                                 File.WriteAllText(batPath,
