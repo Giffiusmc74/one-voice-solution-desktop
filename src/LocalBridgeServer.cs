@@ -439,8 +439,18 @@ namespace WindowsFormsApp1.src
                     audioFileReader2 = null;
                     try { waveAgentOut?.Dispose(); } catch { }
                     waveAgentOut = null;
-                    isAudioPlaying = false;
-                    OnPlaybackStopped?.Invoke();
+                    // BUG FIX: Only abort isAudioPlaying if BOTH outputs failed.
+                    // Previously this always set isAudioPlaying=false on agent failure,
+                    // which skipped the meter loop even when cable output was still running.
+                    if (!cableStarted)
+                    {
+                        isAudioPlaying = false;
+                        OnPlaybackStopped?.Invoke();
+                    }
+                    else
+                    {
+                        _log.Warn("[Bridge] Agent output failed but cable is running — meter loop will proceed (cable-only mode).");
+                    }
                 }
 
                 _log.Info($"[Bridge] /play setup summary: cableStarted={cableStarted} agentStarted={agentStarted} isAudioPlaying={isAudioPlaying} OnPlaybackLevel subscribers={(OnPlaybackLevel?.GetInvocationList()?.Length ?? 0)}");
@@ -462,15 +472,35 @@ namespace WindowsFormsApp1.src
                     bool deleteMeterCopy = false;
                     try
                     {
-                        string meterCopy = Path.Combine(Path.GetTempPath(), "ov_meter_" + Guid.NewGuid().ToString("N") + ext);
-                        File.Copy(tmpPath, meterCopy, overwrite: true);
+                        // BUG FIX: Convert to WAV for the meter copy.
+                        // WebM files with 3 parallel MF readers frequently return all-zero samples
+                        // on the third reader, causing flat meters. Converting to PCM WAV first
+                        // guarantees the meter loop reads real audio data.
+                        string meterCopy = Path.Combine(Path.GetTempPath(), "ov_meter_" + Guid.NewGuid().ToString("N") + ".wav");
+                        bool convertedToWav = false;
+                        try
+                        {
+                            using (var srcReader = new AudioFileReader(tmpPath))
+                            using (var wavWriter = new WaveFileWriter(meterCopy, srcReader.WaveFormat))
+                            {
+                                srcReader.CopyTo(wavWriter);
+                            }
+                            convertedToWav = true;
+                            _log.Info($"[Bridge] Meter decode WAV copy \u2192 {Clip(meterCopy, 100)}");
+                        }
+                        catch (Exception convEx)
+                        {
+                            _log.Warn(convEx, "[Bridge] WAV conversion failed \u2014 falling back to raw copy");
+                            if (File.Exists(meterCopy)) { try { File.Delete(meterCopy); } catch { } }
+                            File.Copy(tmpPath, meterCopy, overwrite: true);
+                            _log.Info($"[Bridge] Meter decode raw copy (fallback) \u2192 {Clip(meterCopy, 100)}");
+                        }
                         meterDecodePath = meterCopy;
                         deleteMeterCopy = true;
-                        _log.Info($"[Bridge] Meter decode isolated copy → {Clip(meterCopy, 100)}");
                     }
                     catch (Exception cex)
                     {
-                        _log.Warn(cex, "[Bridge] Meter copy failed — viz reads primary temp (may be flat WebM)");
+                        _log.Warn(cex, "[Bridge] Meter copy failed \u2014 viz reads primary temp (may be flat WebM)");
                     }
 
                     string mdPath = meterDecodePath;

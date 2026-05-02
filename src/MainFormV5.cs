@@ -1728,11 +1728,24 @@ namespace WindowsFormsApp1
                 foreach (var d in rends)
                     Log.Info($"[Audio] Render Device: '{d.FriendlyName}' | State: {d.State} | ID: {d.ID}");
 
+                // BUG FIX: Tightened VB-Cable detection.
+                // Previously matched "Virtual" and "Line " which could pick up unrelated devices
+                // (e.g. "Virtual Surround Sound", "Line In") and route customer audio to the wrong output.
+                // Now only matches the actual VB-Audio Virtual Cable product name patterns.
                 _activeVBCableDevice = rends.FirstOrDefault(d =>
-                    d.FriendlyName.IndexOf("CABLE",    StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    d.FriendlyName.IndexOf("VB-Audio", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    d.FriendlyName.IndexOf("Virtual",  StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    d.FriendlyName.IndexOf("Line ",    StringComparison.OrdinalIgnoreCase) >= 0);
+                    d.FriendlyName.IndexOf("CABLE Input",  StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    d.FriendlyName.IndexOf("CABLE Output", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    d.FriendlyName.IndexOf("VB-Audio",     StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    (d.FriendlyName.IndexOf("CABLE", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                     d.FriendlyName.IndexOf("VB",    StringComparison.OrdinalIgnoreCase) >= 0));
+                // Fallback: if strict match fails, try broader CABLE match (catches older VB-Cable installs)
+                if (_activeVBCableDevice == null)
+                {
+                    _activeVBCableDevice = rends.FirstOrDefault(d =>
+                        d.FriendlyName.IndexOf("CABLE", StringComparison.OrdinalIgnoreCase) >= 0);
+                    if (_activeVBCableDevice != null)
+                        Log.Warn($"[Audio] VB-Cable found via broad CABLE match: '{_activeVBCableDevice.FriendlyName}' — verify this is VB-Audio Virtual Cable");
+                }
 
                 if (_activeVBCableDevice != null)
                 {
