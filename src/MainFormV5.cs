@@ -1,5 +1,5 @@
 /*
- * MainFormV5.cs  —  ONE Voice Solution v7.79
+ * MainFormV5.cs  —  ONE Voice Solution v7.80
  *
  * UI REDESIGN v7.31+ (footer / branding version in APP_VERSION below):
  *   - Complete visual overhaul to match design mock exactly.
@@ -67,7 +67,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.79";
+        private const string APP_VERSION = "7.80";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -154,8 +154,19 @@ namespace WindowsFormsApp1
         private WasapiLoopbackCapture  _loopbackCapture;
         private WasapiLoopbackCapture  _loopbackDefaultCapture;
         private float                  _customerVoiceVolume = 1.0f;
-        /// <summary>VB-Cable loopback includes mic passthrough toward customer — subtract mic-correlated level so RED does not track agent solo speech.</summary>
-        private const float RedMicPassthroughBleedCoupling = 0.88f;
+        /// <summary>
+        /// Mic gate constants for RED (customer voice) meter suppression.
+        /// When the agent mic is active above MicGateThreshold, the VB-Cable loopback
+        /// is dominated by mic passthrough audio — so we zero RED completely instead of
+        /// trying to subtract (scalar subtraction is unreliable due to thread timing).
+        /// MicGateHoldTickCount keeps RED zeroed for 300ms after mic drops below threshold
+        /// to prevent flickering between syllables (each tick = 50ms meter timer interval).
+        /// Tune MicGateThreshold: lower = more sensitive gate (may suppress during quiet speech);
+        ///                        higher = less sensitive (may let brief mic spikes through).
+        /// </summary>
+        private const float MicGateThreshold    = 0.07f; // 7 % = audible speech; below = ambient noise
+        private const int   MicGateHoldTickCount = 6;    // 6 × 50 ms = 300 ms release after mic drops
+        private int         _micGateHoldTicks    = 0;    // runtime hold-down counter
 
         [DllImport("user32.dll")]
         private static extern int SendMessage(IntPtr hWnd, int Msg, int wParam, int lParam);
@@ -1658,15 +1669,44 @@ namespace WindowsFormsApp1
         {
             if (e.BytesRecorded < 4) return;
             if (LocalBridgeServer.Instance.IsPlaying) { _customerVoiceLevel = 0f; return; }
-            float raw = DecodeLoopbackPeak(e.Buffer, e.BytesRecorded);
-            float bleed = _micLevel * RedMicPassthroughBleedCoupling;
-            PushCustomerVoicePeak(Math.Max(0f, raw - bleed));
+
+            // ── Mic gate (replaces scalar bleed subtraction) ────────────────────
+            // Scalar subtraction (micLevel × coupling) is unreliable because the mic
+            // capture callback and loopback callback run on different threads with
+            // different buffer timing. A gate is simpler and 100% effective:
+            // if the agent mic is active, the VB-Cable loopback is mostly mic audio → zero RED.
+            if (_micLevel > MicGateThreshold)
+            {
+                _micGateHoldTicks = MicGateHoldTickCount; // reset hold
+                _customerVoiceLevel = 0f;
+                return;
+            }
+            if (_micGateHoldTicks > 0)
+            {
+                _micGateHoldTicks--;
+                _customerVoiceLevel = 0f;
+                return;
+            }
+
+            PushCustomerVoicePeak(DecodeLoopbackPeak(e.Buffer, e.BytesRecorded));
         }
 
         private void LoopbackDefault_DataAvailable_PushRed(object sender, WaveInEventArgs e)
         {
             if (e.BytesRecorded < 4) return;
             if (LocalBridgeServer.Instance.IsPlaying) { _customerVoiceLevel = 0f; return; }
+
+            // Apply same mic gate as the cable loopback handler — the default render
+            // device also captures mic passthrough when both the call app and mic
+            // pass-through are active on the same output device.
+            if (_micLevel > MicGateThreshold || _micGateHoldTicks > 0)
+            {
+                if (_micLevel > MicGateThreshold) _micGateHoldTicks = MicGateHoldTickCount;
+                else _micGateHoldTicks--;
+                _customerVoiceLevel = 0f;
+                return;
+            }
+
             PushCustomerVoicePeak(DecodeLoopbackPeak(e.Buffer, e.BytesRecorded));
         }
 
@@ -1861,18 +1901,23 @@ namespace WindowsFormsApp1
             bridge.OnPlaybackLevel += (level, channel) =>
             {
                 if (this.IsDisposed) return;
+                const float smoothK = 0.72f;  // Increased from 0.44 — higher value = faster meter response.
+                                               // 0.44 was too sluggish, causing the BLUE agent ring to appear flat
+                                               // during playback. 0.72 gives visible real-time tracking.
                 Action update = () =>
                 {
                     // Bridge: "agent" = headset playback; "customer" = VB-Cable toward caller.
-                    // Left AGENT RECORDING meter = headset; right = cable toward customer.
+                    // Left (BLUE) = _customerScriptLevel; right (GREEN) = _agentScriptLevel.
                     if (channel == "agent")
                     {
-                        if (level * 0.85f > _customerScriptLevel) _customerScriptLevel = level * 0.85f;
+                        float t = level * 0.85f;
+                        _customerScriptLevel = _customerScriptLevel * (1f - smoothK) + t * smoothK;
                         _customerScriptMeter?.Invalidate();
                     }
                     else
                     {
-                        if (level * 0.85f > _agentScriptLevel) _agentScriptLevel = level * 0.85f;
+                        float t = level * 0.85f;
+                        _agentScriptLevel = _agentScriptLevel * (1f - smoothK) + t * smoothK;
                         _agentScriptMeter?.Invalidate();
                     }
 

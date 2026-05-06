@@ -1,5 +1,5 @@
 /*
- * LocalBridgeServer.cs  —  v7.79 (bridge/meter tap)
+ * LocalBridgeServer.cs  —  v7.80 (bridge/meter tap)
  * ONE Voice Solution
  *
  * Hosts a tiny HTTP server on localhost:9001 so the Script Dashboard
@@ -8,7 +8,7 @@
  * AUDIO ARCHITECTURE:
  *   waveOut      → VB-Audio Cable Input  (customer hears the recording)
  *   agent player → WasapiOut(MMDevice headset) when set, else WaveOut index fallback
- *   POST /play body: audioUrl (required); optional volume 0–100 applies to this clip only;
+ *   POST /play body: audioUrl (required); optional volume 0–100 per clip (omit to keep headset/VB slider gains).
  *     channel in JSON is ignored — both outputs play when devices exist.
  *   Temp file extension follows URL or Content-Type (e.g. .webm) so Media Foundation decodes correctly.
  *   Agent path: WasapiOut(MMDevice); on COM/init failure → WaveOutEvent.DeviceNumber fallback.
@@ -51,7 +51,17 @@ namespace WindowsFormsApp1.src
         private HttpListener _listener;
         private CancellationTokenSource _cts;
         private bool _disposed;
-        private readonly HttpClient _http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        // User-Agent must look like a real browser — CloudFront WAF managed rules (AWSManagedRulesCommonRuleSet)
+        // reject requests with no User-Agent or .NET default agents (403 Forbidden).
+        // Using a standard Chrome UA satisfies AWS bot detection without disabling WAF on the distribution.
+        private static readonly HttpClient _http = BuildHttpClient();
+        private static HttpClient BuildHttpClient()
+        {
+            var client = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+            client.DefaultRequestHeaders.UserAgent.ParseAdd(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+            return client;
+        }
 
         // ── Audio state ───────────────────────────────────────────────────────
         private WaveOutEvent    waveOut;           // → VB-Cable (customer)
@@ -112,6 +122,16 @@ namespace WindowsFormsApp1.src
             _log.Info($"[Bridge] Cable device → #{deviceNumber}");
         }
 
+        /// <summary>
+        /// Perceived loudness: UI % mapped so low settings get finer control (quiet % → much lower linear gain).
+        /// </summary>
+        private static float SliderToPlaybackGain(int pct)
+        {
+            pct = Math.Max(0, Math.Min(100, pct));
+            if (pct <= 0) return 0f;
+            return (float)Math.Pow(pct / 100.0, 2.15);
+        }
+
         public void SetInitialVolume(string channel, int volume)
         {
             SetVolume(channel, volume);
@@ -130,12 +150,12 @@ namespace WindowsFormsApp1.src
                 if (channel == "customer")
                 {
                     _customerVol = volume;
-                    if (audioFileReader != null) audioFileReader.Volume = volume / 100f;
+                    if (audioFileReader != null) audioFileReader.Volume = SliderToPlaybackGain(volume);
                 }
                 else
                 {
                     _agentVol = volume;
-                    if (audioFileReader2 != null) audioFileReader2.Volume = volume / 100f;
+                    if (audioFileReader2 != null) audioFileReader2.Volume = SliderToPlaybackGain(volume);
                 }
             }
         }
@@ -304,7 +324,7 @@ namespace WindowsFormsApp1.src
                 {
                     int v = Math.Max(0, Math.Min(100, pv.Value));
                     playAgentVol = playCustVol = v;
-                    _log.Info($"[Bridge] /play requested volume → {v}% (this clip only; sliders unchanged)");
+                    _log.Info($"[Bridge] /play requested volume → {v}% (clip-only gain curve; persisted sliders unchanged).");
                 }
             }
             catch { /* ignore malformed volume */ }
@@ -358,7 +378,7 @@ namespace WindowsFormsApp1.src
                         audioFileReader = new AudioFileReader(tmpPath);
                         // Use AudioFileReader.Volume (software gain) — reliable on ALL drivers.
                         // WaveOutEvent.Volume is ignored by many drivers (e.g. Jabra).
-                        audioFileReader.Volume = Math.Max(0f, Math.Min(1f, playCustVol / 100f));
+                        audioFileReader.Volume = SliderToPlaybackGain(playCustVol);
                         waveOut = new WaveOutEvent { DeviceNumber = _cableDeviceNumber, DesiredLatency = 100 };
                         waveOut.Init(audioFileReader);
                         waveOut.Play();
@@ -384,7 +404,7 @@ namespace WindowsFormsApp1.src
                 try
                 {
                     audioFileReader2 = new AudioFileReader(tmpPath);
-                    audioFileReader2.Volume = Math.Max(0f, Math.Min(1f, playAgentVol / 100f));
+                    audioFileReader2.Volume = SliderToPlaybackGain(playAgentVol);
 
                     if (agentDev != null)
                     {
@@ -408,7 +428,7 @@ namespace WindowsFormsApp1.src
                             try { audioFileReader2?.Dispose(); } catch { }
                             audioFileReader2 = null;
                             audioFileReader2 = new AudioFileReader(tmpPath);
-                            audioFileReader2.Volume = Math.Max(0f, Math.Min(1f, playAgentVol / 100f));
+                            audioFileReader2.Volume = SliderToPlaybackGain(playAgentVol);
 
                             int devNum = outputDeviceNumber >= 0 ? outputDeviceNumber : 0;
                             var wo = new WaveOutEvent { DeviceNumber = devNum, DesiredLatency = 100 };
@@ -570,8 +590,8 @@ namespace WindowsFormsApp1.src
                         double rms      = CalculateRMS(buffer, samplesRead);
                         if (rms > maxRms) maxRms = rms;
                         // Slightly hotter gain than live mic paths — bridge viz should match audible script energy.
-                        float  agentLvl = (float)Math.Min(1.0, rms * 14.0 * (agentVolPct    / 100.0));
-                        float  custLvl  = (float)Math.Min(1.0, rms * 14.0 * (customerVolPct / 100.0));
+                        float agentLvl = (float)Math.Min(1.0, rms * 14.0 * SliderToPlaybackGain(agentVolPct));
+                        float custLvl  = (float)Math.Min(1.0, rms * 14.0 * SliderToPlaybackGain(customerVolPct));
                         if (agentLvl > maxAgentLvl) maxAgentLvl = agentLvl;
                         if (custLvl > maxCustLvl) maxCustLvl = custLvl;
 
@@ -662,12 +682,12 @@ namespace WindowsFormsApp1.src
                 if (channel == "customer")
                 {
                     _customerVol = volume;
-                    if (audioFileReader  != null) audioFileReader.Volume  = volume / 100f;
+                    if (audioFileReader  != null) audioFileReader.Volume  = SliderToPlaybackGain(volume);
                 }
                 else
                 {
                     _agentVol = volume;
-                    if (audioFileReader2 != null) audioFileReader2.Volume = volume / 100f;
+                    if (audioFileReader2 != null) audioFileReader2.Volume = SliderToPlaybackGain(volume);
                 }
             }
             _log.Info($"[Bridge] Volume {channel} → {volume}%");
