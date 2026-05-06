@@ -1,5 +1,5 @@
 /*
- * MainFormV5.cs  —  ONE Voice Solution v7.80
+ * MainFormV5.cs  —  ONE Voice Solution v7.81
  *
  * UI REDESIGN v7.31+ (footer / branding version in APP_VERSION below):
  *   - Complete visual overhaul to match design mock exactly.
@@ -67,7 +67,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.80";
+        private const string APP_VERSION = "7.81";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -733,9 +733,10 @@ namespace WindowsFormsApp1
             // (Removed the trackPen drawing to make it completely empty/transparent)
 
             // 6. Glowing Progress Arc
-            if (volLevel > 0.01f)
+            if (volLevel > 0.005f)
             {
-                float litSweep = sweepAngle * volLevel;
+                // Visual floor: ensure even tiny sounds are visible as at least a 3.5% arc
+                float litSweep = Math.Max(sweepAngle * 0.035f, sweepAngle * volLevel);
                 
                 // Diffused progress glow
                 int glowPasses = 16;
@@ -1901,7 +1902,7 @@ namespace WindowsFormsApp1
             bridge.OnPlaybackLevel += (level, channel) =>
             {
                 if (this.IsDisposed) return;
-                const float smoothK = 0.72f;  // Increased from 0.44 — higher value = faster meter response.
+                const float smoothK = 0.65f;  // Increased for faster real-time tracking (was 0.24)
                                                // 0.44 was too sluggish, causing the BLUE agent ring to appear flat
                                                // during playback. 0.72 gives visible real-time tracking.
                 Action update = () =>
@@ -1910,7 +1911,7 @@ namespace WindowsFormsApp1
                     // Left (BLUE) = _customerScriptLevel; right (GREEN) = _agentScriptLevel.
                     if (channel == "agent")
                     {
-                        float t = level * 0.85f;
+                        float t = level * 1.85f; // Heavily boosted for visibility at low volume (Scott request)
                         _customerScriptLevel = _customerScriptLevel * (1f - smoothK) + t * smoothK;
                         _customerScriptMeter?.Invalidate();
                     }
