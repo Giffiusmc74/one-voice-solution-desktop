@@ -1,5 +1,5 @@
 /*
- * LocalBridgeServer.cs  —  v7.76 (bridge/meter tap)
+ * LocalBridgeServer.cs  —  v7.79 (bridge/meter tap)
  * ONE Voice Solution
  *
  * Hosts a tiny HTTP server on localhost:9001 so the Script Dashboard
