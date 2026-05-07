@@ -1,5 +1,5 @@
 /*
- * LocalBridgeServer.cs  —  v7.81 (bridge/meter tap)
+ * LocalBridgeServer.cs  —  v7.83 (bridge customer gain + live level-match)
  * ONE Voice Solution
  *
  * Hosts a tiny HTTP server on localhost:9001 so the Script Dashboard
@@ -15,8 +15,9 @@
  *   Single meter loop fires OnPlaybackLevel for both meters.
  *
  * VOLUME — AudioFileReader.Volume (software) on both decode chains.
- *   /volume { channel:"agent",    volume:0-100 } → agent reader gain
- *   /volume { channel:"customer", volume:0-100 } → cable reader gain
+ *   /volume { channel:"agent",    volume:0-100 } → headset reader (steeper pow curve)
+ *   /volume { channel:"customer", volume:0-100 } → VB-Cable reader (gentler curve + small calibration vs headset)
+ *   Live mic RMS from MainForm updates script level-match gain (same target as AudioService.PlayAudio)
  */
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
@@ -91,6 +92,15 @@ namespace WindowsFormsApp1.src
         private int _agentVol    = 100;
         private int _customerVol = 100;
 
+        // Same idea as AudioService.PlayAudio: scale script decode gain toward the agent's live speech level (-18 dBFS target).
+        private volatile float _scriptLevelMatchGain = 1.0f;
+        private const float TargetSpeechRmsLinear  = 0.126f;
+        private const float MinScriptLevelMatchGain = 0.5f;
+        private const float MaxScriptLevelMatchGain = 2.0f;
+
+        /// <summary>Optional lift for VB-Cable path only — headsets often render hotter than virtual cable capture seen by WhatsApp.</summary>
+        private const float CustomerCableCalibrationGain = 1.28f;
+
         // ── Device setters ────────────────────────────────────────────────────
         /// <summary>Called by MainFormV5 when the headset dropdown changes.</summary>
         public void SetOutputDevice(int deviceNumber)
@@ -122,14 +132,51 @@ namespace WindowsFormsApp1.src
             _log.Info($"[Bridge] Cable device → #{deviceNumber}");
         }
 
-        /// <summary>
-        /// Perceived loudness: UI % mapped so low settings get finer control (quiet % → much lower linear gain).
-        /// </summary>
-        private static float SliderToPlaybackGain(int pct)
+        /// <summary>Headset path: steep curve keeps very low slider positions usable without blasting.</summary>
+        private static float SliderToPlaybackGainAgent(int pct)
         {
             pct = Math.Max(0, Math.Min(100, pct));
             if (pct <= 0) return 0f;
             return (float)Math.Pow(pct / 100.0, 2.15);
+        }
+
+        /// <summary>VB-Cable / caller path: gentler exponent so mid-slider (e.g. 40–60%) stays intelligible.</summary>
+        private static float SliderToPlaybackGainCustomer(int pct)
+        {
+            pct = Math.Max(0, Math.Min(100, pct));
+            if (pct <= 0) return 0f;
+            return (float)Math.Pow(pct / 100.0, 1.48);
+        }
+
+        /// <summary>Updated from live mic RMS (MainForm WasapiCapture) — mirrors AudioService level matching.</summary>
+        public void SetScriptLevelMatchGain(float gain)
+        {
+            if (float.IsNaN(gain) || float.IsInfinity(gain)) return;
+            gain = Math.Max(MinScriptLevelMatchGain, Math.Min(MaxScriptLevelMatchGain, gain));
+            _scriptLevelMatchGain = gain;
+            lock (_playLock)
+            {
+                try
+                {
+                    if (audioFileReader != null) audioFileReader.Volume = EffectiveCustomerPlaybackLinear(_customerVol);
+                    if (audioFileReader2 != null) audioFileReader2.Volume = EffectiveAgentPlaybackLinear(_agentVol);
+                }
+                catch { /* reader may be in flux */ }
+            }
+        }
+
+        private float EffectiveAgentPlaybackLinear(int pctVol)
+            => Math.Min(1f, SliderToPlaybackGainAgent(pctVol) * _scriptLevelMatchGain);
+
+        private float EffectiveCustomerPlaybackLinear(int pctVol)
+            => Math.Min(1f, SliderToPlaybackGainCustomer(pctVol) * _scriptLevelMatchGain * CustomerCableCalibrationGain);
+
+        /// <summary>Allows MainForm/AEC to derive match gain from smoothed RMS the same way as AudioService.</summary>
+        public static float LevelMatchGainFromMicRms(float smoothedMicRmsLinear)
+        {
+            if (smoothedMicRmsLinear <= 0.001f || TargetSpeechRmsLinear <= 0.0001f) return 1f;
+            float g = smoothedMicRmsLinear / TargetSpeechRmsLinear;
+            return Math.Max(MinScriptLevelMatchGain, Math.Min(MaxScriptLevelMatchGain, g));
         }
 
         public void SetInitialVolume(string channel, int volume)
@@ -150,12 +197,12 @@ namespace WindowsFormsApp1.src
                 if (channel == "customer")
                 {
                     _customerVol = volume;
-                    if (audioFileReader != null) audioFileReader.Volume = SliderToPlaybackGain(volume);
+                    if (audioFileReader != null) audioFileReader.Volume = EffectiveCustomerPlaybackLinear(volume);
                 }
                 else
                 {
                     _agentVol = volume;
-                    if (audioFileReader2 != null) audioFileReader2.Volume = SliderToPlaybackGain(volume);
+                    if (audioFileReader2 != null) audioFileReader2.Volume = EffectiveAgentPlaybackLinear(volume);
                 }
             }
         }
@@ -378,7 +425,7 @@ namespace WindowsFormsApp1.src
                         audioFileReader = new AudioFileReader(tmpPath);
                         // Use AudioFileReader.Volume (software gain) — reliable on ALL drivers.
                         // WaveOutEvent.Volume is ignored by many drivers (e.g. Jabra).
-                        audioFileReader.Volume = SliderToPlaybackGain(playCustVol);
+                        audioFileReader.Volume = EffectiveCustomerPlaybackLinear(playCustVol);
                         waveOut = new WaveOutEvent { DeviceNumber = _cableDeviceNumber, DesiredLatency = 100 };
                         waveOut.Init(audioFileReader);
                         waveOut.Play();
@@ -404,7 +451,7 @@ namespace WindowsFormsApp1.src
                 try
                 {
                     audioFileReader2 = new AudioFileReader(tmpPath);
-                    audioFileReader2.Volume = SliderToPlaybackGain(playAgentVol);
+                    audioFileReader2.Volume = EffectiveAgentPlaybackLinear(playAgentVol);
 
                     if (agentDev != null)
                     {
@@ -428,7 +475,7 @@ namespace WindowsFormsApp1.src
                             try { audioFileReader2?.Dispose(); } catch { }
                             audioFileReader2 = null;
                             audioFileReader2 = new AudioFileReader(tmpPath);
-                            audioFileReader2.Volume = SliderToPlaybackGain(playAgentVol);
+                            audioFileReader2.Volume = EffectiveAgentPlaybackLinear(playAgentVol);
 
                             int devNum = outputDeviceNumber >= 0 ? outputDeviceNumber : 0;
                             var wo = new WaveOutEvent { DeviceNumber = devNum, DesiredLatency = 100 };
@@ -590,8 +637,10 @@ namespace WindowsFormsApp1.src
                         double rms      = CalculateRMS(buffer, samplesRead);
                         if (rms > maxRms) maxRms = rms;
                         // Slightly hotter gain than live mic paths — bridge viz should match audible script energy.
-                        float agentLvl = (float)Math.Min(1.0, rms * 14.0 * SliderToPlaybackGain(agentVolPct));
-                        float custLvl  = (float)Math.Min(1.0, rms * 14.0 * SliderToPlaybackGain(customerVolPct));
+                        float agentGain = EffectiveAgentPlaybackLinear(agentVolPct);
+                        float custGain  = EffectiveCustomerPlaybackLinear(customerVolPct);
+                        float agentLvl = (float)Math.Min(1.0, rms * 14.0 * agentGain);
+                        float custLvl  = (float)Math.Min(1.0, rms * 14.0 * custGain);
                         if (agentLvl > maxAgentLvl) maxAgentLvl = agentLvl;
                         if (custLvl > maxCustLvl) maxCustLvl = custLvl;
 
@@ -682,12 +731,12 @@ namespace WindowsFormsApp1.src
                 if (channel == "customer")
                 {
                     _customerVol = volume;
-                    if (audioFileReader  != null) audioFileReader.Volume  = SliderToPlaybackGain(volume);
+                    if (audioFileReader  != null) audioFileReader.Volume  = EffectiveCustomerPlaybackLinear(volume);
                 }
                 else
                 {
                     _agentVol = volume;
-                    if (audioFileReader2 != null) audioFileReader2.Volume = SliderToPlaybackGain(volume);
+                    if (audioFileReader2 != null) audioFileReader2.Volume = EffectiveAgentPlaybackLinear(volume);
                 }
             }
             _log.Info($"[Bridge] Volume {channel} → {volume}%");

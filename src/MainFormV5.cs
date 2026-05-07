@@ -1,5 +1,5 @@
 /*
- * MainFormV5.cs  —  ONE Voice Solution v7.81
+ * MainFormV5.cs  —  ONE Voice Solution v7.83
  *
  * UI REDESIGN v7.31+ (footer / branding version in APP_VERSION below):
  *   - Complete visual overhaul to match design mock exactly.
@@ -67,7 +67,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.81";
+        private const string APP_VERSION = "7.83";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -94,6 +94,9 @@ namespace WindowsFormsApp1
         private WaveOutEvent       _micPassWaveOut;
         private MMDeviceEnumerator _deviceEnum = new MMDeviceEnumerator();
         private float _micLevel            = 0f;
+        /// <summary>Smoothed mic RMS (−1..1 samples) — drives bridge script gain like AudioService.PlayAudio.</summary>
+        private float _smoothedMicRmsLinear = 0.126f;
+        private int _bridgeLevelMatchThrottle;
         private float _customerVoiceLevel  = 0f;
         private float _agentScriptLevel    = 0f;
         private float _customerScriptLevel = 0f;
@@ -1281,8 +1284,8 @@ namespace WindowsFormsApp1
             };
             _lblSpeakerVol = new Label { Bounds = new Rectangle(-2000, -2000, 60, 20), Visible = false };
 
-            int agentDefault    = (int)(AppSettings.Instance.GetVolume("agentScript",    0.48f) * 100);
-            int customerDefault = (int)(AppSettings.Instance.GetVolume("customerScript", 0.55f) * 100);
+            int agentDefault    = (int)(AppSettings.Instance.GetVolume("agentScript",    0.90f) * 100);
+            int customerDefault = (int)(AppSettings.Instance.GetVolume("customerScript", 0.85f) * 100);
             agentDefault    = Math.Max(0, Math.Min(100, agentDefault));
             customerDefault = Math.Max(0, Math.Min(100, customerDefault));
 
@@ -1512,14 +1515,31 @@ namespace WindowsFormsApp1
                     if (e.BytesRecorded < 4) return;
                     float max    = 0f;
                     int   stride = (_micCapture.WaveFormat.BitsPerSample == 16) ? 2 : 4;
+                    double sumSq = 0;
+                    int    n      = 0;
                     for (int i = 0; i + stride <= e.BytesRecorded; i += stride)
                     {
                         float sample = stride == 2
-                            ? Math.Abs(BitConverter.ToInt16(e.Buffer, i) / 32768f)
-                            : Math.Abs(BitConverter.ToSingle(e.Buffer, i));
-                        if (sample > max) max = sample;
+                            ? BitConverter.ToInt16(e.Buffer, i) / 32768f
+                            : BitConverter.ToSingle(e.Buffer, i);
+                        float a = Math.Abs(sample);
+                        if (a > max) max = a;
+                        sumSq += sample * sample;
+                        n++;
                     }
                     _micLevel = Math.Min(1f, max * 3.25f);
+                    if (n > 0)
+                    {
+                        float frameRms = (float)Math.Sqrt(sumSq / n);
+                        if (frameRms > 0.001f)
+                            _smoothedMicRmsLinear = frameRms * 0.1f + _smoothedMicRmsLinear * 0.9f;
+                    }
+                    if (++_bridgeLevelMatchThrottle >= 3)
+                    {
+                        _bridgeLevelMatchThrottle = 0;
+                        float g = LocalBridgeServer.LevelMatchGainFromMicRms(_smoothedMicRmsLinear);
+                        LocalBridgeServer.Instance.SetScriptLevelMatchGain(g);
+                    }
                 };
                 _micCapture.StartRecording();
                 StartMicPassThrough(device.FriendlyName);
@@ -1898,7 +1918,7 @@ namespace WindowsFormsApp1
         private void StartBridgeServer()
         {
             var bridge = LocalBridgeServer.Instance;
-            Log.Info("[Bridge→UI] Script meters: bridge channel 'agent'(headset)→BLUE left ring; 'customer'(VB-Cable)→GREEN right. RED=loopback only. Dial arcs use Min(level, slider%) — if BLUE/GREEN sliders ~0%, rings stay dark.");
+            Log.Info("[Bridge→UI] Script meters: bridge channel 'agent'(headset)→BLUE left ring; 'customer'(VB-Cable)→GREEN right. WhatsApp/discord/etc. must use 'CABLE Output' / VB-Audio as mic for callers to hear script audio. Dial arcs cap at slider %.");
             bridge.OnPlaybackLevel += (level, channel) =>
             {
                 if (this.IsDisposed) return;
@@ -1917,7 +1937,8 @@ namespace WindowsFormsApp1
                     }
                     else
                     {
-                        float t = level * 0.85f;
+                        // Match BLUE boost so GREEN (customer/VB-Cable) meter tracks perceived headset energy (~same as agent ear).
+                        float t = level * 1.85f;
                         _agentScriptLevel = _agentScriptLevel * (1f - smoothK) + t * smoothK;
                         _agentScriptMeter?.Invalidate();
                     }
@@ -1956,8 +1977,8 @@ namespace WindowsFormsApp1
                 if (this.InvokeRequired) this.BeginInvoke(reset); else reset();
             };
 
-            int savedAgent    = (int)(AppSettings.Instance.GetVolume("agentScript",    1.0f) * 100);
-            int savedCustomer = (int)(AppSettings.Instance.GetVolume("customerScript", 0.55f) * 100);
+            int savedAgent    = (int)(AppSettings.Instance.GetVolume("agentScript",    0.92f) * 100);
+            int savedCustomer = (int)(AppSettings.Instance.GetVolume("customerScript", 0.85f) * 100);
             bridge.SetInitialVolume("agent",    savedAgent);
             bridge.SetInitialVolume("customer", savedCustomer);
             Log.Info($"[Audio] Initial volumes: agent={savedAgent}% customer={savedCustomer}%");
@@ -2018,8 +2039,8 @@ namespace WindowsFormsApp1
             // Restore dB values from saved volume percentages
             int micPct     = Math.Max(1, Math.Min(200, s.MicSystemVolume));
             int spkPct     = Math.Max(1, Math.Min(200, s.SpeakerSystemVolume));
-            int agentPct   = Math.Max(1, (int)(s.GetVolume("agentScript",    0.48f) * 100));
-            int custPct    = Math.Max(1, (int)(s.GetVolume("customerScript", 0.55f) * 100));
+            int agentPct   = Math.Max(1, (int)(s.GetVolume("agentScript",    0.90f) * 100));
+            int custPct    = Math.Max(1, (int)(s.GetVolume("customerScript", 0.85f) * 100));
             _dbAgentVoice      = LinearToDb(micPct   / 100f);
             _dbCustomerVoice   = LinearToDb(spkPct   / 100f);
             _dbCustomerScript  = LinearToDb(agentPct / 100f);

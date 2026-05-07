@@ -34,9 +34,9 @@ namespace WindowsFormsApp1.src
         public string MicrophoneDevice           { get; set; } = "";
         public string HeadsetDevice              { get; set; } = "";
         public int    CustomerVoiceVolume         { get; set; } = 60;
-        public int    AgentScriptPlaybackVolume   { get; set; } = 50;
+        public int    AgentScriptPlaybackVolume   { get; set; } = 90;
         public int    MyMicLevelVolume            { get; set; } = 55;
-        public int    CustomerScriptPlaybackVolume{ get; set; } = 55;
+        public int    CustomerScriptPlaybackVolume{ get; set; } = 85;
         public bool   AutoLevelMatchEnabled       { get; set; } = true;
         public int    WindowX                     { get; set; } = -1; // -1 = use default centering
         public int    WindowY                     { get; set; } = -1;
