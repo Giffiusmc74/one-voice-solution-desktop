@@ -1,5 +1,5 @@
 /*
- * LocalBridgeServer.cs  —  v7.83 (bridge customer gain + live level-match)
+ * LocalBridgeServer.cs  —  v7.84 (bridge customer gain + live level-match)
  * ONE Voice Solution
  *
  * Hosts a tiny HTTP server on localhost:9001 so the Script Dashboard
@@ -43,6 +43,7 @@ namespace WindowsFormsApp1.src
 
         // ── Events ────────────────────────────────────────────────────────────
         public event Action<float, string> OnPlaybackLevel;  // (level, channel)
+        public event Action OnPlaybackStarted;
         public event Action OnPlaybackStopped;
 
         // ── Logging ───────────────────────────────────────────────────────────
@@ -100,6 +101,11 @@ namespace WindowsFormsApp1.src
 
         /// <summary>Optional lift for VB-Cable path only — headsets often render hotter than virtual cable capture seen by WhatsApp.</summary>
         private const float CustomerCableCalibrationGain = 1.28f;
+        /// <summary>Global script playback loudness lift for agent/headset and customer/VB paths.</summary>
+        private const float AgentPlaybackBoost = 1.35f;
+        private const float CustomerPlaybackBoost = 1.35f;
+        /// <summary>Allow modest over-unity software gain so 100% can be louder than before.</summary>
+        private const float MaxPlaybackLinear = 1.6f;
 
         // ── Device setters ────────────────────────────────────────────────────
         /// <summary>Called by MainFormV5 when the headset dropdown changes.</summary>
@@ -132,20 +138,26 @@ namespace WindowsFormsApp1.src
             _log.Info($"[Bridge] Cable device → #{deviceNumber}");
         }
 
-        /// <summary>Headset path: steep curve keeps very low slider positions usable without blasting.</summary>
+        /// <summary>
+        /// Shared base curve for script playback sliders.
+        /// Agent/customer remain separately controllable via per-path multipliers.
+        /// </summary>
+        private const float SharedPlaybackCurveExponent = 1.45f;
+
+        /// <summary>Headset path base curve.</summary>
         private static float SliderToPlaybackGainAgent(int pct)
         {
             pct = Math.Max(0, Math.Min(100, pct));
             if (pct <= 0) return 0f;
-            return (float)Math.Pow(pct / 100.0, 2.15);
+            return (float)Math.Pow(pct / 100.0, SharedPlaybackCurveExponent);
         }
 
-        /// <summary>VB-Cable / caller path: gentler exponent so mid-slider (e.g. 40–60%) stays intelligible.</summary>
+        /// <summary>VB-Cable / caller path base curve (matches agent curve).</summary>
         private static float SliderToPlaybackGainCustomer(int pct)
         {
             pct = Math.Max(0, Math.Min(100, pct));
             if (pct <= 0) return 0f;
-            return (float)Math.Pow(pct / 100.0, 1.48);
+            return (float)Math.Pow(pct / 100.0, SharedPlaybackCurveExponent);
         }
 
         /// <summary>Updated from live mic RMS (MainForm WasapiCapture) — mirrors AudioService level matching.</summary>
@@ -166,10 +178,10 @@ namespace WindowsFormsApp1.src
         }
 
         private float EffectiveAgentPlaybackLinear(int pctVol)
-            => Math.Min(1f, SliderToPlaybackGainAgent(pctVol) * _scriptLevelMatchGain);
+            => Math.Min(MaxPlaybackLinear, SliderToPlaybackGainAgent(pctVol) * _scriptLevelMatchGain * AgentPlaybackBoost);
 
         private float EffectiveCustomerPlaybackLinear(int pctVol)
-            => Math.Min(1f, SliderToPlaybackGainCustomer(pctVol) * _scriptLevelMatchGain * CustomerCableCalibrationGain);
+            => Math.Min(MaxPlaybackLinear, SliderToPlaybackGainCustomer(pctVol) * _scriptLevelMatchGain * CustomerCableCalibrationGain * CustomerPlaybackBoost);
 
         /// <summary>Allows MainForm/AEC to derive match gain from smoothed RMS the same way as AudioService.</summary>
         public static float LevelMatchGainFromMicRms(float smoothedMicRmsLinear)
@@ -528,6 +540,9 @@ namespace WindowsFormsApp1.src
                     _log.Warn("[Bridge] /play agent output MISSING — headset/script silence expected for this clip (RED loopback unrelated).");
                 else if (!cableStarted)
                     _log.Warn("[Bridge] /play cable output MISSING — VB-Cable not routed / not found (customer path silent).");
+
+                if (cableStarted || agentStarted)
+                    OnPlaybackStarted?.Invoke();
 
                 // ── Meter loop (drives BLUE/GREEN bridge rings in UI) ──────────
                 // Use a separate file copy for decoding: parallel MF readers on one WebM path often

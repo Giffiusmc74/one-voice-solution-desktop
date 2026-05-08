@@ -1,5 +1,5 @@
 /*
- * MainFormV5.cs  —  ONE Voice Solution v7.83
+ * MainFormV5.cs  —  ONE Voice Solution v7.84
  *
  * UI REDESIGN v7.31+ (footer / branding version in APP_VERSION below):
  *   - Complete visual overhaul to match design mock exactly.
@@ -67,7 +67,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.83";
+        private const string APP_VERSION = "7.84";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -100,6 +100,10 @@ namespace WindowsFormsApp1
         private float _customerVoiceLevel  = 0f;
         private float _agentScriptLevel    = 0f;
         private float _customerScriptLevel = 0f;
+        /// <summary>
+        /// Smoothed script playback envelope used to suppress bridge playback bleed from RED loopback meter.
+        /// </summary>
+        private volatile float _bridgePlaybackEnvelope = 0f;
         /// <summary>Throttles [Bridge→UI] diagnostic lines (~500ms).</summary>
         private readonly Stopwatch _bridgeUiDiagSw = Stopwatch.StartNew();
 
@@ -1451,7 +1455,7 @@ namespace WindowsFormsApp1
                 }
                 if (_customerVoiceLevel > 0)
                 {
-                    _customerVoiceLevel = Math.Max(0f, _customerVoiceLevel - 0.02f);
+                    _customerVoiceLevel = Math.Max(0f, _customerVoiceLevel - 0.04f);
                     _customerVoiceMeter?.Invalidate();
                 }
                 if (_agentScriptLevel > 0)
@@ -1474,12 +1478,7 @@ namespace WindowsFormsApp1
             try { _micCapture?.StopRecording(); } catch { }
             try { _micCapture?.Dispose(); }       catch { }
             _micCapture = null;
-            try { _micPassWaveIn?.StopRecording(); } catch { }
-            try { _micPassWaveIn?.Dispose(); }       catch { }
-            _micPassWaveIn = null;
-            try { _micPassWaveOut?.Stop(); }    catch { }
-            try { _micPassWaveOut?.Dispose(); } catch { }
-            _micPassWaveOut = null;
+            StopMicPassThrough();
 
             try
             {
@@ -1545,6 +1544,16 @@ namespace WindowsFormsApp1
                 StartMicPassThrough(device.FriendlyName);
             }
             catch (Exception ex) { Log.Warn($"[Audio] Capture failed: {ex.Message}"); }
+        }
+
+        private void StopMicPassThrough()
+        {
+            try { _micPassWaveIn?.StopRecording(); } catch { }
+            try { _micPassWaveIn?.Dispose(); }       catch { }
+            _micPassWaveIn = null;
+            try { _micPassWaveOut?.Stop(); }    catch { }
+            try { _micPassWaveOut?.Dispose(); } catch { }
+            _micPassWaveOut = null;
         }
 
         private void StartMicPassThrough(string deviceFriendlyName)
@@ -1641,6 +1650,15 @@ namespace WindowsFormsApp1
             if (level > _customerVoiceLevel) _customerVoiceLevel = level;
         }
 
+        private float SuppressBridgePlaybackFromRed(float loopbackLevel)
+        {
+            if (!LocalBridgeServer.Instance.IsPlaying) return loopbackLevel;
+            // Subtract most of the known script envelope; preserve any excess as probable customer voice.
+            float suppress = Math.Min(loopbackLevel, _bridgePlaybackEnvelope * 1.15f);
+            float cleaned = Math.Max(0f, loopbackLevel - suppress);
+            return cleaned < 0.015f ? 0f : cleaned;
+        }
+
         private void StartLoopbackCapture()
         {
             try
@@ -1689,7 +1707,10 @@ namespace WindowsFormsApp1
         private void LoopbackCable_DataAvailable_PushRed(object sender, WaveInEventArgs e)
         {
             if (e.BytesRecorded < 4) return;
-            if (LocalBridgeServer.Instance.IsPlaying) { _customerVoiceLevel = 0f; return; }
+            // During bridge playback, VB-Cable loopback mostly contains script audio.
+            // Ignore this source so RED does not react to agent recordings.
+            // Customer voice should still come from default/headphone loopback.
+            if (LocalBridgeServer.Instance.IsPlaying) return;
 
             // ── Mic gate (replaces scalar bleed subtraction) ────────────────────
             // Scalar subtraction (micLevel × coupling) is unreliable because the mic
@@ -1709,13 +1730,13 @@ namespace WindowsFormsApp1
                 return;
             }
 
-            PushCustomerVoicePeak(DecodeLoopbackPeak(e.Buffer, e.BytesRecorded));
+            float level = DecodeLoopbackPeak(e.Buffer, e.BytesRecorded);
+            PushCustomerVoicePeak(SuppressBridgePlaybackFromRed(level));
         }
 
         private void LoopbackDefault_DataAvailable_PushRed(object sender, WaveInEventArgs e)
         {
             if (e.BytesRecorded < 4) return;
-            if (LocalBridgeServer.Instance.IsPlaying) { _customerVoiceLevel = 0f; return; }
 
             // Apply same mic gate as the cable loopback handler — the default render
             // device also captures mic passthrough when both the call app and mic
@@ -1728,7 +1749,8 @@ namespace WindowsFormsApp1
                 return;
             }
 
-            PushCustomerVoicePeak(DecodeLoopbackPeak(e.Buffer, e.BytesRecorded));
+            float level = DecodeLoopbackPeak(e.Buffer, e.BytesRecorded);
+            PushCustomerVoicePeak(SuppressBridgePlaybackFromRed(level));
         }
 
         /// <summary>CUSTOMER VOICE volume affects Windows master volume on the agent headset render device.</summary>
@@ -1942,6 +1964,7 @@ namespace WindowsFormsApp1
                         _agentScriptLevel = _agentScriptLevel * (1f - smoothK) + t * smoothK;
                         _agentScriptMeter?.Invalidate();
                     }
+                    _bridgePlaybackEnvelope = Math.Max(_customerScriptLevel, _agentScriptLevel);
 
                     if (_bridgeUiDiagSw.ElapsedMilliseconds >= 500)
                     {
@@ -1953,6 +1976,16 @@ namespace WindowsFormsApp1
                 };
                 if (this.InvokeRequired) this.BeginInvoke(update); else update();
             };
+            bridge.OnPlaybackStarted += () =>
+            {
+                if (this.IsDisposed) return;
+                Action mutePassThrough = () =>
+                {
+                    StopMicPassThrough();
+                    Log.Info("[PassThrough] Hard-muted while recording is playing.");
+                };
+                if (this.InvokeRequired) this.BeginInvoke(mutePassThrough); else mutePassThrough();
+            };
             bridge.OnPlaybackStopped += () =>
             {
                 if (this.IsDisposed) return;
@@ -1960,16 +1993,12 @@ namespace WindowsFormsApp1
                 {
                     _agentScriptLevel    = 0f;
                     _customerScriptLevel = 0f;
+                    _bridgePlaybackEnvelope = 0f;
                     _agentScriptMeter?.Invalidate();
                     _customerScriptMeter?.Invalidate();
                     if (_activeMicDevice != null)
                     {
-                        try { _micPassWaveIn?.StopRecording(); }  catch { }
-                        try { _micPassWaveIn?.Dispose(); }        catch { }
-                        _micPassWaveIn = null;
-                        try { _micPassWaveOut?.Stop(); }    catch { }
-                        try { _micPassWaveOut?.Dispose(); } catch { }
-                        _micPassWaveOut = null;
+                        StopMicPassThrough();
                         StartMicPassThrough(_activeMicDevice.FriendlyName);
                         Log.Info("[PassThrough] Restarted after recording stopped.");
                     }
