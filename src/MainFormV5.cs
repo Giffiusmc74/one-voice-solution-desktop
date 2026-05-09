@@ -174,6 +174,11 @@ namespace WindowsFormsApp1
         private const float MicGateThreshold    = 0.07f; // 7 % = audible speech; below = ambient noise
         private const int   MicGateHoldTickCount = 6;    // 6 × 50 ms = 300 ms release after mic drops
         private int         _micGateHoldTicks    = 0;    // runtime hold-down counter
+        /// <summary>
+        /// During bridge playback, headphone loopback still carries tiny residual signal (DSP noise / bleed).
+        /// Do not advance RED unless clearly above this — avoids ~4% random arc twitch when customer is silent.
+        /// </summary>
+        private const float RedMeterPlaybackNoiseGate = 0.058f;
 
         [DllImport("user32.dll")]
         private static extern int SendMessage(IntPtr hWnd, int Msg, int wParam, int lParam);
@@ -1318,8 +1323,13 @@ namespace WindowsFormsApp1
         {
             switch (key)
             {
-                case "myMicLevel":      return _micLevel;
-                case "customerVoice":   return _customerVoiceLevel;
+                // Violet = agent live mic toward customer. During script playback, mic pass-through is
+                // muted so the customer does not hear the agent — hide meter motion so UI matches reality.
+                case "myMicLevel":      return LocalBridgeServer.Instance.IsPlaying ? 0f : _micLevel;
+                case "customerVoice":
+                    if (LocalBridgeServer.Instance.IsPlaying && _customerVoiceLevel < RedMeterPlaybackNoiseGate)
+                        return 0f;
+                    return _customerVoiceLevel;
                 case "agentScript":     return _agentScriptLevel;
                 case "agentScript_left":return _customerScriptLevel;
                 default: return 0f;
@@ -1647,16 +1657,25 @@ namespace WindowsFormsApp1
 
         private void PushCustomerVoicePeak(float level)
         {
+            if (LocalBridgeServer.Instance.IsPlaying)
+            {
+                if (level < RedMeterPlaybackNoiseGate)
+                    level = 0f;
+            }
             if (level > _customerVoiceLevel) _customerVoiceLevel = level;
         }
 
-        private float SuppressBridgePlaybackFromRed(float loopbackLevel)
+        /// <param name="softerBleedRemoval">
+        /// Headphone loopback: use softer subtraction so quiet customer speech still moves RED during script playback.
+        /// </param>
+        private float SuppressBridgePlaybackFromRed(float loopbackLevel, bool softerBleedRemoval = false)
         {
             if (!LocalBridgeServer.Instance.IsPlaying) return loopbackLevel;
-            // Subtract most of the known script envelope; preserve any excess as probable customer voice.
             float suppress = Math.Min(loopbackLevel, _bridgePlaybackEnvelope * 1.15f);
+            if (softerBleedRemoval) suppress *= 0.5f;
             float cleaned = Math.Max(0f, loopbackLevel - suppress);
-            return cleaned < 0.015f ? 0f : cleaned;
+            float noiseFloor = softerBleedRemoval ? 0.022f : 0.015f;
+            return cleaned < noiseFloor ? 0f : cleaned;
         }
 
         private void StartLoopbackCapture()
@@ -1738,10 +1757,12 @@ namespace WindowsFormsApp1
         {
             if (e.BytesRecorded < 4) return;
 
-            // Apply same mic gate as the cable loopback handler — the default render
-            // device also captures mic passthrough when both the call app and mic
-            // pass-through are active on the same output device.
-            if (_micLevel > MicGateThreshold || _micGateHoldTicks > 0)
+            bool bridgePlaying = LocalBridgeServer.Instance.IsPlaying;
+
+            // Mic gate: when live mic is routed to VB-Cable pass-through, headphone loopback can mirror
+            // agent speech — gate RED. During bridge playback pass-through is muted; agent mic may still
+            // register bleed/noise and must NOT blank customer voice on headphones.
+            if (!bridgePlaying && (_micLevel > MicGateThreshold || _micGateHoldTicks > 0))
             {
                 if (_micLevel > MicGateThreshold) _micGateHoldTicks = MicGateHoldTickCount;
                 else _micGateHoldTicks--;
@@ -1750,7 +1771,7 @@ namespace WindowsFormsApp1
             }
 
             float level = DecodeLoopbackPeak(e.Buffer, e.BytesRecorded);
-            PushCustomerVoicePeak(SuppressBridgePlaybackFromRed(level));
+            PushCustomerVoicePeak(SuppressBridgePlaybackFromRed(level, softerBleedRemoval: bridgePlaying));
         }
 
         /// <summary>CUSTOMER VOICE volume affects Windows master volume on the agent headset render device.</summary>
@@ -1982,6 +2003,9 @@ namespace WindowsFormsApp1
                 Action mutePassThrough = () =>
                 {
                     StopMicPassThrough();
+                    _customerVoiceLevel = 0f;
+                    _customerVoiceMeter?.Invalidate();
+                    _myMicMeterLeft?.Invalidate(); // violet shows 0 while customer path is muted
                     Log.Info("[PassThrough] Hard-muted while recording is playing.");
                 };
                 if (this.InvokeRequired) this.BeginInvoke(mutePassThrough); else mutePassThrough();
@@ -2000,6 +2024,7 @@ namespace WindowsFormsApp1
                     {
                         StopMicPassThrough();
                         StartMicPassThrough(_activeMicDevice.FriendlyName);
+                        _myMicMeterLeft?.Invalidate();
                         Log.Info("[PassThrough] Restarted after recording stopped.");
                     }
                 };

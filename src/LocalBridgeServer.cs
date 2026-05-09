@@ -101,6 +101,11 @@ namespace WindowsFormsApp1.src
 
         /// <summary>Optional lift for VB-Cable path only — headsets often render hotter than virtual cable capture seen by WhatsApp.</summary>
         private const float CustomerCableCalibrationGain = 1.28f;
+        /// <summary>
+        /// WasapiOut to physical headset is often much quieter than VB-Cable WaveOut at the same
+        /// AudioFileReader.Volume — lift agent-ear path so it matches customer path loudness at a given slider %.
+        /// </summary>
+        private const float AgentHeadsetCalibrationGain = 1.52f;
         /// <summary>Global script playback loudness lift for agent/headset and customer/VB paths.</summary>
         private const float AgentPlaybackBoost = 1.35f;
         private const float CustomerPlaybackBoost = 1.35f;
@@ -178,7 +183,7 @@ namespace WindowsFormsApp1.src
         }
 
         private float EffectiveAgentPlaybackLinear(int pctVol)
-            => Math.Min(MaxPlaybackLinear, SliderToPlaybackGainAgent(pctVol) * _scriptLevelMatchGain * AgentPlaybackBoost);
+            => Math.Min(MaxPlaybackLinear, SliderToPlaybackGainAgent(pctVol) * _scriptLevelMatchGain * AgentPlaybackBoost * AgentHeadsetCalibrationGain);
 
         private float EffectiveCustomerPlaybackLinear(int pctVol)
             => Math.Min(MaxPlaybackLinear, SliderToPlaybackGainCustomer(pctVol) * _scriptLevelMatchGain * CustomerCableCalibrationGain * CustomerPlaybackBoost);
