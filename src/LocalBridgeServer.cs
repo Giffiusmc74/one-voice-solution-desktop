@@ -1,5 +1,5 @@
 /*
- * LocalBridgeServer.cs  —  v7.84 (bridge customer gain + live level-match)
+ * LocalBridgeServer.cs  —  v7.85 (bridge customer gain + live level-match)
  * ONE Voice Solution
  *
  * Hosts a tiny HTTP server on localhost:9001 so the Script Dashboard
