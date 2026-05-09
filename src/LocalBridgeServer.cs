@@ -1,5 +1,5 @@
 /*
- * LocalBridgeServer.cs  —  v7.85 (bridge customer gain + live level-match)
+ * LocalBridgeServer.cs  —  v7.86 (bridge customer gain + live level-match)
  * ONE Voice Solution
  *
  * Hosts a tiny HTTP server on localhost:9001 so the Script Dashboard
@@ -83,6 +83,8 @@ namespace WindowsFormsApp1.src
         public bool IsPlaying => isAudioPlaying;
         private CancellationTokenSource cancellationTokenSource;
         private string _currentTmpPath;   // temp file for current playback — deleted on stop
+        /// <summary>True if current /play session started agent headset output. False = cable-only (agent init failed).</summary>
+        private bool _playbackHadAgentOutput;
 
         // ── Device numbers ────────────────────────────────────────────────────
         private int outputDeviceNumber = -1;   // headset (agent) — set by dropdown
@@ -546,6 +548,8 @@ namespace WindowsFormsApp1.src
                 else if (!cableStarted)
                     _log.Warn("[Bridge] /play cable output MISSING — VB-Cable not routed / not found (customer path silent).");
 
+                _playbackHadAgentOutput = agentStarted;
+
                 if (cableStarted || agentStarted)
                     OnPlaybackStarted?.Invoke();
 
@@ -705,7 +709,15 @@ namespace WindowsFormsApp1.src
             else
                 _log.Info("[Bridge] Cable PlaybackStopped (normal)");
             try { audioFileReader?.Dispose(); audioFileReader = null; waveOut?.Dispose(); waveOut = null; } catch { }
-            // Temp file cleanup is handled by OnPlaybackStopped_Agent (fires last)
+            // When agent headset output never started (cable-only mode), OnPlaybackStopped_Agent never runs — finalize here
+            // so desktop UI / mic pass-through restarts (same as agent handler).
+            if (!_playbackHadAgentOutput && isAudioPlaying)
+            {
+                _log.Info("[Bridge] Cable-only playback ended — finalizing session (agent output was not active).");
+                isAudioPlaying = false;
+                DeleteCurrentTmpFile();
+                OnPlaybackStopped?.Invoke();
+            }
         }
 
         private void OnPlaybackStopped_Agent(object sender, StoppedEventArgs e)
@@ -773,6 +785,7 @@ namespace WindowsFormsApp1.src
         private void StopAudioInternal()
         {
             isAudioPlaying = false;
+            _playbackHadAgentOutput = false;
             cancellationTokenSource?.Cancel();
             cancellationTokenSource = null;
 

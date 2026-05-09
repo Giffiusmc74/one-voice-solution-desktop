@@ -1,5 +1,5 @@
 /*
- * MainFormV5.cs  —  ONE Voice Solution v7.85
+ * MainFormV5.cs  —  ONE Voice Solution v7.86
  *
  * UI REDESIGN v7.31+ (footer / branding version in APP_VERSION below):
  *   - Complete visual overhaul to match design mock exactly.
@@ -67,7 +67,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.85";
+        private const string APP_VERSION = "7.86";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -179,6 +179,10 @@ namespace WindowsFormsApp1
         /// Do not advance RED unless clearly above this — avoids ~4% random arc twitch when customer is silent.
         /// </summary>
         private const float RedMeterPlaybackNoiseGate = 0.058f;
+        /// <summary>
+        /// When not playing: loopback still has idle noise / quantization; kills ~4% blips when customer is muted/silent.
+        /// </summary>
+        private const float RedMeterIdleNoiseGate = 0.052f;
 
         [DllImport("user32.dll")]
         private static extern int SendMessage(IntPtr hWnd, int Msg, int wParam, int lParam);
@@ -1327,9 +1331,18 @@ namespace WindowsFormsApp1
                 // muted so the customer does not hear the agent — hide meter motion so UI matches reality.
                 case "myMicLevel":      return LocalBridgeServer.Instance.IsPlaying ? 0f : _micLevel;
                 case "customerVoice":
-                    if (LocalBridgeServer.Instance.IsPlaying && _customerVoiceLevel < RedMeterPlaybackNoiseGate)
-                        return 0f;
-                    return _customerVoiceLevel;
+                    {
+                        float v = _customerVoiceLevel;
+                        if (LocalBridgeServer.Instance.IsPlaying)
+                        {
+                            if (v < RedMeterPlaybackNoiseGate) return 0f;
+                        }
+                        else
+                        {
+                            if (v < RedMeterIdleNoiseGate) return 0f;
+                        }
+                        return v;
+                    }
                 case "agentScript":     return _agentScriptLevel;
                 case "agentScript_left":return _customerScriptLevel;
                 default: return 0f;
@@ -1660,6 +1673,11 @@ namespace WindowsFormsApp1
             if (LocalBridgeServer.Instance.IsPlaying)
             {
                 if (level < RedMeterPlaybackNoiseGate)
+                    level = 0f;
+            }
+            else
+            {
+                if (level < RedMeterIdleNoiseGate)
                     level = 0f;
             }
             if (level > _customerVoiceLevel) _customerVoiceLevel = level;
