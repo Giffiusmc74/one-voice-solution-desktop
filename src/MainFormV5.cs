@@ -1,5 +1,5 @@
 /*
- * MainFormV5.cs  —  ONE Voice Solution v7.86
+ * MainFormV5.cs  —  ONE Voice Solution v7.87
  *
  * UI REDESIGN v7.31+ (footer / branding version in APP_VERSION below):
  *   - Complete visual overhaul to match design mock exactly.
@@ -67,7 +67,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.86";
+        private const string APP_VERSION = "7.87";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -104,6 +104,11 @@ namespace WindowsFormsApp1
         /// Smoothed script playback envelope used to suppress bridge playback bleed from RED loopback meter.
         /// </summary>
         private volatile float _bridgePlaybackEnvelope = 0f;
+        /// <summary>
+        /// Max raw meter sample seen this clip (never decays during silence inside the recording).
+        /// Prevents bleed subtraction from collapsing between phrases → RED blips when speech resumes.
+        /// </summary>
+        private volatile float _bridgePlaybackSessionPeak = 0f;
         /// <summary>Throttles [Bridge→UI] diagnostic lines (~500ms).</summary>
         private readonly Stopwatch _bridgeUiDiagSw = Stopwatch.StartNew();
 
@@ -157,9 +162,11 @@ namespace WindowsFormsApp1
         private Label    _lblAgentScriptVol;
         private Label    _lblCustomerScriptVol;
 
-        // Loopback capture(s) for Customer Voice (RED): VB-Cable (Dialpad/customer to cable) + default render (YouTube/browser).
+        // Loopback capture(s) for Customer Voice (RED): VB-Cable + default Multimedia render + optional Communications render.
+        // Browser VoIP (Dialpad, WebRTC) often uses Role.Communications (e.g. Bluetooth Hands-Free) while we already tap Multimedia (Stereo).
         private WasapiLoopbackCapture  _loopbackCapture;
         private WasapiLoopbackCapture  _loopbackDefaultCapture;
+        private WasapiLoopbackCapture  _loopbackCommunicationsCapture;
         private float                  _customerVoiceVolume = 1.0f;
         /// <summary>
         /// Mic gate constants for RED (customer voice) meter suppression.
@@ -1686,13 +1693,19 @@ namespace WindowsFormsApp1
         /// <param name="softerBleedRemoval">
         /// Headphone loopback: use softer subtraction so quiet customer speech still moves RED during script playback.
         /// </param>
+        /// <param name="softerBleedRemoval">
+        /// Multimedia headphone path: slight relax so quiet customer speech survives subtraction during playback.
+        /// Communications/HF path: pass false — agent script often shares this endpoint with VoIP; weak subtraction lets RED track playback.
+        /// </param>
         private float SuppressBridgePlaybackFromRed(float loopbackLevel, bool softerBleedRemoval = false)
         {
             if (!LocalBridgeServer.Instance.IsPlaying) return loopbackLevel;
-            float suppress = Math.Min(loopbackLevel, _bridgePlaybackEnvelope * 1.15f);
-            if (softerBleedRemoval) suppress *= 0.5f;
+            float envRef = Math.Max(_bridgePlaybackEnvelope, _bridgePlaybackSessionPeak);
+            float suppress = Math.Min(loopbackLevel, envRef * 1.22f);
+            // Previously 0.5× gutted bleed rejection; keep most of envelope match so RED does not follow agent recordings.
+            if (softerBleedRemoval) suppress *= 0.88f;
             float cleaned = Math.Max(0f, loopbackLevel - suppress);
-            float noiseFloor = softerBleedRemoval ? 0.022f : 0.015f;
+            float noiseFloor = softerBleedRemoval ? 0.024f : 0.018f;
             return cleaned < noiseFloor ? 0f : cleaned;
         }
 
@@ -1702,12 +1715,47 @@ namespace WindowsFormsApp1
             {
                 try { _loopbackCapture?.StopRecording(); _loopbackCapture?.Dispose(); } catch { }
                 try { _loopbackDefaultCapture?.StopRecording(); _loopbackDefaultCapture?.Dispose(); } catch { }
+                try { _loopbackCommunicationsCapture?.StopRecording(); _loopbackCommunicationsCapture?.Dispose(); } catch { }
                 _loopbackCapture = null;
                 _loopbackDefaultCapture = null;
+                _loopbackCommunicationsCapture = null;
 
                 MMDevice defaultRender = null;
                 try { defaultRender = _deviceEnum.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia); }
                 catch { /* no default */ }
+
+                MMDevice communicationsRender = null;
+                try { communicationsRender = _deviceEnum.GetDefaultAudioEndpoint(DataFlow.Render, Role.Communications); }
+                catch { /* no communications default */ }
+
+                bool CommSameAsMultimedia(MMDevice mm, MMDevice comm)
+                {
+                    if (mm == null || comm == null) return false;
+                    return string.Equals(mm.ID, comm.ID, StringComparison.OrdinalIgnoreCase);
+                }
+
+                void TryStartCommunicationsLoopback(MMDevice cableDev)
+                {
+                    if (communicationsRender == null) return;
+                    if (CommSameAsMultimedia(defaultRender, communicationsRender))
+                        return;
+                    if (cableDev != null &&
+                        string.Equals(communicationsRender.ID, cableDev.ID, StringComparison.OrdinalIgnoreCase))
+                        return;
+                    try
+                    {
+                        Log.Info($"[Audio] Loopback capture → Communications render '{communicationsRender.FriendlyName}' (browser VoIP / HF path)");
+                        _loopbackCommunicationsCapture = new WasapiLoopbackCapture(communicationsRender);
+                        _loopbackCommunicationsCapture.DataAvailable += LoopbackCommunications_DataAvailable_PushRed;
+                        _loopbackCommunicationsCapture.StartRecording();
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warn($"[Audio] Communications loopback failed: {ex.Message}");
+                        try { _loopbackCommunicationsCapture?.Dispose(); } catch { }
+                        _loopbackCommunicationsCapture = null;
+                    }
+                }
 
                 if (_activeVBCableDevice == null)
                 {
@@ -1715,7 +1763,8 @@ namespace WindowsFormsApp1
                     _loopbackCapture = new WasapiLoopbackCapture();
                     _loopbackCapture.DataAvailable += LoopbackDefault_DataAvailable_PushRed;
                     _loopbackCapture.StartRecording();
-                    Log.Info("[Audio] Loopback capture started (single: default).");
+                    TryStartCommunicationsLoopback(null);
+                    Log.Info("[Audio] Loopback capture started (default + optional Communications).");
                     return;
                 }
 
@@ -1730,11 +1779,13 @@ namespace WindowsFormsApp1
                     string.Equals(defaultRender.ID, _activeVBCableDevice.ID, StringComparison.OrdinalIgnoreCase);
                 if (!defaultSameAsCable && defaultRender != null)
                 {
-                    Log.Info($"[Audio] Loopback capture → default render '{defaultRender.FriendlyName}' (browser / system playback)");
+                    Log.Info($"[Audio] Loopback capture → default Multimedia render '{defaultRender.FriendlyName}' (browser / system playback)");
                     _loopbackDefaultCapture = new WasapiLoopbackCapture(defaultRender);
                     _loopbackDefaultCapture.DataAvailable += LoopbackDefault_DataAvailable_PushRed;
                     _loopbackDefaultCapture.StartRecording();
                 }
+
+                TryStartCommunicationsLoopback(_activeVBCableDevice);
 
                 Log.Info("[Audio] Loopback capture started.");
             }
@@ -1790,6 +1841,28 @@ namespace WindowsFormsApp1
 
             float level = DecodeLoopbackPeak(e.Buffer, e.BytesRecorded);
             PushCustomerVoicePeak(SuppressBridgePlaybackFromRed(level, softerBleedRemoval: bridgePlaying));
+        }
+
+        /// <summary>
+        /// Windows Communications default (browser VoIP / Hands-Free). Same RED rules as Multimedia loopback,
+        /// but during playback use full envelope subtraction — this tap often shares hardware with agent playback bleed.
+        /// </summary>
+        private void LoopbackCommunications_DataAvailable_PushRed(object sender, WaveInEventArgs e)
+        {
+            if (e.BytesRecorded < 4) return;
+
+            bool bridgePlaying = LocalBridgeServer.Instance.IsPlaying;
+
+            if (!bridgePlaying && (_micLevel > MicGateThreshold || _micGateHoldTicks > 0))
+            {
+                if (_micLevel > MicGateThreshold) _micGateHoldTicks = MicGateHoldTickCount;
+                else _micGateHoldTicks--;
+                _customerVoiceLevel = 0f;
+                return;
+            }
+
+            float level = DecodeLoopbackPeak(e.Buffer, e.BytesRecorded);
+            PushCustomerVoicePeak(SuppressBridgePlaybackFromRed(level, softerBleedRemoval: false));
         }
 
         /// <summary>CUSTOMER VOICE volume affects Windows master volume on the agent headset render device.</summary>
@@ -2004,6 +2077,9 @@ namespace WindowsFormsApp1
                         _agentScriptMeter?.Invalidate();
                     }
                     _bridgePlaybackEnvelope = Math.Max(_customerScriptLevel, _agentScriptLevel);
+                    float boosted = level * 1.85f;
+                    if (boosted > _bridgePlaybackSessionPeak)
+                        _bridgePlaybackSessionPeak = boosted;
 
                     if (_bridgeUiDiagSw.ElapsedMilliseconds >= 500)
                     {
@@ -2024,6 +2100,7 @@ namespace WindowsFormsApp1
                     _customerVoiceLevel = 0f;
                     _customerVoiceMeter?.Invalidate();
                     _myMicMeterLeft?.Invalidate(); // violet shows 0 while customer path is muted
+                    _bridgePlaybackSessionPeak = 0.052f; // seed bleed reference so first syllable does not under-subtract RED
                     Log.Info("[PassThrough] Hard-muted while recording is playing.");
                 };
                 if (this.InvokeRequired) this.BeginInvoke(mutePassThrough); else mutePassThrough();
@@ -2036,6 +2113,7 @@ namespace WindowsFormsApp1
                     _agentScriptLevel    = 0f;
                     _customerScriptLevel = 0f;
                     _bridgePlaybackEnvelope = 0f;
+                    _bridgePlaybackSessionPeak = 0f;
                     _agentScriptMeter?.Invalidate();
                     _customerScriptMeter?.Invalidate();
                     if (_activeMicDevice != null)
@@ -2187,6 +2265,8 @@ namespace WindowsFormsApp1
             try { _loopbackCapture?.Dispose(); } catch { }
             try { _loopbackDefaultCapture?.StopRecording(); } catch { }
             try { _loopbackDefaultCapture?.Dispose(); } catch { }
+            try { _loopbackCommunicationsCapture?.StopRecording(); } catch { }
+            try { _loopbackCommunicationsCapture?.Dispose(); } catch { }
             _trayIcon?.Dispose();
             base.OnFormClosing(e);
         }
