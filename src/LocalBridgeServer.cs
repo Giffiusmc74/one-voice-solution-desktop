@@ -1,5 +1,5 @@
 /*
- * LocalBridgeServer.cs  —  v7.87 (bridge customer gain + live level-match)
+ * LocalBridgeServer.cs  —  v7.88 (bridge customer gain + live level-match)
  * ONE Voice Solution
  *
  * Hosts a tiny HTTP server on localhost:9001 so the Script Dashboard
@@ -101,8 +101,8 @@ namespace WindowsFormsApp1.src
         private const float MinScriptLevelMatchGain = 0.5f;
         private const float MaxScriptLevelMatchGain = 2.0f;
 
-        /// <summary>Optional lift for VB-Cable path only — headsets often render hotter than virtual cable capture seen by WhatsApp.</summary>
-        private const float CustomerCableCalibrationGain = 1.28f;
+        /// <summary>Optional lift for VB-Cable path only — keep modest to avoid customer-side clipping/robotic breakup.</summary>
+        private const float CustomerCableCalibrationGain = 1.16f;
         /// <summary>
         /// WasapiOut to physical headset is often much quieter than VB-Cable WaveOut at the same
         /// AudioFileReader.Volume — lift agent-ear path so it matches customer path loudness at a given slider %.
@@ -110,9 +110,15 @@ namespace WindowsFormsApp1.src
         private const float AgentHeadsetCalibrationGain = 1.52f;
         /// <summary>Global script playback loudness lift for agent/headset and customer/VB paths.</summary>
         private const float AgentPlaybackBoost = 1.35f;
-        private const float CustomerPlaybackBoost = 1.35f;
-        /// <summary>Allow modest over-unity software gain so 100% can be louder than before.</summary>
-        private const float MaxPlaybackLinear = 1.6f;
+        private const float CustomerPlaybackBoost = 1.10f;
+        /// <summary>
+        /// Keep separate caps: agent ear can be hotter; customer path should stay conservative
+        /// to avoid codec/AGC artifacts heard as intermittent "broken/garbled" playback.
+        /// </summary>
+        private const float MaxAgentPlaybackLinear = 1.6f;
+        private const float MaxCustomerPlaybackLinear = 1.08f;
+        /// <summary>Do not let live-mic level matching over-drive the customer path.</summary>
+        private const float MaxCustomerLevelMatchGain = 1.15f;
 
         // ── Device setters ────────────────────────────────────────────────────
         /// <summary>Called by MainFormV5 when the headset dropdown changes.</summary>
@@ -185,10 +191,13 @@ namespace WindowsFormsApp1.src
         }
 
         private float EffectiveAgentPlaybackLinear(int pctVol)
-            => Math.Min(MaxPlaybackLinear, SliderToPlaybackGainAgent(pctVol) * _scriptLevelMatchGain * AgentPlaybackBoost * AgentHeadsetCalibrationGain);
+            => Math.Min(MaxAgentPlaybackLinear, SliderToPlaybackGainAgent(pctVol) * _scriptLevelMatchGain * AgentPlaybackBoost * AgentHeadsetCalibrationGain);
 
         private float EffectiveCustomerPlaybackLinear(int pctVol)
-            => Math.Min(MaxPlaybackLinear, SliderToPlaybackGainCustomer(pctVol) * _scriptLevelMatchGain * CustomerCableCalibrationGain * CustomerPlaybackBoost);
+        {
+            float customerMatch = Math.Min(_scriptLevelMatchGain, MaxCustomerLevelMatchGain);
+            return Math.Min(MaxCustomerPlaybackLinear, SliderToPlaybackGainCustomer(pctVol) * customerMatch * CustomerCableCalibrationGain * CustomerPlaybackBoost);
+        }
 
         /// <summary>Allows MainForm/AEC to derive match gain from smoothed RMS the same way as AudioService.</summary>
         public static float LevelMatchGainFromMicRms(float smoothedMicRmsLinear)

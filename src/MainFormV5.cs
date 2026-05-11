@@ -1,5 +1,5 @@
 /*
- * MainFormV5.cs  —  ONE Voice Solution v7.87
+ * MainFormV5.cs  —  ONE Voice Solution v7.88
  *
  * UI REDESIGN v7.31+ (footer / branding version in APP_VERSION below):
  *   - Complete visual overhaul to match design mock exactly.
@@ -67,7 +67,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.87";
+        private const string APP_VERSION = "7.88";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -92,7 +92,11 @@ namespace WindowsFormsApp1
         private WasapiCapture      _micCapture;
         private WaveInEvent        _micPassWaveIn;
         private WaveOutEvent       _micPassWaveOut;
+        private BufferedWaveProvider _micPassBuffer;
         private MMDeviceEnumerator _deviceEnum = new MMDeviceEnumerator();
+        /// <summary>Keep mic pass-through conservative to prevent downstream VB-cable/call-app breakup.</summary>
+        private const float MicPassThroughGain = 0.82f;
+        private const float MicPassThroughHardLimit = 0.90f;
         private float _micLevel            = 0f;
         /// <summary>Smoothed mic RMS (−1..1 samples) — drives bridge script gain like AudioService.PlayAudio.</summary>
         private float _smoothedMicRmsLinear = 0.126f;
@@ -1578,12 +1582,14 @@ namespace WindowsFormsApp1
 
         private void StopMicPassThrough()
         {
+            try { if (_micPassWaveIn != null) _micPassWaveIn.DataAvailable -= MicPassWaveIn_DataAvailable; } catch { }
             try { _micPassWaveIn?.StopRecording(); } catch { }
             try { _micPassWaveIn?.Dispose(); }       catch { }
             _micPassWaveIn = null;
             try { _micPassWaveOut?.Stop(); }    catch { }
             try { _micPassWaveOut?.Dispose(); } catch { }
             _micPassWaveOut = null;
+            _micPassBuffer = null;
         }
 
         private void StartMicPassThrough(string deviceFriendlyName)
@@ -1610,14 +1616,19 @@ namespace WindowsFormsApp1
                     WaveFormat         = new WaveFormat(48000, 16, 2),
                     BufferMilliseconds = 50
                 };
-                var provider = new WaveInProvider(_micPassWaveIn);
+                _micPassBuffer = new BufferedWaveProvider(_micPassWaveIn.WaveFormat)
+                {
+                    DiscardOnBufferOverflow = true,
+                    BufferDuration = TimeSpan.FromMilliseconds(250)
+                };
+                _micPassWaveIn.DataAvailable += MicPassWaveIn_DataAvailable;
 
                 _micPassWaveOut = new WaveOutEvent
                 {
                     DeviceNumber   = cableNum,
                     DesiredLatency = 100
                 };
-                _micPassWaveOut.Init(provider);
+                _micPassWaveOut.Init(_micPassBuffer);
                 _micPassWaveIn.StartRecording();
                 _micPassWaveOut.Play();
                 _micPassWaveOut.Volume = 1.0f;
@@ -1627,13 +1638,35 @@ namespace WindowsFormsApp1
             catch (Exception ex)
             {
                 Log.Warn($"[PassThrough] Failed: {ex.Message}");
-                try { _micPassWaveIn?.StopRecording(); } catch { }
-                try { _micPassWaveIn?.Dispose(); }       catch { }
-                _micPassWaveIn = null;
-                try { _micPassWaveOut?.Stop(); }    catch { }
-                try { _micPassWaveOut?.Dispose(); } catch { }
-                _micPassWaveOut = null;
+                StopMicPassThrough();
             }
+        }
+
+        private void MicPassWaveIn_DataAvailable(object sender, WaveInEventArgs e)
+        {
+            if (_micPassBuffer == null || e.BytesRecorded < 2) return;
+
+            // Process a copy to keep input immutable for other NAudio internals.
+            byte[] processed = new byte[e.BytesRecorded];
+            Buffer.BlockCopy(e.Buffer, 0, processed, 0, e.BytesRecorded);
+
+            for (int i = 0; i + 1 < e.BytesRecorded; i += 2)
+            {
+                short sample = BitConverter.ToInt16(processed, i);
+                float x = sample / 32768f;
+
+                // Conservative make-up gain + hard ceiling to avoid call-path overload artifacts.
+                x *= MicPassThroughGain;
+                if (x > MicPassThroughHardLimit) x = MicPassThroughHardLimit;
+                else if (x < -MicPassThroughHardLimit) x = -MicPassThroughHardLimit;
+
+                short y = (short)Math.Max(short.MinValue, Math.Min(short.MaxValue, (int)(x * 32767f)));
+                byte[] b = BitConverter.GetBytes(y);
+                processed[i] = b[0];
+                processed[i + 1] = b[1];
+            }
+
+            _micPassBuffer.AddSamples(processed, 0, e.BytesRecorded);
         }
 
         private int FindWaveInDeviceNumber(string targetDeviceName)
