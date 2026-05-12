@@ -1,5 +1,5 @@
 /*
- * LocalBridgeServer.cs  —  v7.88 (bridge customer gain + live level-match)
+ * LocalBridgeServer.cs  —  v7.89 (/prefetch disk cache + non-blocking meter prep)
  * ONE Voice Solution
  *
  * Hosts a tiny HTTP server on localhost:9001 so the Script Dashboard
@@ -8,7 +8,7 @@
  * AUDIO ARCHITECTURE:
  *   waveOut      → VB-Audio Cable Input  (customer hears the recording)
  *   agent player → WasapiOut(MMDevice headset) when set, else WaveOut index fallback
- *   POST /play body: audioUrl (required); optional volume 0–100 per clip (omit to keep headset/VB slider gains).
+ *   POST /prefetch body: audioUrl — warms on-disk cache so a later POST /play skips network download when URL matches.
  *     channel in JSON is ignored — both outputs play when devices exist.
  *   Temp file extension follows URL or Content-Type (e.g. .webm) so Media Foundation decodes correctly.
  *   Agent path: WasapiOut(MMDevice); on COM/init failure → WaveOutEvent.DeviceNumber fallback.
@@ -27,8 +27,10 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -76,6 +78,10 @@ namespace WindowsFormsApp1.src
         private MMDevice _agentRenderDevice;
 
         private readonly object _playLock = new object();
+        private readonly object _cacheOpsLock = new object();
+        private readonly string _audioCacheDir = Path.Combine(Path.GetTempPath(), "OneVoiceBridgeAudioCache");
+        private const long MaxAudioCacheBytes = 350L * 1024 * 1024;
+        private const int MaxAudioCacheFiles = 48;
         /// <summary>Seen by playback callbacks + meter Task — must be volatile for correct visibility across threads.</summary>
         private volatile bool isAudioPlaying;
 
@@ -245,6 +251,7 @@ namespace WindowsFormsApp1.src
                 _listener.Prefixes.Add("http://localhost:9001/");
                 _listener.Start();
                 _cts = new CancellationTokenSource();
+                try { Directory.CreateDirectory(_audioCacheDir); } catch { }
                 Task.Run(() => ListenLoop(_cts.Token));
                 _log.Info("[Bridge] Listening on http://localhost:9001/");
             }
@@ -302,7 +309,8 @@ namespace WindowsFormsApp1.src
                 string json;
                 switch (path)
                 {
-                    case "/play":   _log.Info($"[Bridge] HTTP POST /play from {req.RemoteEndPoint} bodyChars={body?.Length ?? 0}"); json = await HandlePlay(body); break;
+                    case "/play":     _log.Info($"[Bridge] HTTP POST /play from {req.RemoteEndPoint} bodyChars={body?.Length ?? 0}"); json = await HandlePlay(body); break;
+                    case "/prefetch": _log.Info($"[Bridge] HTTP POST /prefetch from {req.RemoteEndPoint}"); json = HandlePrefetch(body); break;
                     case "/stop":   StopAudio(); json = "{\"ok\":true}"; break;
                     case "/volume": json = HandleVolume(body); break;
                     case "/status": json = "{\"ok\":true,\"playing\":" + (isAudioPlaying ? "true" : "false") + "}"; break;
@@ -377,6 +385,148 @@ namespace WindowsFormsApp1.src
             return ".mp3";
         }
 
+        private static string UrlHashHex(string audioUrl)
+        {
+            using (var sha = SHA256.Create())
+            {
+                byte[] hash = sha.ComputeHash(Encoding.UTF8.GetBytes((audioUrl ?? "").Trim()));
+                var sb = new StringBuilder(hash.Length * 2);
+                foreach (byte b in hash)
+                    sb.AppendFormat("{0:x2}", b);
+                return sb.ToString();
+            }
+        }
+
+        private void EnsureCacheDir()
+        {
+            try { Directory.CreateDirectory(_audioCacheDir); } catch { }
+        }
+
+        private bool TryGetCachedFilePath(string audioUrl, out string fullPath)
+        {
+            fullPath = null;
+            if (string.IsNullOrWhiteSpace(audioUrl)) return false;
+            EnsureCacheDir();
+            string hash = UrlHashHex(audioUrl);
+            foreach (string ext in _allowedBridgeExtensions)
+            {
+                string p = Path.Combine(_audioCacheDir, hash + ext);
+                try
+                {
+                    if (File.Exists(p) && new FileInfo(p).Length > 0)
+                    {
+                        fullPath = p;
+                        return true;
+                    }
+                }
+                catch { /* ignore */ }
+            }
+            return false;
+        }
+
+        private static void TouchCacheFile(string path)
+        {
+            try { File.SetLastWriteTimeUtc(path, DateTime.UtcNow); } catch { }
+        }
+
+        private void EnforceCacheLimits()
+        {
+            try
+            {
+                if (!Directory.Exists(_audioCacheDir)) return;
+                var files = new DirectoryInfo(_audioCacheDir).GetFiles()
+                    .OrderBy(f => f.LastWriteTimeUtc)
+                    .ToList();
+                long total = 0;
+                foreach (var f in files)
+                    total += f.Length;
+                while (files.Count > 0 && (total > MaxAudioCacheBytes || files.Count > MaxAudioCacheFiles))
+                {
+                    FileInfo victim = files[0];
+                    files.RemoveAt(0);
+                    total -= victim.Length;
+                    try { victim.Delete(); } catch { }
+                }
+            }
+            catch { /* best-effort */ }
+        }
+
+        /// <summary>Writes bytes to cache path hash+ext; caller should hold _cacheOpsLock when needed.</summary>
+        private void WriteCacheEntryUnlocked(string audioUrl, byte[] bytes, string ext)
+        {
+            if (bytes == null || bytes.Length == 0) return;
+            EnsureCacheDir();
+            string hash = UrlHashHex(audioUrl);
+            if (!_allowedBridgeExtensions.Contains(ext))
+                ext = ".mp3";
+            foreach (string e in _allowedBridgeExtensions)
+            {
+                if (e == ext) continue;
+                string old = Path.Combine(_audioCacheDir, hash + e);
+                try { if (File.Exists(old)) File.Delete(old); } catch { }
+            }
+            string dest = Path.Combine(_audioCacheDir, hash + ext);
+            File.WriteAllBytes(dest, bytes);
+            _log.Info($"[Bridge] Cache stored {Clip(dest, 120)} bytes={bytes.Length}");
+            EnforceCacheLimits();
+        }
+
+        private async Task EnsureUrlCachedAsync(string audioUrl)
+        {
+            if (string.IsNullOrWhiteSpace(audioUrl)) return;
+            try
+            {
+                if (TryGetCachedFilePath(audioUrl, out string hit))
+                {
+                    TouchCacheFile(hit);
+                    return;
+                }
+                lock (_cacheOpsLock)
+                {
+                    if (TryGetCachedFilePath(audioUrl, out hit))
+                    {
+                        TouchCacheFile(hit);
+                        return;
+                    }
+                }
+
+                string responseContentType = null;
+                byte[] bytes;
+                using (var resp = await _http.GetAsync(audioUrl))
+                {
+                    if (resp.Content.Headers.ContentType != null)
+                        responseContentType = resp.Content.Headers.ContentType.MediaType;
+                    resp.EnsureSuccessStatusCode();
+                    bytes = await resp.Content.ReadAsByteArrayAsync();
+                }
+                string ext = ResolveBridgeTempExtension(audioUrl, responseContentType);
+                lock (_cacheOpsLock)
+                {
+                    if (TryGetCachedFilePath(audioUrl, out hit))
+                    {
+                        TouchCacheFile(hit);
+                        return;
+                    }
+                    WriteCacheEntryUnlocked(audioUrl, bytes, ext);
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.Warn(ex, $"[Bridge] Prefetch / cache fill failed url={Clip(audioUrl, 160)}");
+            }
+        }
+
+        /// <summary>Fire-and-forget warm cache for portal — same bytes /play will use.</summary>
+        private string HandlePrefetch(string body)
+        {
+            dynamic data    = JsonConvert.DeserializeObject(body);
+            string audioUrl = (string)data?.audioUrl;
+            if (string.IsNullOrWhiteSpace(audioUrl))
+                return "{\"error\":\"audioUrl is required\"}";
+            _ = Task.Run(async () => await EnsureUrlCachedAsync(audioUrl));
+            return "{\"ok\":true}";
+        }
+
         // ── /play ─────────────────────────────────────────────────────────────
         private async Task<string> HandlePlay(string body)
         {
@@ -404,28 +554,64 @@ namespace WindowsFormsApp1.src
             }
             catch { /* ignore malformed volume */ }
 
-            byte[] bytes;
+            byte[] bytes = null;
             string responseContentType = null;
-            try
+            string ext = ResolveBridgeTempExtension(audioUrl, null);
+
+            if (TryGetCachedFilePath(audioUrl, out string cachedPath))
             {
-                using (var resp = await _http.GetAsync(audioUrl))
+                try
                 {
-                    long? cl = resp.Content.Headers.ContentLength;
-                    if (resp.Content.Headers.ContentType != null)
-                        responseContentType = resp.Content.Headers.ContentType.MediaType;
-                    _log.Info($"[Bridge] /play GET → {(int)resp.StatusCode} {resp.ReasonPhrase} contentLength={cl?.ToString() ?? "?"} contentType={responseContentType ?? "?"}");
-                    resp.EnsureSuccessStatusCode();
-                    bytes = await resp.Content.ReadAsByteArrayAsync();
+                    TouchCacheFile(cachedPath);
+                    bytes = File.ReadAllBytes(cachedPath);
+                    ext = Path.GetExtension(cachedPath);
+                    if (string.IsNullOrEmpty(ext) || !_allowedBridgeExtensions.Contains(ext))
+                        ext = ResolveBridgeTempExtension(audioUrl, null);
+                    _log.Info($"[Bridge] /play CACHE HIT bytes={bytes.Length} ext={ext}");
                 }
-                _log.Info($"[Bridge] /play downloaded {bytes.Length} bytes");
-            }
-            catch (Exception ex)
-            {
-                _log.Error(ex, $"[Bridge] /play download FAILED url={Clip(audioUrl, 200)}");
-                return "{\"error\":\"download_failed\",\"message\":\"" + ex.Message.Replace("\\", "\\\\").Replace("\"", "'") + "\"}";
+                catch (Exception ex)
+                {
+                    _log.Warn(ex, "[Bridge] /play cache read failed — will download");
+                    bytes = null;
+                }
             }
 
-            string ext      = ResolveBridgeTempExtension(audioUrl, responseContentType);
+            if (bytes == null || bytes.Length == 0)
+            {
+                try
+                {
+                    using (var resp = await _http.GetAsync(audioUrl))
+                    {
+                        long? cl = resp.Content.Headers.ContentLength;
+                        if (resp.Content.Headers.ContentType != null)
+                            responseContentType = resp.Content.Headers.ContentType.MediaType;
+                        _log.Info($"[Bridge] /play GET → {(int)resp.StatusCode} {resp.ReasonPhrase} contentLength={cl?.ToString() ?? "?"} contentType={responseContentType ?? "?"}");
+                        resp.EnsureSuccessStatusCode();
+                        bytes = await resp.Content.ReadAsByteArrayAsync();
+                    }
+                    _log.Info($"[Bridge] /play downloaded {bytes.Length} bytes");
+                }
+                catch (Exception ex)
+                {
+                    _log.Error(ex, $"[Bridge] /play download FAILED url={Clip(audioUrl, 200)}");
+                    return "{\"error\":\"download_failed\",\"message\":\"" + ex.Message.Replace("\\", "\\\\").Replace("\"", "'") + "\"}";
+                }
+
+                ext = ResolveBridgeTempExtension(audioUrl, responseContentType);
+                try
+                {
+                    lock (_cacheOpsLock)
+                    {
+                        if (!TryGetCachedFilePath(audioUrl, out _))
+                            WriteCacheEntryUnlocked(audioUrl, bytes, ext);
+                    }
+                }
+                catch (Exception cex)
+                {
+                    _log.Warn(cex, "[Bridge] /play cache write skipped");
+                }
+            }
+
             string tmpPath = Path.Combine(Path.GetTempPath(), "ov_script_" + Guid.NewGuid().ToString("N") + ext);
             File.WriteAllBytes(tmpPath, bytes);
             _log.Info($"[Bridge] /play saved temp ext={ext} path={Clip(tmpPath, 120)}");
@@ -563,54 +749,52 @@ namespace WindowsFormsApp1.src
                     OnPlaybackStarted?.Invoke();
 
                 // ── Meter loop (drives BLUE/GREEN bridge rings in UI) ──────────
-                // Use a separate file copy for decoding: parallel MF readers on one WebM path often
-                // yield silence / failures for the third reader; cable + agent already hold two graphs.
+                // WAV prep + third decode must NOT block POST /play — portal waits on HTTP ack.
                 if (isAudioPlaying && cancellationTokenSource != null)
                 {
-                    var token = cancellationTokenSource.Token;
-                    string meterDecodePath = tmpPath;
-                    bool deleteMeterCopy = false;
-                    try
-                    {
-                        // BUG FIX: Convert to WAV for the meter copy.
-                        // WebM files with 3 parallel MF readers frequently return all-zero samples
-                        // on the third reader, causing flat meters. Converting to PCM WAV first
-                        // guarantees the meter loop reads real audio data.
-                        string meterCopy = Path.Combine(Path.GetTempPath(), "ov_meter_" + Guid.NewGuid().ToString("N") + ".wav");
-                        bool convertedToWav = false;
-                        try
-                        {
-                            using (var srcReader = new AudioFileReader(tmpPath))
-                            using (var wavWriter = new WaveFileWriter(meterCopy, srcReader.WaveFormat))
-                            {
-                                srcReader.CopyTo(wavWriter);
-                            }
-                            convertedToWav = true;
-                            _log.Info($"[Bridge] Meter decode WAV copy \u2192 {Clip(meterCopy, 100)}");
-                        }
-                        catch (Exception convEx)
-                        {
-                            _log.Warn(convEx, "[Bridge] WAV conversion failed \u2014 falling back to raw copy");
-                            if (File.Exists(meterCopy)) { try { File.Delete(meterCopy); } catch { } }
-                            File.Copy(tmpPath, meterCopy, overwrite: true);
-                            _log.Info($"[Bridge] Meter decode raw copy (fallback) \u2192 {Clip(meterCopy, 100)}");
-                        }
-                        meterDecodePath = meterCopy;
-                        deleteMeterCopy = true;
-                    }
-                    catch (Exception cex)
-                    {
-                        _log.Warn(cex, "[Bridge] Meter copy failed \u2014 viz reads primary temp (may be flat WebM)");
-                    }
-
-                    string mdPath = meterDecodePath;
-                    bool delCopy  = deleteMeterCopy;
+                    var token            = cancellationTokenSource.Token;
+                    string meterSrcPath  = tmpPath;
+                    int    meterAgentVol = playAgentVol;
+                    int    meterCustVol  = playCustVol;
                     Task.Run(() =>
                     {
+                        string mdPath   = meterSrcPath;
+                        bool   delCopy = false;
+                        try
+                        {
+                            string meterCopy = Path.Combine(Path.GetTempPath(), "ov_meter_" + Guid.NewGuid().ToString("N") + ".wav");
+                            try
+                            {
+                                using (var srcReader = new AudioFileReader(meterSrcPath))
+                                using (var wavWriter = new WaveFileWriter(meterCopy, srcReader.WaveFormat))
+                                {
+                                    srcReader.CopyTo(wavWriter);
+                                }
+                                _log.Info($"[Bridge] Meter decode WAV copy \u2192 {Clip(meterCopy, 100)}");
+                                mdPath   = meterCopy;
+                                delCopy = true;
+                            }
+                            catch (Exception convEx)
+                            {
+                                _log.Warn(convEx, "[Bridge] WAV conversion failed \u2014 falling back to raw copy");
+                                if (File.Exists(meterCopy)) { try { File.Delete(meterCopy); } catch { } }
+                                File.Copy(meterSrcPath, meterCopy, overwrite: true);
+                                _log.Info($"[Bridge] Meter decode raw copy (fallback) \u2192 {Clip(meterCopy, 100)}");
+                                mdPath   = meterCopy;
+                                delCopy = true;
+                            }
+                        }
+                        catch (Exception cex)
+                        {
+                            _log.Warn(cex, "[Bridge] Meter copy failed \u2014 viz reads primary temp (may be flat WebM)");
+                            mdPath   = meterSrcPath;
+                            delCopy = false;
+                        }
+
                         try
                         {
                             Thread.Sleep(80); // Let playback IMF graphs finish opening before third decode.
-                            ProcessAudioAndVisualizeIntensity_(mdPath, token, playAgentVol, playCustVol);
+                            ProcessAudioAndVisualizeIntensity_(mdPath, token, meterAgentVol, meterCustVol);
                         }
                         finally
                         {
@@ -620,7 +804,7 @@ namespace WindowsFormsApp1.src
                             }
                         }
                     });
-                    _log.Info("[Bridge] Meter decode loop QUEUED");
+                    _log.Info("[Bridge] Meter decode loop QUEUED (non-blocking HTTP)");
                 }
                 else
                     _log.Warn("[Bridge] Meter decode loop SKIPPED — isAudioPlaying=false (agent init failed?). BLUE/GREEN stay flat; cable-only audio may still run.");
