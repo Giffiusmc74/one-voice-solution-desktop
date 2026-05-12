@@ -4,6 +4,7 @@ using NLog;
 using PayPal.Api;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.ComponentModel;
 using System.Configuration;
 using System.Data;
@@ -45,11 +46,32 @@ namespace WindowsFormsApp1
             InitializeComponent();
         }
 
+        /// <summary>Same header asset as MainFormV5 (<c>res\logo.png</c>) so branding stays in sync.</summary>
+        private void TryLoadSolutionLogoFromResFolder()
+        {
+            try
+            {
+                string oneLogo = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "res", "logo.png");
+                if (!File.Exists(oneLogo))
+                    oneLogo = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "res", "logo.png");
+                if (!File.Exists(oneLogo) || pictureBox1 == null)
+                    return;
+                System.Drawing.Image prev = pictureBox1.Image;
+                pictureBox1.Image = System.Drawing.Image.FromFile(oneLogo);
+                prev?.Dispose();
+            }
+            catch
+            {
+                /* keep designer / resource image */
+            }
+        }
+
         private void LicenseForm_Load(object sender, EventArgs e)
         {
             try
             {
                 logger.Info("License form started. Intializing Objects.");
+                TryLoadSolutionLogoFromResFolder();
                 //DeleteRegistryValuesTesting();
                 // Initialize the timer to call time API                                
                 licenseCheckTimer = new System.Threading.Timer(timerCallback, null, 3600000, 3600000); // every hour (no immediate fire - startup validation handled below)
