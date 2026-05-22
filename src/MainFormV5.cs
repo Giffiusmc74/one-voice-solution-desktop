@@ -67,7 +67,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.92";
+        private const string APP_VERSION = "7.93";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -191,6 +191,13 @@ namespace WindowsFormsApp1
         /// </summary>
         private DateTime _loopbackStartTime = DateTime.MinValue;
         private const int LoopbackWarmupMs = 2000;
+        /// <summary>
+        /// Tracks when mic pass-through last started. Auto-restarts every 4 minutes to flush
+        /// USB clock drift between the mic device and VB-Cable before it accumulates enough
+        /// to cause a garble (observed ~7 min on Scarlett/Plugable USB setups).
+        /// </summary>
+        private DateTime _micPassLastRestart = DateTime.MinValue;
+        private const int MicPassDriftRestartMs = 4 * 60 * 1000; // 4 minutes
         /// <summary>
         /// Mic gate constants for RED (customer voice) meter suppression.
         /// When the agent mic is active above MicGateThreshold, the VB-Cable loopback
@@ -1527,6 +1534,22 @@ namespace WindowsFormsApp1
                     _customerScriptLevel = Math.Max(0f, _customerScriptLevel - 0.008f);
                     _customerScriptMeter?.Invalidate();
                 }
+
+                // Periodic mic pass-through restart — prevents USB clock drift from accumulating
+                // into audible garble. Drift between mic device clock and VB-Cable clock builds up
+                // ~1ms/min; at ~7 min the 250ms buffer overflows → garble. Restart every 4 min
+                // resets the buffer to a clean state. Only restarts when no script is playing.
+                if (_micPassWaveIn != null &&
+                    !LocalBridgeServer.Instance.IsPlaying &&
+                    _micPassLastRestart != DateTime.MinValue &&
+                    (DateTime.UtcNow - _micPassLastRestart).TotalMilliseconds > MicPassDriftRestartMs)
+                {
+                    string micName = _activeMicDevice?.FriendlyName;
+                    Log.Info("[PassThrough] Drift restart — flushing clock drift after 4 min.");
+                    StopMicPassThrough();
+                    if (!string.IsNullOrEmpty(micName))
+                        StartMicPassThrough(micName);
+                }
             };
             _meterTimer.Start();
         }
@@ -1639,24 +1662,25 @@ namespace WindowsFormsApp1
                 {
                     DeviceNumber       = waveInNum,
                     WaveFormat         = new WaveFormat(48000, 16, 2),
-                    BufferMilliseconds = 50
+                    BufferMilliseconds = 100   // larger WaveIn chunks = less sensitive to brief USB hiccups
                 };
                 _micPassBuffer = new BufferedWaveProvider(_micPassWaveIn.WaveFormat)
                 {
                     DiscardOnBufferOverflow = true,
-                    BufferDuration = TimeSpan.FromMilliseconds(250)
+                    BufferDuration = TimeSpan.FromMilliseconds(500)  // 500ms headroom vs 250ms — absorbs USB stalls
                 };
                 _micPassWaveIn.DataAvailable += MicPassWaveIn_DataAvailable;
 
                 _micPassWaveOut = new WaveOutEvent
                 {
                     DeviceNumber   = cableNum,
-                    DesiredLatency = 100
+                    DesiredLatency = 200  // 200ms vs 100ms — sustains playback during brief WaveIn stalls
                 };
                 _micPassWaveOut.Init(_micPassBuffer);
                 _micPassWaveIn.StartRecording();
                 _micPassWaveOut.Play();
                 _micPassWaveOut.Volume = 1.0f;
+                _micPassLastRestart = DateTime.UtcNow;
 
                 Log.Info($"[PassThrough] ACTIVE: WaveIn #{waveInNum} ('{deviceFriendlyName}') → WaveOut #{cableNum} (CABLE)");
             }
