@@ -1,5 +1,5 @@
 /*
- * LocalBridgeServer.cs  —  v7.91 (/prefetch disk cache + non-blocking meter prep)
+ * LocalBridgeServer.cs  —  v7.92 (/prefetch disk cache + non-blocking meter prep)
  * ONE Voice Solution
  *
  * Hosts a tiny HTTP server on localhost:9001 so the Script Dashboard
@@ -107,24 +107,31 @@ namespace WindowsFormsApp1.src
         private const float MinScriptLevelMatchGain = 0.5f;
         private const float MaxScriptLevelMatchGain = 2.0f;
 
-        /// <summary>Optional lift for VB-Cable path only — keep modest to avoid customer-side clipping/robotic breakup.</summary>
-        private const float CustomerCableCalibrationGain = 1.16f;
+        /// <summary>
+        /// No extra calibration boost on VB-Cable — any Volume > 1.0 hard-clips in 16-bit WaveOut and
+        /// the codec hears it as intermittent garbling. Keep at 1.0 (unity gain).
+        /// </summary>
+        private const float CustomerCableCalibrationGain = 1.0f;
         /// <summary>
         /// WasapiOut to physical headset is often much quieter than VB-Cable WaveOut at the same
         /// AudioFileReader.Volume — lift agent-ear path so it matches customer path loudness at a given slider %.
         /// </summary>
         private const float AgentHeadsetCalibrationGain = 1.52f;
-        /// <summary>Global script playback loudness lift for agent/headset and customer/VB paths.</summary>
+        /// <summary>Global script playback loudness lift for agent/headset path only. Customer/VB path stays at 1.0.</summary>
         private const float AgentPlaybackBoost = 1.35f;
-        private const float CustomerPlaybackBoost = 1.10f;
+        private const float CustomerPlaybackBoost = 1.0f;
         /// <summary>
-        /// Keep separate caps: agent ear can be hotter; customer path should stay conservative
-        /// to avoid codec/AGC artifacts heard as intermittent "broken/garbled" playback.
+        /// Agent ear can be hotter (WASAPI float handles headroom).
+        /// Customer path MUST stay below 1.0 — VB-Cable WaveOut clips at 1.0 and the call codec
+        /// hears hard clipping as intermittent "broken/garbled" audio on long recordings.
         /// </summary>
         private const float MaxAgentPlaybackLinear = 1.6f;
-        private const float MaxCustomerPlaybackLinear = 1.08f;
-        /// <summary>Do not let live-mic level matching over-drive the customer path.</summary>
-        private const float MaxCustomerLevelMatchGain = 1.15f;
+        private const float MaxCustomerPlaybackLinear = 0.92f;
+        /// <summary>
+        /// Do not let live-mic level matching push the customer path over 1.0 (clipping).
+        /// Customer script volume is static — mic level matching only applies to agent ear.
+        /// </summary>
+        private const float MaxCustomerLevelMatchGain = 1.0f;
 
         // ── Device setters ────────────────────────────────────────────────────
         /// <summary>Called by MainFormV5 when the headset dropdown changes.</summary>
@@ -640,7 +647,7 @@ namespace WindowsFormsApp1.src
                         // Use AudioFileReader.Volume (software gain) — reliable on ALL drivers.
                         // WaveOutEvent.Volume is ignored by many drivers (e.g. Jabra).
                         audioFileReader.Volume = EffectiveCustomerPlaybackLinear(playCustVol);
-                        waveOut = new WaveOutEvent { DeviceNumber = _cableDeviceNumber, DesiredLatency = 100 };
+                        waveOut = new WaveOutEvent { DeviceNumber = _cableDeviceNumber, DesiredLatency = 300 };
                         waveOut.Init(audioFileReader);
                         waveOut.Play();
                         waveOut.PlaybackStopped += OnPlaybackStopped_Cable;

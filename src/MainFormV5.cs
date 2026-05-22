@@ -1,5 +1,5 @@
 /*
- * MainFormV5.cs  —  ONE Voice Solution v7.91
+ * MainFormV5.cs  —  ONE Voice Solution v7.92
  *
  * UI REDESIGN v7.31+ (footer / branding version in APP_VERSION below):
  *   - Complete visual overhaul to match design mock exactly.
@@ -67,7 +67,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.91";
+        private const string APP_VERSION = "7.92";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -93,15 +93,27 @@ namespace WindowsFormsApp1
         private WaveInEvent        _micPassWaveIn;
         private WaveOutEvent       _micPassWaveOut;
         private BufferedWaveProvider _micPassBuffer;
+        /// <summary>
+        /// Reusable processing buffer for mic pass-through. Pre-allocated to avoid per-callback
+        /// heap churn (~20 allocs/sec × 9,600 bytes = 192KB/sec) that causes GC pauses and audio
+        /// dropouts during long calls. Grown on demand, never shrunk.
+        /// </summary>
+        private byte[]             _micPassProcBuf = Array.Empty<byte>();
+        /// <summary>
+        /// True while a bridge script is actively playing. Guards against StartLoopbackCapture()
+        /// tearing down active audio sources during window restore or bridge reconnection events.
+        /// Set to true on OnPlaybackStarted, false on OnPlaybackStopped.
+        /// </summary>
+        private volatile bool      _isCallActive   = false;
         private MMDeviceEnumerator _deviceEnum = new MMDeviceEnumerator();
         /// <summary>Keep mic pass-through conservative to prevent downstream VB-cable/call-app breakup.</summary>
         private const float MicPassThroughGain = 0.82f;
         private const float MicPassThroughHardLimit = 0.90f;
-        private float _micLevel            = 0f;
+        private volatile float _micLevel            = 0f;
         /// <summary>Smoothed mic RMS (−1..1 samples) — drives bridge script gain like AudioService.PlayAudio.</summary>
         private float _smoothedMicRmsLinear = 0.126f;
         private int _bridgeLevelMatchThrottle;
-        private float _customerVoiceLevel  = 0f;
+        private volatile float _customerVoiceLevel  = 0f;
         private float _agentScriptLevel    = 0f;
         private float _customerScriptLevel = 0f;
         /// <summary>
@@ -172,6 +184,13 @@ namespace WindowsFormsApp1
         private WasapiLoopbackCapture  _loopbackDefaultCapture;
         private WasapiLoopbackCapture  _loopbackCommunicationsCapture;
         private float                  _customerVoiceVolume = 1.0f;
+        /// <summary>
+        /// Timestamp when loopback capture last started. Loopback data is suppressed for the first
+        /// 2 seconds after startup to prevent Windows startup sounds or app-launch audio from
+        /// freezing the RED meter at a non-zero value before any call begins.
+        /// </summary>
+        private DateTime _loopbackStartTime = DateTime.MinValue;
+        private const int LoopbackWarmupMs = 2000;
         /// <summary>
         /// Mic gate constants for RED (customer voice) meter suppression.
         /// When the agent mic is active above MicGateThreshold, the VB-Cable loopback
@@ -1464,7 +1483,13 @@ namespace WindowsFormsApp1
                         // combo boxes that are empty until PopulateDevices() fills them.
                         // Without this, the mic/speaker dropdown buttons show nothing after restore.
                         PopulateDevices();
-                        StartLoopbackCapture();
+                        // Bug 3 fix: do NOT restart loopback captures while a script is actively
+                        // playing. StartLoopbackCapture() disposes and recreates all three
+                        // WasapiLoopbackCapture instances, which interrupts the RED meter sources
+                        // mid-call. Defer until playback is complete (_isCallActive cleared by
+                        // OnPlaybackStopped). Device numbers were already updated by PopulateDevices().
+                        if (!_isCallActive)
+                            StartLoopbackCapture();
                         this.ResumeLayout(true);
                         this.Invalidate(true);
                         this.Refresh();
@@ -1646,13 +1671,16 @@ namespace WindowsFormsApp1
         {
             if (_micPassBuffer == null || e.BytesRecorded < 2) return;
 
-            // Process a copy to keep input immutable for other NAudio internals.
-            byte[] processed = new byte[e.BytesRecorded];
-            Buffer.BlockCopy(e.Buffer, 0, processed, 0, e.BytesRecorded);
+            // Reuse pre-allocated buffer — grow only when needed, never shrink.
+            // Prevents ~192KB/sec of heap churn (20 callbacks/sec × ~9,600 bytes each) that
+            // would accumulate GC pressure and cause audio dropouts on calls lasting 4+ hours.
+            if (_micPassProcBuf.Length < e.BytesRecorded)
+                _micPassProcBuf = new byte[e.BytesRecorded];
+            Buffer.BlockCopy(e.Buffer, 0, _micPassProcBuf, 0, e.BytesRecorded);
 
             for (int i = 0; i + 1 < e.BytesRecorded; i += 2)
             {
-                short sample = BitConverter.ToInt16(processed, i);
+                short sample = BitConverter.ToInt16(_micPassProcBuf, i);
                 float x = sample / 32768f;
 
                 // Conservative make-up gain + hard ceiling to avoid call-path overload artifacts.
@@ -1661,12 +1689,15 @@ namespace WindowsFormsApp1
                 else if (x < -MicPassThroughHardLimit) x = -MicPassThroughHardLimit;
 
                 short y = (short)Math.Max(short.MinValue, Math.Min(short.MaxValue, (int)(x * 32767f)));
-                byte[] b = BitConverter.GetBytes(y);
-                processed[i] = b[0];
-                processed[i + 1] = b[1];
+                // Direct bit-write: zero allocation vs BitConverter.GetBytes(y) which allocates
+                // a byte[2] on every sample — at 48kHz stereo that was ~96,000 heap allocations/sec
+                // (~3 MB/sec Gen0 garbage) causing GC pauses and progressive audio degradation on calls
+                // lasting more than a few minutes. Little-endian layout matches BitConverter output.
+                _micPassProcBuf[i]     = (byte)(y & 0xFF);
+                _micPassProcBuf[i + 1] = (byte)((y >> 8) & 0xFF);
             }
 
-            _micPassBuffer.AddSamples(processed, 0, e.BytesRecorded);
+            _micPassBuffer.AddSamples(_micPassProcBuf, 0, e.BytesRecorded);
         }
 
         private int FindWaveInDeviceNumber(string targetDeviceName)
@@ -1797,6 +1828,7 @@ namespace WindowsFormsApp1
                     _loopbackCapture.DataAvailable += LoopbackDefault_DataAvailable_PushRed;
                     _loopbackCapture.StartRecording();
                     TryStartCommunicationsLoopback(null);
+                    _loopbackStartTime = DateTime.UtcNow;
                     Log.Info("[Audio] Loopback capture started (default + optional Communications).");
                     return;
                 }
@@ -1820,6 +1852,7 @@ namespace WindowsFormsApp1
 
                 TryStartCommunicationsLoopback(_activeVBCableDevice);
 
+                _loopbackStartTime = DateTime.UtcNow;
                 Log.Info("[Audio] Loopback capture started.");
             }
             catch (Exception ex) { Log.Warn($"[Audio] Loopback failed: {ex.Message}"); }
@@ -1828,6 +1861,7 @@ namespace WindowsFormsApp1
         private void LoopbackCable_DataAvailable_PushRed(object sender, WaveInEventArgs e)
         {
             if (e.BytesRecorded < 4) return;
+            if ((DateTime.UtcNow - _loopbackStartTime).TotalMilliseconds < LoopbackWarmupMs) return;
             // During bridge playback, VB-Cable loopback mostly contains script audio.
             // Ignore this source so RED does not react to agent recordings.
             // Customer voice should still come from default/headphone loopback.
@@ -1858,13 +1892,18 @@ namespace WindowsFormsApp1
         private void LoopbackDefault_DataAvailable_PushRed(object sender, WaveInEventArgs e)
         {
             if (e.BytesRecorded < 4) return;
+            if ((DateTime.UtcNow - _loopbackStartTime).TotalMilliseconds < LoopbackWarmupMs) return;
 
-            bool bridgePlaying = LocalBridgeServer.Instance.IsPlaying;
+            // During bridge playback the headset loopback carries script audio from waveAgentOut.
+            // Passing that through SuppressBridgePlaybackFromRed is imprecise — envelope lag causes
+            // residual bleed on the RED (customer voice) meter while scripts play.
+            // Suppress entirely: the agent is listening to a script; customer-voice RED is not
+            // meaningful during playback. Mirrors the same guard on LoopbackCable.
+            if (LocalBridgeServer.Instance.IsPlaying) return;
 
             // Mic gate: when live mic is routed to VB-Cable pass-through, headphone loopback can mirror
-            // agent speech — gate RED. During bridge playback pass-through is muted; agent mic may still
-            // register bleed/noise and must NOT blank customer voice on headphones.
-            if (!bridgePlaying && (_micLevel > MicGateThreshold || _micGateHoldTicks > 0))
+            // agent speech — gate RED.
+            if (_micLevel > MicGateThreshold || _micGateHoldTicks > 0)
             {
                 if (_micLevel > MicGateThreshold) _micGateHoldTicks = MicGateHoldTickCount;
                 else _micGateHoldTicks--;
@@ -1873,20 +1912,25 @@ namespace WindowsFormsApp1
             }
 
             float level = DecodeLoopbackPeak(e.Buffer, e.BytesRecorded);
-            PushCustomerVoicePeak(SuppressBridgePlaybackFromRed(level, softerBleedRemoval: bridgePlaying));
+            PushCustomerVoicePeak(SuppressBridgePlaybackFromRed(level));
         }
 
         /// <summary>
-        /// Windows Communications default (browser VoIP / Hands-Free). Same RED rules as Multimedia loopback,
-        /// but during playback use full envelope subtraction — this tap often shares hardware with agent playback bleed.
+        /// Windows Communications default (browser VoIP / Hands-Free). Same RED rules as Multimedia loopback.
+        /// Suppressed entirely during bridge playback — this endpoint often shares hardware with the agent
+        /// headset path, making envelope subtraction unreliable and causing RED bleed during scripts.
         /// </summary>
         private void LoopbackCommunications_DataAvailable_PushRed(object sender, WaveInEventArgs e)
         {
             if (e.BytesRecorded < 4) return;
+            if ((DateTime.UtcNow - _loopbackStartTime).TotalMilliseconds < LoopbackWarmupMs) return;
 
-            bool bridgePlaying = LocalBridgeServer.Instance.IsPlaying;
+            // Guard matches LoopbackCable and LoopbackDefault: zero RED during playback.
+            // Channel bleed fix: script audio on the Communications endpoint would otherwise
+            // push _customerVoiceLevel via imprecise envelope subtraction.
+            if (LocalBridgeServer.Instance.IsPlaying) return;
 
-            if (!bridgePlaying && (_micLevel > MicGateThreshold || _micGateHoldTicks > 0))
+            if (_micLevel > MicGateThreshold || _micGateHoldTicks > 0)
             {
                 if (_micLevel > MicGateThreshold) _micGateHoldTicks = MicGateHoldTickCount;
                 else _micGateHoldTicks--;
@@ -1895,7 +1939,7 @@ namespace WindowsFormsApp1
             }
 
             float level = DecodeLoopbackPeak(e.Buffer, e.BytesRecorded);
-            PushCustomerVoicePeak(SuppressBridgePlaybackFromRed(level, softerBleedRemoval: false));
+            PushCustomerVoicePeak(SuppressBridgePlaybackFromRed(level));
         }
 
         /// <summary>CUSTOMER VOICE volume affects Windows master volume on the agent headset render device.</summary>
@@ -2127,6 +2171,7 @@ namespace WindowsFormsApp1
             bridge.OnPlaybackStarted += () =>
             {
                 if (this.IsDisposed) return;
+                _isCallActive = true; // guard window-restore from restarting loopback mid-playback
                 Action mutePassThrough = () =>
                 {
                     StopMicPassThrough();
@@ -2141,6 +2186,7 @@ namespace WindowsFormsApp1
             bridge.OnPlaybackStopped += () =>
             {
                 if (this.IsDisposed) return;
+                _isCallActive = false; // release guard so window-restore can restart loopback normally
                 Action reset = () =>
                 {
                     _agentScriptLevel    = 0f;

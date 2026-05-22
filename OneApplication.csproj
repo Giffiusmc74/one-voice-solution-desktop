@@ -26,7 +26,7 @@
     <UpdateRequired>false</UpdateRequired>
     <MapFileExtensions>true</MapFileExtensions>
     <ApplicationRevision>15</ApplicationRevision>
-    <ApplicationVersion>7.91.0.%2a</ApplicationVersion>
+    <ApplicationVersion>7.92.0.%2a</ApplicationVersion>
     <UseApplicationTrust>false</UseApplicationTrust>
     <PublishWizardCompleted>true</PublishWizardCompleted>
     <BootstrapperEnabled>true</BootstrapperEnabled>
@@ -66,6 +66,10 @@
     <SignManifests>false</SignManifests>
   </PropertyGroup>
   <ItemGroup>
+    <!-- netstandard.dll shim required for NAudio netstandard2.0 packages on .NET 4.8 when
+         building with legacy MSBuild (the .NET 4.8 targeting pack adds this automatically in
+         VS2017+; add explicitly here for CLI builds that lack the full targeting pack). -->
+    <Reference Include="netstandard" />
     <Reference Include="Microsoft.Web.WebView2.Core, Version=1.0.2210.55, Culture=neutral, PublicKeyToken=2a8ab48044d2601e, processorArchitecture=MSIL">
       <HintPath>packages\Microsoft.Web.WebView2.1.0.2210.55\lib\net45\Microsoft.Web.WebView2.Core.dll</HintPath>
     </Reference>
