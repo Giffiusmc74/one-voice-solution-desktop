@@ -607,7 +607,7 @@ namespace WindowsFormsApp1
             // 1: Agent Recordings (BLUE)    — left side (AGENT HEARS)
             // 2: Agent Voice (PURPLE)       — right side (CUSTOMER HEARS)
             // 3: Agent Recordings (GREEN)   — right side
-            string[] labels = { "CUSTOMER VOICE", "CUSTOMER RECORDINGS", "AGENT VOICE", "AGENT RECORDINGS" };
+            string[] labels = { "CUSTOMER VOICE", "AGENT RECORDING", "AGENT VOICE", "AGENT RECORDING" };
             Color[]  colors = { METER_RED, METER_BLUE, METER_PURPLE, METER_GREEN };
             string[] keys   = { "customerVoice", "agentScript_left", "myMicLevel", "agentScript" };
 
@@ -849,37 +849,14 @@ namespace WindowsFormsApp1
                 }
             }
 
-            // 7. Center dB display — live signal level in dB, matching the mockup "-12.dB" / "dB" style
-            float signalLevel = GetLevel(key);
-            int dbDisp = signalLevel > 0.001f
-                ? Math.Max(-60, Math.Min(0, (int)Math.Round(20.0 * Math.Log10(signalLevel))))
-                : -60;
-            string numStr = dbDisp.ToString();
-            string supStr = ".dB";
-            string lblStr = "dB";
-            float numSize = SF(34f);
-            float supSize = SF(13f);
-            float lblSize = SF(11f);
-            using (var numFont  = new Font("Segoe UI", numSize, FontStyle.Bold))
-            using (var supFont  = new Font("Segoe UI", supSize, FontStyle.Bold))
-            using (var lblFont2 = new Font("Segoe UI", lblSize, FontStyle.Regular))
+            // 7. Value Text (Percentage)
+            string valStr  = percent.ToString() + "%";
+            float  valSize = SF(38f);
+            using (var valFont = new Font("Segoe UI", valSize, FontStyle.Bold))
             {
-                var numSz = TextRenderer.MeasureText(numStr, numFont,  Size.Empty, TextFormatFlags.NoPadding);
-                var supSz = TextRenderer.MeasureText(supStr, supFont,  Size.Empty, TextFormatFlags.NoPadding);
-                var lblSz = TextRenderer.MeasureText(lblStr, lblFont2, Size.Empty, TextFormatFlags.NoPadding);
-                int blockW = numSz.Width + supSz.Width + (int)(2 * _scale);
-                int blockX = cx - blockW / 2;
-                int numY   = cy - numSz.Height / 2 - (int)(8 * _scale);
-                int supY   = numY + (int)(2 * _scale);
-                TextRenderer.DrawText(g, numStr, numFont,
-                    new Point(blockX, numY), meterColor, TextFormatFlags.NoPadding);
-                TextRenderer.DrawText(g, supStr, supFont,
-                    new Point(blockX + numSz.Width + (int)(1 * _scale), supY),
-                    Color.FromArgb(210, meterColor), TextFormatFlags.NoPadding);
-                int lblY = numY + numSz.Height + (int)(2 * _scale);
-                TextRenderer.DrawText(g, lblStr, lblFont2,
-                    new Point(cx - lblSz.Width / 2, lblY),
-                    Color.FromArgb(170, meterColor), TextFormatFlags.NoPadding);
+                var sz = TextRenderer.MeasureText(valStr, valFont);
+                TextRenderer.DrawText(g, valStr, valFont,
+                    new Point(cx - sz.Width / 2, cy - sz.Height / 2 - (int)(4 * _scale)), meterColor);
             }
 
             // 8. Section Label (drawn directly on panel to prevent WinForms clipping artifacts)
