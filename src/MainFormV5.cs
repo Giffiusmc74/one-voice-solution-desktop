@@ -358,28 +358,48 @@ namespace WindowsFormsApp1
             DrawNebula(-(int)(W * 0.2f), H - (int)(H * 0.4f), (int)(W * 0.6f), (int)(H * 0.6f), Color.FromArgb(25, 255, 0, 0));
             DrawNebula(W - (int)(W * 0.4f), H - (int)(H * 0.4f), (int)(W * 0.6f), (int)(H * 0.6f), Color.FromArgb(25, 0, 120, 255));
 
-            // 3. Static stars
+            // 3. Static stars — realistic temperature colors, glow halos, diffraction spikes
             var rnd = new Random(W * H);
-            for (int i = 0; i < 800; i++) {
+            for (int i = 0; i < 700; i++) {
                 int sx = rnd.Next(W);
                 int sy = rnd.Next(H);
-                int alpha = rnd.Next(10, 80);
-                float sz = rnd.Next(1, 3);
-                bool isGlow = rnd.Next(100) > 85;
-                if (isGlow) {
-                    float glowRadius = sz * rnd.Next(2, 4);
-                    using (var glowPath = new GraphicsPath()) {
-                        glowPath.AddEllipse(sx - glowRadius, sy - glowRadius, glowRadius * 2, glowRadius * 2);
-                        using (var pgb = new PathGradientBrush(glowPath)) {
-                            pgb.CenterColor = Color.FromArgb(alpha + 40, 140, 180, 255);
-                            pgb.SurroundColors = new[] { Color.FromArgb(0, 140, 180, 255) };
-                            g.FillPath(pgb, glowPath);
+                // Size skewed toward small — most stars are tiny, few are large (realistic distribution)
+                double r1 = rnd.NextDouble(), r2 = rnd.NextDouble();
+                float sz = (float)(Math.Min(r1, r2) * 3.2f + 0.4f);
+
+                // Star temperature color: blue-white (hot) → white → yellow-white → orange-warm
+                int colorRoll = rnd.Next(100);
+                int sr, sg, sb;
+                if      (colorRoll < 15) { sr = 180; sg = 200; sb = 255; }   // blue-white (O/B type)
+                else if (colorRoll < 55) { sr = 255; sg = 255; sb = 255; }   // pure white (A type)
+                else if (colorRoll < 82) { sr = 255; sg = 248; sb = 210; }   // yellow-white (F/G type)
+                else                     { sr = 255; sg = 215; sb = 170; }   // orange-warm (K type)
+
+                int alpha = rnd.Next(25, 160);
+                bool isBright = sz > 2.0f;
+
+                if (isBright) {
+                    // Outer soft halo
+                    float haloR = sz * 3.5f;
+                    using (var haloPath = new GraphicsPath()) {
+                        haloPath.AddEllipse(sx - haloR, sy - haloR, haloR * 2, haloR * 2);
+                        using (var pgb = new PathGradientBrush(haloPath)) {
+                            pgb.CenterColor    = Color.FromArgb(Math.Min(255, alpha + 50), sr, sg, sb);
+                            pgb.SurroundColors = new[] { Color.FromArgb(0, sr, sg, sb) };
+                            g.FillPath(pgb, haloPath);
                         }
                     }
-                    alpha = rnd.Next(120, 255);
-                    sz += 1f;
+                    // 4-spike diffraction cross (like telescope optics)
+                    float spikeLen = sz * 5f;
+                    int spikeAlpha = alpha / 3;
+                    using (var sp = new Pen(Color.FromArgb(spikeAlpha, sr, sg, sb), 0.6f)) {
+                        g.DrawLine(sp, sx - spikeLen, sy, sx + spikeLen, sy);
+                        g.DrawLine(sp, sx, sy - spikeLen, sx, sy + spikeLen);
+                    }
+                    alpha = Math.Min(255, alpha + 80);
                 }
-                using (var b = new SolidBrush(Color.FromArgb(alpha, 255, 255, 255)))
+
+                using (var b = new SolidBrush(Color.FromArgb(alpha, sr, sg, sb)))
                     g.FillEllipse(b, sx - sz / 2f, sy - sz / 2f, sz, sz);
             }
 
@@ -697,6 +717,14 @@ namespace WindowsFormsApp1
             int diam = panel.Width;
             int cx   = diam / 2;
             int cy   = diam / 2;
+
+            // Block background stars from showing through the transparent panel.
+            // Fill the circular meter face with the same deep-space background color.
+            using (var bgPath = new GraphicsPath()) {
+                bgPath.AddEllipse(1, 1, diam - 2, diam - 2);
+                using (var bgBrush = new SolidBrush(Color.FromArgb(5, 5, 12)))
+                    g.FillPath(bgBrush, bgPath);
+            }
 
             // All arcs share the same span
             const float startAngle = 135f;
