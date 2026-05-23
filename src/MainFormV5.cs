@@ -67,7 +67,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.93";
+        private const string APP_VERSION = "7.94";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -208,8 +208,8 @@ namespace WindowsFormsApp1
         /// Tune MicGateThreshold: lower = more sensitive gate (may suppress during quiet speech);
         ///                        higher = less sensitive (may let brief mic spikes through).
         /// </summary>
-        private const float MicGateThreshold    = 0.07f; // 7 % = audible speech; below = ambient noise
-        private const int   MicGateHoldTickCount = 6;    // 6 × 50 ms = 300 ms release after mic drops
+        private const float MicGateThreshold    = 0.12f; // 12 % = only gates on clear speech, not quiet ambient
+        private const int   MicGateHoldTickCount = 2;    // 2 × 50 ms = 100 ms release (was 300 ms — RED came back too slow)
         private int         _micGateHoldTicks    = 0;    // runtime hold-down counter
         /// <summary>
         /// During bridge playback, headphone loopback still carries tiny residual signal (DSP noise / bleed).
@@ -1521,7 +1521,7 @@ namespace WindowsFormsApp1
                 }
                 if (_customerVoiceLevel > 0)
                 {
-                    _customerVoiceLevel = Math.Max(0f, _customerVoiceLevel - 0.04f);
+                    _customerVoiceLevel = Math.Max(0f, _customerVoiceLevel - 0.10f);
                     _customerVoiceMeter?.Invalidate();
                 }
                 if (_agentScriptLevel > 0)
@@ -1925,16 +1925,9 @@ namespace WindowsFormsApp1
             // meaningful during playback. Mirrors the same guard on LoopbackCable.
             if (LocalBridgeServer.Instance.IsPlaying) return;
 
-            // Mic gate: when live mic is routed to VB-Cable pass-through, headphone loopback can mirror
-            // agent speech — gate RED.
-            if (_micLevel > MicGateThreshold || _micGateHoldTicks > 0)
-            {
-                if (_micLevel > MicGateThreshold) _micGateHoldTicks = MicGateHoldTickCount;
-                else _micGateHoldTicks--;
-                _customerVoiceLevel = 0f;
-                return;
-            }
-
+            // No mic gate here: the headset speaker loopback carries customer voice, not mic audio.
+            // Softphone echo cancellation prevents agent mic from bleeding into the speaker path.
+            // Hard-zeroing RED on every agent utterance caused choppy, non-realtime animation.
             float level = DecodeLoopbackPeak(e.Buffer, e.BytesRecorded);
             PushCustomerVoicePeak(SuppressBridgePlaybackFromRed(level));
         }
@@ -1954,14 +1947,9 @@ namespace WindowsFormsApp1
             // push _customerVoiceLevel via imprecise envelope subtraction.
             if (LocalBridgeServer.Instance.IsPlaying) return;
 
-            if (_micLevel > MicGateThreshold || _micGateHoldTicks > 0)
-            {
-                if (_micLevel > MicGateThreshold) _micGateHoldTicks = MicGateHoldTickCount;
-                else _micGateHoldTicks--;
-                _customerVoiceLevel = 0f;
-                return;
-            }
-
+            // No mic gate here: same reason as LoopbackDefault — softphone echo cancellation
+            // keeps agent mic out of the speaker loopback. Gate was causing hard drops that made
+            // RED choppy. Track audio directly for smooth, realtime customer voice animation.
             float level = DecodeLoopbackPeak(e.Buffer, e.BytesRecorded);
             PushCustomerVoicePeak(SuppressBridgePlaybackFromRed(level));
         }
