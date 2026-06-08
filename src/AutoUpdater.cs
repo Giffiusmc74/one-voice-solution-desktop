@@ -21,7 +21,7 @@ namespace WindowsFormsApp1
     {
         private static readonly Logger Log = LogManager.GetCurrentClassLogger();
         // Portal version endpoint — returns { version, downloadUrl, releaseName }
-        private const string VERSION_URL = "https://onevoicesolution.com/api/desktop/version";
+        private const string VERSION_URL = "https://api.onevoicesolution.com/api/desktop/version";
         // Shared HttpClient — reuse across calls (thread-safe)
         private static readonly HttpClient _http = new HttpClient
         {
