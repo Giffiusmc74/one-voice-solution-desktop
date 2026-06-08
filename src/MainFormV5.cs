@@ -67,7 +67,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.98";
+        private const string APP_VERSION = "7.99";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -372,7 +372,7 @@ namespace WindowsFormsApp1
                 return false;
             }
             var rnd = new Random(W * H);
-            for (int i = 0; i < 140; i++) {
+            for (int i = 0; i < 126; i++) {
                 int sx = rnd.Next(W);
                 int sy = rnd.Next(H);
                 if (StarBlocked(sx, sy)) continue;
