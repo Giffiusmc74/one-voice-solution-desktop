@@ -67,7 +67,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.99";
+        private const string APP_VERSION = "8.0";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -862,10 +862,12 @@ namespace WindowsFormsApp1
                 }
             }
 
-            // 7. Center percentage display — 0–100%, tied to the SAME volLevel that fills
-            //    the progress arc, so the number always tracks the ring (full = 100%,
-            //    empty = 0%). Linear 0–100 maps the meter range (-60 dB = 0%, 0 dB = 100%).
-            int pctDisp = (int)Math.Round(Math.Max(0f, Math.Min(1f, volLevel)) * 100f);
+            // 7. Center percentage display = this channel's VOLUME SETTING (0–100%),
+            //    the value driven by the – / + buttons (GetVolumePercent). This is a
+            //    DIFFERENT value from the bouncing ring above (which is the live audio
+            //    level, volLevel) — do not merge them. The number tracks the +/- buttons;
+            //    the ring keeps reacting to live audio.
+            int pctDisp = Math.Max(0, Math.Min(100, percent));
             string numStr = pctDisp.ToString();
             string supStr = "%";
             float numSize = SF(34f);

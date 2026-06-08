@@ -33,10 +33,12 @@ namespace WindowsFormsApp1.src
         // ── Settings properties ───────────────────────────────────────────────
         public string MicrophoneDevice           { get; set; } = "";
         public string HeadsetDevice              { get; set; } = "";
-        public int    CustomerVoiceVolume         { get; set; } = 60;
-        public int    AgentScriptPlaybackVolume   { get; set; } = 90;
-        public int    MyMicLevelVolume            { get; set; } = 55;
-        public int    CustomerScriptPlaybackVolume{ get; set; } = 85;
+        // First-run defaults: all four channels start at 75%. Agent adjustments
+        // auto-save and restore on every reopen (handled by load/save).
+        public int    CustomerVoiceVolume         { get; set; } = 75;
+        public int    AgentScriptPlaybackVolume   { get; set; } = 75;
+        public int    MyMicLevelVolume            { get; set; } = 75;
+        public int    CustomerScriptPlaybackVolume{ get; set; } = 75;
         public bool   AutoLevelMatchEnabled       { get; set; } = true;
         public int    WindowX                     { get; set; } = -1; // -1 = use default centering
         public int    WindowY                     { get; set; } = -1;
