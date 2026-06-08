@@ -3,7 +3,7 @@
  *
  * UI REDESIGN v7.31+ (footer / branding version in APP_VERSION below):
  *   - Complete visual overhaul to match design mock exactly.
- *   - Dark space background with 800 static and glowing stars.
+ *   - Dark space background with ~140 static, glowing stars (clipped to the background only).
  *   - ONE logo (top-left) + "The Geniusness Is In The Simplicity" tagline centered in header.
  *   - 4 circular neon glow meters with live frequency tracking capped at static volume %.
  *   - Unified [– VOLUME +] pill-shaped controls below meters.
@@ -67,7 +67,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "7.97";
+        private const string APP_VERSION = "7.98";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -358,11 +358,24 @@ namespace WindowsFormsApp1
             DrawNebula(-(int)(W * 0.2f), H - (int)(H * 0.4f), (int)(W * 0.6f), (int)(H * 0.6f), Color.FromArgb(25, 255, 0, 0));
             DrawNebula(W - (int)(W * 0.4f), H - (int)(H * 0.4f), (int)(W * 0.6f), (int)(H * 0.6f), Color.FromArgb(25, 0, 120, 255));
 
-            // 3. Static stars — realistic temperature colors, glow halos, diffraction spikes
+            // 3. Static stars — realistic temperature colors, glow halos, diffraction spikes.
+            //    Density reduced ~80% (700 -> 140) and kept in the BACKGROUND ONLY: any
+            //    star landing on a control/text (labels, VOLUME +/- , device dropdowns,
+            //    meters, footer/title) is skipped so nothing renders over the UI.
+            int starExclMargin = (int)(16 * _scale); // covers a bright star's halo/spike bleed
+            bool StarBlocked(int px, int py) {
+                foreach (Control ctl in this.Controls) {
+                    if (!ctl.Visible || ctl.Width <= 1 || ctl.Height <= 1) continue;
+                    var rr = ctl.Bounds; rr.Inflate(starExclMargin, starExclMargin);
+                    if (rr.Contains(px, py)) return true;
+                }
+                return false;
+            }
             var rnd = new Random(W * H);
-            for (int i = 0; i < 700; i++) {
+            for (int i = 0; i < 140; i++) {
                 int sx = rnd.Next(W);
                 int sy = rnd.Next(H);
+                if (StarBlocked(sx, sy)) continue;
                 // Size skewed toward small — most stars are tiny, few are large (realistic distribution)
                 double r1 = rnd.NextDouble(), r2 = rnd.NextDouble();
                 float sz = (float)(Math.Min(r1, r2) * 3.2f + 0.4f);
@@ -849,37 +862,28 @@ namespace WindowsFormsApp1
                 }
             }
 
-            // 7. Center dB display — live signal level in dB, matching the mockup "-12.dB" / "dB" style
-            float signalLevel = GetLevel(key);
-            int dbDisp = signalLevel > 0.001f
-                ? Math.Max(-60, Math.Min(0, (int)Math.Round(20.0 * Math.Log10(signalLevel))))
-                : -60;
-            string numStr = dbDisp.ToString();
-            string supStr = ".dB";
-            string lblStr = "dB";
+            // 7. Center percentage display — 0–100%, tied to the SAME volLevel that fills
+            //    the progress arc, so the number always tracks the ring (full = 100%,
+            //    empty = 0%). Linear 0–100 maps the meter range (-60 dB = 0%, 0 dB = 100%).
+            int pctDisp = (int)Math.Round(Math.Max(0f, Math.Min(1f, volLevel)) * 100f);
+            string numStr = pctDisp.ToString();
+            string supStr = "%";
             float numSize = SF(34f);
-            float supSize = SF(13f);
-            float lblSize = SF(11f);
-            using (var numFont  = new Font("Segoe UI", numSize, FontStyle.Bold))
-            using (var supFont  = new Font("Segoe UI", supSize, FontStyle.Bold))
-            using (var lblFont2 = new Font("Segoe UI", lblSize, FontStyle.Regular))
+            float supSize = SF(15f);
+            using (var numFont = new Font("Segoe UI", numSize, FontStyle.Bold))
+            using (var supFont = new Font("Segoe UI", supSize, FontStyle.Bold))
             {
-                var numSz = TextRenderer.MeasureText(numStr, numFont,  Size.Empty, TextFormatFlags.NoPadding);
-                var supSz = TextRenderer.MeasureText(supStr, supFont,  Size.Empty, TextFormatFlags.NoPadding);
-                var lblSz = TextRenderer.MeasureText(lblStr, lblFont2, Size.Empty, TextFormatFlags.NoPadding);
+                var numSz = TextRenderer.MeasureText(numStr, numFont, Size.Empty, TextFormatFlags.NoPadding);
+                var supSz = TextRenderer.MeasureText(supStr, supFont, Size.Empty, TextFormatFlags.NoPadding);
                 int blockW = numSz.Width + supSz.Width + (int)(2 * _scale);
                 int blockX = cx - blockW / 2;
-                int numY   = cy - numSz.Height / 2 - (int)(8 * _scale);
-                int supY   = numY + (int)(2 * _scale);
+                int numY   = cy - numSz.Height / 2;
+                int supY   = numY + (int)(6 * _scale);
                 TextRenderer.DrawText(g, numStr, numFont,
                     new Point(blockX, numY), meterColor, TextFormatFlags.NoPadding);
                 TextRenderer.DrawText(g, supStr, supFont,
                     new Point(blockX + numSz.Width + (int)(1 * _scale), supY),
                     Color.FromArgb(210, meterColor), TextFormatFlags.NoPadding);
-                int lblY = numY + numSz.Height + (int)(2 * _scale);
-                TextRenderer.DrawText(g, lblStr, lblFont2,
-                    new Point(cx - lblSz.Width / 2, lblY),
-                    Color.FromArgb(170, meterColor), TextFormatFlags.NoPadding);
             }
 
             // 8. Section Label (drawn directly on panel to prevent WinForms clipping artifacts)
