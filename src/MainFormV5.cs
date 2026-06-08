@@ -67,7 +67,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "8.0";
+        private const string APP_VERSION = "8.1";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -620,7 +620,7 @@ namespace WindowsFormsApp1
             // 1: Agent Recordings (BLUE)    — left side (AGENT HEARS)
             // 2: Agent Voice (PURPLE)       — right side (CUSTOMER HEARS)
             // 3: Agent Recordings (GREEN)   — right side
-            string[] labels = { "CUSTOMER VOICE", "CUSTOMER RECORDINGS", "AGENT VOICE", "AGENT RECORDINGS" };
+            string[] labels = { "CUSTOMER VOICE", "AGENT RECORDINGS", "AGENT VOICE", "AGENT RECORDINGS" };
             Color[]  colors = { METER_RED, METER_BLUE, METER_PURPLE, METER_GREEN };
             string[] keys   = { "customerVoice", "agentScript_left", "myMicLevel", "agentScript" };
 
