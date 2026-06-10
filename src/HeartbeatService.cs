@@ -64,7 +64,7 @@ namespace WindowsFormsApp1.src
         // ── Constructor ───────────────────────────────────────────────────────
         private HeartbeatService()
         {
-            _baseUrl         = "https://onevoiceapp-wpzvhh8c.manus.space";
+            _baseUrl         = "https://api.onevoicesolution.com";
             _heartbeatUrl    = _baseUrl + "/api/heartbeat";
             _desktopLoginUrl = _baseUrl + "/api/license/desktop-login";
             _appVersion      = ConfigurationManager.AppSettings["AppVersion"] ?? "5.0";

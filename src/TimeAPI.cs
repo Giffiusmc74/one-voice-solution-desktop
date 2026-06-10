@@ -58,18 +58,28 @@ namespace WindowsFormsApp1.src
                 
                 if (!string.IsNullOrEmpty(deviceId))
                 {
-                    url += $"&deviceId={Uri.EscapeDataString(deviceId)}";
+                    url += $"&machineId={Uri.EscapeDataString(deviceId)}";
                 }
                 
                 HttpResponseMessage response = await _httpClient.GetAsync(url);
 
                 if (response.IsSuccessStatusCode)
                 {
-                    return "LicenseValidated";
+                    // 200 alone is NOT validation - the server returns 200 with
+                    // { valid:false, reason } for expired/revoked keys. Parse the body.
+                    string body = await response.Content.ReadAsStringAsync();
+                    var result = JsonConvert.DeserializeObject<LicenseValidateResponse>(body);
+                    if (result != null && result.valid)
+                    {
+                        return "LicenseValidated";
+                    }
+                    // Definitive server "no" - must NOT start with "Error:"/"Exception:"
+                    // so LicenseForm hard-stops instead of fail-open launching.
+                    return $"LicenseInvalid: {(result != null && result.reason != null ? result.reason : "License is not valid")}";
                 }
                 else
                 {
-                    // Handle non-success status code
+                    // Handle non-success status code (transient - fail-open upstream)
                     return $"Error: {response.StatusCode}";
                 }
             }
@@ -79,6 +89,14 @@ namespace WindowsFormsApp1.src
                 return $"Exception: {ex.Message}";
             }
         }
+
+        private class LicenseValidateResponse
+        {
+            public bool valid { get; set; }
+            public string reason { get; set; }
+        }
+
+
 
         private class TimeApiResponse
         {
