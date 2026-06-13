@@ -67,7 +67,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "8.2";
+        private const string APP_VERSION = "8.3";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -287,6 +287,15 @@ namespace WindowsFormsApp1
             int w = Math.Max((int)(wa.Width  * 0.92), 960);
             int h = Math.Max((int)(wa.Height * 0.88), 600);
 
+            // Never exceed the screen working area. The window is borderless
+            // (FormBorderStyle.None), so anything larger than the desktop spills past
+            // the edges and gets cut off (the 960/600 minimums could exceed the work
+            // area on smaller or display-scaled screens). Clamp to the work area so the
+            // whole app always fits, then derive the layout scale from the FINAL size so
+            // the contents shrink to match instead of clipping.
+            w = Math.Min(w, wa.Width);
+            h = Math.Min(h, wa.Height);
+
             float sizeScale = Math.Min((float)w / 1400f, (float)h / 820f);
             _scale = Math.Max(0.55f, Math.Min(sizeScale, 1.20f));
 
@@ -359,9 +368,9 @@ namespace WindowsFormsApp1
             DrawNebula(W - (int)(W * 0.4f), H - (int)(H * 0.4f), (int)(W * 0.6f), (int)(H * 0.6f), Color.FromArgb(25, 0, 120, 255));
 
             // 3. Static stars — realistic temperature colors, glow halos, diffraction spikes.
-            //    Density reduced ~80% (700 -> 140) and kept in the BACKGROUND ONLY: any
-            //    star landing on a control/text (labels, VOLUME +/- , device dropdowns,
-            //    meters, footer/title) is skipped so nothing renders over the UI.
+            //    Density reduced further (126 -> 94, another ~25%) and kept in the
+            //    BACKGROUND ONLY: any star landing on a control/text (labels, VOLUME +/- ,
+            //    device dropdowns, meters, footer/title) is skipped so nothing renders over the UI.
             int starExclMargin = (int)(16 * _scale); // covers a bright star's halo/spike bleed
             bool StarBlocked(int px, int py) {
                 foreach (Control ctl in this.Controls) {
@@ -372,7 +381,7 @@ namespace WindowsFormsApp1
                 return false;
             }
             var rnd = new Random(W * H);
-            for (int i = 0; i < 126; i++) {
+            for (int i = 0; i < 94; i++) {
                 int sx = rnd.Next(W);
                 int sy = rnd.Next(H);
                 if (StarBlocked(sx, sy)) continue;
@@ -875,17 +884,20 @@ namespace WindowsFormsApp1
             using (var numFont = new Font("Segoe UI", numSize, FontStyle.Bold))
             using (var supFont = new Font("Segoe UI", supSize, FontStyle.Bold))
             {
-                var numSz = TextRenderer.MeasureText(numStr, numFont, Size.Empty, TextFormatFlags.NoPadding);
-                var supSz = TextRenderer.MeasureText(supStr, supFont, Size.Empty, TextFormatFlags.NoPadding);
-                int blockW = numSz.Width + supSz.Width + (int)(2 * _scale);
-                int blockX = cx - blockW / 2;
-                int numY   = cy - numSz.Height / 2;
-                int supY   = numY + (int)(6 * _scale);
-                TextRenderer.DrawText(g, numStr, numFont,
-                    new Point(blockX, numY), meterColor, TextFormatFlags.NoPadding);
-                TextRenderer.DrawText(g, supStr, supFont,
-                    new Point(blockX + numSz.Width + (int)(1 * _scale), supY),
-                    Color.FromArgb(210, meterColor), TextFormatFlags.NoPadding);
+                // Center the NUMBER on the meter's exact center (cx, cy) using a
+                // Center/Center StringFormat, so GDI+ places it by true glyph metrics
+                // and the value sits dead-center in the ring. (The old code centered the
+                // number + "%" block together, which pushed the big number left of
+                // center — what looked off.) The "%" then hangs as a small superscript
+                // off the number's top-right and no longer shifts the number.
+                SizeF numMeas = g.MeasureString(numStr, numFont, PointF.Empty, StringFormat.GenericTypographic);
+                using (var sfMid = new StringFormat(StringFormat.GenericTypographic) { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
+                using (var numBr = new SolidBrush(meterColor))
+                    g.DrawString(numStr, numFont, numBr, new PointF(cx, cy), sfMid);
+                using (var sfSup = new StringFormat(StringFormat.GenericTypographic) { Alignment = StringAlignment.Near, LineAlignment = StringAlignment.Center })
+                using (var supBr = new SolidBrush(Color.FromArgb(210, meterColor)))
+                    g.DrawString(supStr, supFont, supBr,
+                        new PointF(cx + numMeas.Width / 2f + 1f * _scale, cy - numMeas.Height * 0.20f), sfSup);
             }
 
             // 8. Section Label (drawn directly on panel to prevent WinForms clipping artifacts)
