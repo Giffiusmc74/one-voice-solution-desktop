@@ -67,7 +67,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "8.4";
+        private const string APP_VERSION = "8.5";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -255,6 +255,13 @@ namespace WindowsFormsApp1
         private void InitializeComponent()
         {
             this.SuspendLayout();
+            // We scale the whole UI ourselves via _scale, so turn OFF WinForms'
+            // automatic DPI/font rescaling. Left on (the default), it re-scaled the
+            // explicit ClientSize we set in CenterWithMargin AFTER the window was shown
+            // at the monitor's real DPI — growing the window past the work-area HEIGHT
+            // so the bottom/top touched the screen edge (width still had slack). None =
+            // our computed bounds are honored exactly. (Giff, 06-13: "height still touches the edge".)
+            this.AutoScaleMode   = AutoScaleMode.None;
             this.Text            = "ONE Voice Solution";
             this.BackColor       = BG_DARK;
             this.ForeColor       = TEXT_WHITE;
@@ -270,9 +277,24 @@ namespace WindowsFormsApp1
             this.ResumeLayout(false);
         }
 
+        // Re-apply the margin sizing once the window is actually shown — only now is the
+        // real handle/monitor DPI known, so this corrects any construction-time estimate
+        // and guarantees the all-sides gap on the display the window really lands on.
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            if (this.WindowState != FormWindowState.Normal)
+                this.WindowState = FormWindowState.Normal;
+            CenterWithMargin();
+        }
+
         private void CenterWithMargin()
         {
-            Screen screen = Screen.FromPoint(Cursor.Position);
+            // Size against the monitor the window is ACTUALLY on once it exists; during
+            // construction (no handle yet) fall back to the monitor under the cursor.
+            Screen screen = this.IsHandleCreated
+                ? Screen.FromHandle(this.Handle)
+                : Screen.FromPoint(Cursor.Position);
             Rectangle wa  = screen.WorkingArea;
 
             float dpi = 96f;
@@ -284,29 +306,33 @@ namespace WindowsFormsApp1
             }
             catch { }
 
-            // Leave ~1 INCH of breathing room on EVERY edge so the borderless window
-            // never touches the screen edges (Giff, 06-13). 1 inch = dpi px (96 @ 100%
-            // display scaling, 120 @ 125%, …). The window is then centered, so the same
-            // ~1in gap sits on all four sides.
-            int marginPx = (int)Math.Max(48f, dpi);
+            // Leave breathing room on EVERY edge so the borderless window never touches
+            // the screen edges (Giff, 06-13). Target ~1 inch (= dpi px: 96 @ 100% scaling,
+            // 120 @ 125%, …) but clamp to [48px, 10% of the smaller side] so the gap is
+            // sane on both tiny laptops and 4K panels. Centered → equal gap on all 4 sides.
+            int smaller  = Math.Min(wa.Width, wa.Height);
+            int marginPx = (int)Math.Max(48f, Math.Min(dpi, smaller * 0.10f));
+
+            // Work area minus the margin on BOTH sides — width AND height alike. (The old
+            // min-size clamp could raise height back up to wa.Height, which is why the
+            // bottom/top kept touching while the sides had their margin.)
             int w = wa.Width  - marginPx * 2;
             int h = wa.Height - marginPx * 2;
-            // Sane minimum so the layout never collapses on very small screens, but never
-            // exceed the work area (borderless windows larger than the desktop get cut off).
-            w = Math.Min(Math.Max(w, Math.Min(960, wa.Width)), wa.Width);
-            h = Math.Min(Math.Max(h, Math.Min(600, wa.Height)), wa.Height);
+            if (w < 480) w = Math.Min(480, wa.Width);   // tiny-screen safety net
+            if (h < 360) h = Math.Min(360, wa.Height);
 
             float sizeScale = Math.Min((float)w / 1400f, (float)h / 820f);
             _scale = Math.Max(0.55f, Math.Min(sizeScale, 1.20f));
 
-            this.ClientSize = new Size(w, h);
-            int cx = wa.Left + (wa.Width - w) / 2;
-            int cy = wa.Top + (wa.Height - h) / 2;
-            if (cx < wa.Left) cx = wa.Left;
-            if (cy < wa.Top) cy = wa.Top;
-            this.Location = new Point(cx, cy);
+            int cx = wa.Left + (wa.Width  - w) / 2;
+            int cy = wa.Top  + (wa.Height - h) / 2;
 
-            Log.Info($"[UI] Screen={screen.DeviceName} DPI={dpi} WA={wa} FormSize={w}x{h} Scale={_scale:F2}");
+            // Borderless form → outer Bounds == client area. Set Bounds directly (size +
+            // position atomically, in screen coords) so no ClientSize→Size border math or
+            // DPI round-trip can grow it past the margin.
+            this.Bounds = new Rectangle(cx, cy, w, h);
+
+            Log.Info($"[UI] Screen={screen.DeviceName} DPI={dpi} WA={wa} Margin={marginPx} FormBounds={this.Bounds} Scale={_scale:F2}");
         }
 
          // ── Paint: space background + dark card + horizontal glow flare ─────────
