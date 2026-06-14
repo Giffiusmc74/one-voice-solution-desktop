@@ -67,7 +67,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "8.3";
+        private const string APP_VERSION = "8.4";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -284,17 +284,17 @@ namespace WindowsFormsApp1
             }
             catch { }
 
-            int w = Math.Max((int)(wa.Width  * 0.92), 960);
-            int h = Math.Max((int)(wa.Height * 0.88), 600);
-
-            // Never exceed the screen working area. The window is borderless
-            // (FormBorderStyle.None), so anything larger than the desktop spills past
-            // the edges and gets cut off (the 960/600 minimums could exceed the work
-            // area on smaller or display-scaled screens). Clamp to the work area so the
-            // whole app always fits, then derive the layout scale from the FINAL size so
-            // the contents shrink to match instead of clipping.
-            w = Math.Min(w, wa.Width);
-            h = Math.Min(h, wa.Height);
+            // Leave ~1 INCH of breathing room on EVERY edge so the borderless window
+            // never touches the screen edges (Giff, 06-13). 1 inch = dpi px (96 @ 100%
+            // display scaling, 120 @ 125%, …). The window is then centered, so the same
+            // ~1in gap sits on all four sides.
+            int marginPx = (int)Math.Max(48f, dpi);
+            int w = wa.Width  - marginPx * 2;
+            int h = wa.Height - marginPx * 2;
+            // Sane minimum so the layout never collapses on very small screens, but never
+            // exceed the work area (borderless windows larger than the desktop get cut off).
+            w = Math.Min(Math.Max(w, Math.Min(960, wa.Width)), wa.Width);
+            h = Math.Min(Math.Max(h, Math.Min(600, wa.Height)), wa.Height);
 
             float sizeScale = Math.Min((float)w / 1400f, (float)h / 820f);
             _scale = Math.Max(0.55f, Math.Min(sizeScale, 1.20f));
@@ -1763,6 +1763,11 @@ namespace WindowsFormsApp1
         private void MicPassWaveIn_DataAvailable(object sender, WaveInEventArgs e)
         {
             if (_micPassBuffer == null || e.BytesRecorded < 2) return;
+
+            // §Avatar mode: when the portal flips the mic mute (POST /mic-mute), drop the
+            // agent's live voice so the customer hears ONLY the converted avatar voice
+            // (sent in via /play on PTT release). Default false → normal calls untouched.
+            if (LocalBridgeServer.Instance != null && LocalBridgeServer.Instance.MicMuted) return;
 
             // Reuse pre-allocated buffer — grow only when needed, never shrink.
             // Prevents ~192KB/sec of heap churn (20 callbacks/sec × ~9,600 bytes each) that

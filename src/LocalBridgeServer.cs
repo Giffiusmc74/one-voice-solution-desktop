@@ -87,6 +87,9 @@ namespace WindowsFormsApp1.src
 
         /// <summary>True while a recording is actively playing. Used by MainFormV5 to suppress loopback meter during playback.</summary>
         public bool IsPlaying => isAudioPlaying;
+        /// <summary>§Avatar mode: when true, MainFormV5's mic pass-through drops the agent's live
+        /// voice so the customer hears ONLY the converted avatar (sent via /play). Set by POST /mic-mute.</summary>
+        public bool MicMuted { get; set; }
         private CancellationTokenSource cancellationTokenSource;
         private string _currentTmpPath;   // temp file for current playback — deleted on stop
         /// <summary>True if current /play session started agent headset output. False = cable-only (agent init failed).</summary>
@@ -320,7 +323,8 @@ namespace WindowsFormsApp1.src
                     case "/prefetch": _log.Info($"[Bridge] HTTP POST /prefetch from {req.RemoteEndPoint}"); json = HandlePrefetch(body); break;
                     case "/stop":   StopAudio(); json = "{\"ok\":true}"; break;
                     case "/volume": json = HandleVolume(body); break;
-                    case "/status": json = "{\"ok\":true,\"playing\":" + (isAudioPlaying ? "true" : "false") + "}"; break;
+                    case "/mic-mute": json = HandleMicMute(body); break;
+                    case "/status": json = "{\"ok\":true,\"playing\":" + (isAudioPlaying ? "true" : "false") + ",\"micMuted\":" + (MicMuted ? "true" : "false") + "}"; break;
                     default:        resp.StatusCode = 404; json = "{\"error\":\"Not found\"}"; break;
                 }
                 byte[] buf = Encoding.UTF8.GetBytes(json);
@@ -532,6 +536,27 @@ namespace WindowsFormsApp1.src
                 return "{\"error\":\"audioUrl is required\"}";
             _ = Task.Run(async () => await EnsureUrlCachedAsync(audioUrl));
             return "{\"ok\":true}";
+        }
+
+        // ── /mic-mute ─────────────────────────────────────────────────────────
+        // §Avatar mode: the portal mutes the agent's live mic pass-through so the
+        // customer hears ONLY the converted avatar voice (which the portal then
+        // sends in via /play on PTT release). Body: {"muted": true|false}.
+        private string HandleMicMute(string body)
+        {
+            try
+            {
+                dynamic data = JsonConvert.DeserializeObject(body);
+                bool muted = (bool?)data?.muted ?? false;
+                MicMuted = muted;
+                _log.Info($"[Bridge] /mic-mute → {muted}");
+                return "{\"ok\":true,\"micMuted\":" + (muted ? "true" : "false") + "}";
+            }
+            catch (Exception ex)
+            {
+                _log.Warn(ex, "[Bridge] /mic-mute parse failed");
+                return "{\"ok\":false}";
+            }
         }
 
         // ── /play ─────────────────────────────────────────────────────────────
