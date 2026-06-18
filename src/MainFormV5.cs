@@ -1686,6 +1686,7 @@ namespace WindowsFormsApp1
                 }
 
                 _micCapture = new WasapiCapture(device, false);
+                try { LocalBridgeServer.Instance.CustomerAudioSampleRate = _micCapture.WaveFormat.SampleRate; } catch { }
                 _micCapture.DataAvailable += (s, e) =>
                 {
                     if (e.BytesRecorded < 4) return;
@@ -1716,6 +1717,38 @@ namespace WindowsFormsApp1
                         float g = LocalBridgeServer.LevelMatchGainFromMicRms(_smoothedMicRmsLinear);
                         LocalBridgeServer.Instance.SetScriptLevelMatchGain(g);
                     }
+
+                    // §AI clean-audio: stream this clean customer PCM to the portal AI as mono Float32
+                    // (no-op when no browser is listening). The browser resamples it to 16k for transcription.
+                    try
+                    {
+                        var bridge = LocalBridgeServer.Instance;
+                        if (bridge.HasCustomerAudioClients)
+                        {
+                            int ch = _micCapture.WaveFormat.Channels < 1 ? 1 : _micCapture.WaveFormat.Channels;
+                            int frameBytes = stride * ch;
+                            if (frameBytes > 0)
+                            {
+                                int frames = e.BytesRecorded / frameBytes;
+                                var outBuf = new byte[frames * 4];
+                                int oj = 0;
+                                for (int i = 0; i + frameBytes <= e.BytesRecorded; i += frameBytes)
+                                {
+                                    float sum = 0f;
+                                    for (int c = 0; c < ch; c++)
+                                    {
+                                        int off = i + c * stride;
+                                        sum += stride == 2 ? BitConverter.ToInt16(e.Buffer, off) / 32768f : BitConverter.ToSingle(e.Buffer, off);
+                                    }
+                                    var fb = BitConverter.GetBytes(sum / ch);
+                                    outBuf[oj] = fb[0]; outBuf[oj + 1] = fb[1]; outBuf[oj + 2] = fb[2]; outBuf[oj + 3] = fb[3];
+                                    oj += 4;
+                                }
+                                bridge.BroadcastCustomerAudio(outBuf, oj);
+                            }
+                        }
+                    }
+                    catch { /* never let the AI stream break the meter */ }
                 };
                 _micCapture.StartRecording();
                 StartMicPassThrough(device.FriendlyName);

@@ -30,6 +30,8 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Net.WebSockets;
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
@@ -65,6 +67,102 @@ namespace WindowsFormsApp1.src
             client.DefaultRequestHeaders.UserAgent.ParseAdd(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
             return client;
+        }
+
+        // ── §AI clean-audio stream ────────────────────────────────────────────
+        // Streams the SAME clean customer-only PCM that drives the red meter (mic-only WasapiCapture in
+        // MainFormV5 → no card bleed, no agent voice) to the member portal's AI over a WebSocket, so the
+        // browser's AI Whisper transcribes a PURE customer feed instead of a flaky Stereo-Mix loopback.
+        // Additive + guarded: when no browser is connected the capture tap is a no-op (zero impact on
+        // normal operation). Nothing here runs unless the portal opts in by connecting.
+        private readonly ConcurrentDictionary<Guid, WebSocket> _customerAudioClients = new ConcurrentDictionary<Guid, WebSocket>();
+        private readonly BlockingCollection<byte[]> _customerAudioQueue = new BlockingCollection<byte[]>(boundedCapacity: 300);
+        private Task _customerAudioPump;
+        private readonly object _customerAudioPumpLock = new object();
+        /// <summary>Capture sample rate (Hz). MainFormV5 sets this when it opens the mic capture; sent to each
+        /// client so the browser can resample to the 16k the transcription expects.</summary>
+        public volatile int CustomerAudioSampleRate = 48000;
+        /// <summary>True while ≥1 AI browser is listening — the MainFormV5 tap checks this and skips all work when false.</summary>
+        public bool HasCustomerAudioClients => !_customerAudioClients.IsEmpty;
+
+        /// <summary>Called from MainFormV5's mic-capture callback with mono Float32 PCM bytes (capture rate). No-op when nobody's listening.</summary>
+        public void BroadcastCustomerAudio(byte[] floatPcm, int count)
+        {
+            if (_customerAudioClients.IsEmpty || count <= 0) return;
+            var copy = new byte[count];
+            Buffer.BlockCopy(floatPcm, 0, copy, 0, count);
+            if (!_customerAudioQueue.TryAdd(copy)) { /* queue full → drop frame, never block the audio thread */ }
+        }
+
+        private void EnsureCustomerAudioPump()
+        {
+            if (_customerAudioPump != null) return;
+            lock (_customerAudioPumpLock)
+            {
+                if (_customerAudioPump != null) return;
+                _customerAudioPump = Task.Run(async () =>
+                {
+                    foreach (var chunk in _customerAudioQueue.GetConsumingEnumerable())
+                    {
+                        var seg = new ArraySegment<byte>(chunk);
+                        foreach (var kv in _customerAudioClients)
+                        {
+                            var ws = kv.Value;
+                            if (ws.State != WebSocketState.Open) { TryRemoveCustomerAudioClient(kv.Key); continue; }
+                            try { await ws.SendAsync(seg, WebSocketMessageType.Binary, true, CancellationToken.None); }
+                            catch { TryRemoveCustomerAudioClient(kv.Key); }
+                        }
+                    }
+                });
+            }
+        }
+
+        private void TryRemoveCustomerAudioClient(Guid id)
+        {
+            if (_customerAudioClients.TryRemove(id, out var ws))
+            {
+                try { ws.Dispose(); } catch { }
+            }
+        }
+
+        /// <summary>Accepts the browser's /customer-audio WebSocket, sends the format handshake, then holds it
+        /// open while BroadcastCustomerAudio pushes PCM. Returns when the browser disconnects.</summary>
+        private async Task HandleCustomerAudioSocket(HttpListenerContext ctx)
+        {
+            HttpListenerWebSocketContext wsCtx;
+            try { wsCtx = await ctx.AcceptWebSocketAsync(null); }
+            catch (Exception ex) { _log.Warn($"[Bridge] customer-audio WS accept failed: {ex.Message}"); try { ctx.Response.StatusCode = 500; ctx.Response.Close(); } catch { } return; }
+
+            var ws = wsCtx.WebSocket;
+            var id = Guid.NewGuid();
+            _customerAudioClients[id] = ws;
+            EnsureCustomerAudioPump();
+            _log.Info($"[Bridge] customer-audio client connected ({_customerAudioClients.Count} total)");
+
+            try
+            {
+                // Format handshake: capture rate + mono Float32, so the browser resamples to 16k correctly.
+                var hello = Encoding.UTF8.GetBytes("{\"type\":\"format\",\"sampleRate\":" + CustomerAudioSampleRate + ",\"encoding\":\"f32le\",\"channels\":1}");
+                await ws.SendAsync(new ArraySegment<byte>(hello), WebSocketMessageType.Text, true, CancellationToken.None);
+            }
+            catch { }
+
+            var buf = new byte[256];
+            try
+            {
+                while (ws.State == WebSocketState.Open)
+                {
+                    var res = await ws.ReceiveAsync(new ArraySegment<byte>(buf), CancellationToken.None);
+                    if (res.MessageType == WebSocketMessageType.Close) break;
+                }
+            }
+            catch { /* client dropped */ }
+            finally
+            {
+                TryRemoveCustomerAudioClient(id);
+                try { if (ws.State == WebSocketState.Open) await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "bye", CancellationToken.None); } catch { }
+                _log.Info($"[Bridge] customer-audio client disconnected ({_customerAudioClients.Count} left)");
+            }
         }
 
         // ── Audio state ───────────────────────────────────────────────────────
@@ -309,6 +407,14 @@ namespace WindowsFormsApp1.src
             resp.ContentType = "application/json";
 
             string path = req.Url.AbsolutePath.ToLowerInvariant().TrimEnd('/');
+
+            // §AI clean-audio: WebSocket endpoint that streams the clean customer PCM to the portal AI.
+            if (path == "/customer-audio")
+            {
+                if (req.IsWebSocketRequest) { await HandleCustomerAudioSocket(ctx); return; }
+                resp.StatusCode = 426; resp.Close(); return; // Upgrade Required
+            }
+
             string body = "";
             if (req.HasEntityBody)
                 using (var sr = new StreamReader(req.InputStream, req.ContentEncoding))
