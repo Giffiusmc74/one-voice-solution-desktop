@@ -67,7 +67,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "8.6";
+        private const string APP_VERSION = "8.7";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -1264,6 +1264,14 @@ namespace WindowsFormsApp1
                 if (_cboMic.SelectedIndex >= 0) {
                     btnMic.Tag = TruncateDevice(_cboMic.Text, 22) + "   \u25BC";
                     btnMic.Invalidate();
+                    // \u00A7Customer-audio fix (Giff 06-19): actually SWITCH the capture to the chosen device.
+                    // The red meter AND the AI desktop-bridge both read _micCapture, so without this the
+                    // dropdown was cosmetic \u2014 picking the customer's input (e.g. the Plugable on a 2-PC
+                    // Scarlett rig) only relabeled the button while the capture stayed stuck on the startup
+                    // device (the agent's own mic). That's why the red meter followed the agent's voice and
+                    // the bridge fed the agent \u2014 not the customer. Persist + re-capture the chosen device.
+                    try { AppSettings.Instance.MicDevice = _cboMic.Text; Task.Run(() => { try { AppSettings.Instance.Save(); } catch { } }); } catch { }
+                    StartAudioCapture(_cboMic.Text);
                 }
             };
             _cboHeadset.SelectedIndexChanged += (s, e) => {
