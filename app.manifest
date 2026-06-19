@@ -52,14 +52,15 @@
        also set the 'EnableWindowsFormsHighDpiAutoResizing' setting to 'true' in their app.config. 
        
        Makes the application long-path aware. See https://docs.microsoft.com/windows/win32/fileio/maximum-file-path-limitation -->
-  <!--
   <application xmlns="urn:schemas-microsoft-com:asm.v3">
     <windowsSettings>
+      <!-- Giff 06-19: make the app DPI-aware. While DPI-UNAWARE, Windows bitmap-stretches the window on
+           scaled laptop displays (125/150%), which pushed it off the screen edges on laptops while it fit
+           fine on 100% monitors. The UI computes its own layout from the real WorkingArea, so declaring
+           System DPI awareness makes that math operate on true pixels and fit on laptops. -->
       <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true</dpiAware>
-      <longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</longPathAware>
     </windowsSettings>
   </application>
-  -->
 
   <!-- Enable themes for Windows common controls and dialogs (Windows XP and later) -->
   <!--

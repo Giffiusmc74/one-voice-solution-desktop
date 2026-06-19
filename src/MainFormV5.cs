@@ -67,7 +67,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "8.8";
+        private const string APP_VERSION = "8.9";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -394,10 +394,11 @@ namespace WindowsFormsApp1
             DrawNebula(W - (int)(W * 0.4f), H - (int)(H * 0.4f), (int)(W * 0.6f), (int)(H * 0.6f), Color.FromArgb(25, 0, 120, 255));
 
             // 3. Static stars — realistic temperature colors, glow halos, diffraction spikes.
-            //    Density reduced further (126 -> 94, another ~25%) and kept in the
-            //    BACKGROUND ONLY: any star landing on a control/text (labels, VOLUME +/- ,
-            //    device dropdowns, meters, footer/title) is skipped so nothing renders over the UI.
-            int starExclMargin = (int)(16 * _scale); // covers a bright star's halo/spike bleed
+            //    Giff 06-19: count CUT 75% (94 -> 23) and given generous clearance from every control so NO
+            //    star sits near a label / line / button / word. BACKGROUND ONLY: any star landing within the
+            //    (now larger) margin of a control/text — labels, VOLUME +/-, dropdowns, meters, the WHAT-THE
+            //    header lines, footer, title/logo — is skipped so nothing renders over or beside the UI.
+            int starExclMargin = (int)(24 * _scale); // generous clearance — halo/spike bleed + breathing room
             bool StarBlocked(int px, int py) {
                 foreach (Control ctl in this.Controls) {
                     if (!ctl.Visible || ctl.Width <= 1 || ctl.Height <= 1) continue;
@@ -407,7 +408,7 @@ namespace WindowsFormsApp1
                 return false;
             }
             var rnd = new Random(W * H);
-            for (int i = 0; i < 94; i++) {
+            for (int i = 0; i < 23; i++) {
                 int sx = rnd.Next(W);
                 int sy = rnd.Next(H);
                 if (StarBlocked(sx, sy)) continue;
@@ -512,8 +513,8 @@ namespace WindowsFormsApp1
         private void BuildHeader(int W, int cardPad)
         {
             int headerH = (int)(90 * _scale);
-            int logoH   = (int)(84 * _scale);
-            int logoW   = (int)(230 * _scale);
+            int logoH   = (int)(94 * _scale);   // Giff 06-19: a little bigger (was 84) — Zoom box fills the header band
+            int logoW   = (int)(258 * _scale);  // keep the ONE logo's aspect (was 230)
             int logoX   = cardPad + (int)(24 * _scale);
             int logoY   = cardPad + (headerH - logoH) / 2;
 
