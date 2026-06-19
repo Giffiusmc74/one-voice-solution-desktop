@@ -67,7 +67,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "8.7";
+        private const string APP_VERSION = "8.8";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -1264,14 +1264,6 @@ namespace WindowsFormsApp1
                 if (_cboMic.SelectedIndex >= 0) {
                     btnMic.Tag = TruncateDevice(_cboMic.Text, 22) + "   \u25BC";
                     btnMic.Invalidate();
-                    // \u00A7Customer-audio fix (Giff 06-19): actually SWITCH the capture to the chosen device.
-                    // The red meter AND the AI desktop-bridge both read _micCapture, so without this the
-                    // dropdown was cosmetic \u2014 picking the customer's input (e.g. the Plugable on a 2-PC
-                    // Scarlett rig) only relabeled the button while the capture stayed stuck on the startup
-                    // device (the agent's own mic). That's why the red meter followed the agent's voice and
-                    // the bridge fed the agent \u2014 not the customer. Persist + re-capture the chosen device.
-                    try { AppSettings.Instance.MicDevice = _cboMic.Text; Task.Run(() => { try { AppSettings.Instance.Save(); } catch { } }); } catch { }
-                    StartAudioCapture(_cboMic.Text);
                 }
             };
             _cboHeadset.SelectedIndexChanged += (s, e) => {
@@ -1694,7 +1686,6 @@ namespace WindowsFormsApp1
                 }
 
                 _micCapture = new WasapiCapture(device, false);
-                try { LocalBridgeServer.Instance.CustomerAudioSampleRate = _micCapture.WaveFormat.SampleRate; } catch { }
                 _micCapture.DataAvailable += (s, e) =>
                 {
                     if (e.BytesRecorded < 4) return;
@@ -1725,38 +1716,6 @@ namespace WindowsFormsApp1
                         float g = LocalBridgeServer.LevelMatchGainFromMicRms(_smoothedMicRmsLinear);
                         LocalBridgeServer.Instance.SetScriptLevelMatchGain(g);
                     }
-
-                    // §AI clean-audio: stream this clean customer PCM to the portal AI as mono Float32
-                    // (no-op when no browser is listening). The browser resamples it to 16k for transcription.
-                    try
-                    {
-                        var bridge = LocalBridgeServer.Instance;
-                        if (bridge.HasCustomerAudioClients)
-                        {
-                            int ch = _micCapture.WaveFormat.Channels < 1 ? 1 : _micCapture.WaveFormat.Channels;
-                            int frameBytes = stride * ch;
-                            if (frameBytes > 0)
-                            {
-                                int frames = e.BytesRecorded / frameBytes;
-                                var outBuf = new byte[frames * 4];
-                                int oj = 0;
-                                for (int i = 0; i + frameBytes <= e.BytesRecorded; i += frameBytes)
-                                {
-                                    float sum = 0f;
-                                    for (int c = 0; c < ch; c++)
-                                    {
-                                        int off = i + c * stride;
-                                        sum += stride == 2 ? BitConverter.ToInt16(e.Buffer, off) / 32768f : BitConverter.ToSingle(e.Buffer, off);
-                                    }
-                                    var fb = BitConverter.GetBytes(sum / ch);
-                                    outBuf[oj] = fb[0]; outBuf[oj + 1] = fb[1]; outBuf[oj + 2] = fb[2]; outBuf[oj + 3] = fb[3];
-                                    oj += 4;
-                                }
-                                bridge.BroadcastCustomerAudio(outBuf, oj);
-                            }
-                        }
-                    }
-                    catch { /* never let the AI stream break the meter */ }
                 };
                 _micCapture.StartRecording();
                 StartMicPassThrough(device.FriendlyName);
