@@ -67,7 +67,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "9.0";
+        private const string APP_VERSION = "9.1";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -311,16 +311,15 @@ namespace WindowsFormsApp1
             // 120 @ 125%, …) but clamp to [48px, 10% of the smaller side] so the gap is
             // sane on both tiny laptops and 4K panels. Centered → equal gap on all 4 sides.
             int smaller  = Math.Min(wa.Width, wa.Height);
-            int marginPx = (int)Math.Max(48f, Math.Min(dpi, smaller * 0.10f));
+            // Giff 06-19: USE the available room — the window was way too thin. A ~5.5% gap keeps it OFF the
+            // screen edges (his earlier ask) while filling most of the screen. (Was a ~1-inch/10% margin
+            // PLUS an extra vertical cushion, which shrank it too far and still clipped the footer.)
+            int marginPx = (int)Math.Max(40f, smaller * 0.055f);
 
-            // Work area minus the margin on BOTH sides — width AND height alike. (The old
-            // min-size clamp could raise height back up to wa.Height, which is why the
-            // bottom/top kept touching while the sides had their margin.)
+            // Work area minus the margin on BOTH sides — width AND height alike. No extra vertical cushion:
+            // let it fill the height; the footer is pinned from the bottom with its own gap (see BuildFooter).
             int w = wa.Width  - marginPx * 2;
-            // Extra VERTICAL cushion (Giff 06-19): the window was getting cut off at the BOTTOM on laptop /
-            // secondary screens (the footer fell below the screen edge). Reserve more height so the whole
-            // window — footer included — stays comfortably on-screen even when scaling differs per monitor.
-            int h = wa.Height - marginPx * 2 - (int)(marginPx * 0.9f);
+            int h = wa.Height - marginPx * 2;
             if (w < 480) w = Math.Min(480, wa.Width);   // tiny-screen safety net
             if (h < 360) h = Math.Min(360, wa.Height);
 
@@ -1386,8 +1385,7 @@ namespace WindowsFormsApp1
         // ── Footer ────────────────────────────────────────────────────────────
         private void BuildFooter(int W, int H, int cardPad)
         {
-            int footerH = (int)(58 * _scale); // Giff 06-19: taller so the 2nd line (W.O.T.) has cushion and isn't cut off
-            int fy      = H - cardPad - footerH;
+            int gap = (int)(3 * _scale); // between the two footer lines
 
             _lblFooterCenter = new Label
             {
@@ -1400,9 +1398,7 @@ namespace WindowsFormsApp1
             this.Controls.Add(_lblFooterCenter);
             int fcW = TextRenderer.MeasureText(_lblFooterCenter.Text, _lblFooterCenter.Font).Width;
             int fcH = TextRenderer.MeasureText(_lblFooterCenter.Text, _lblFooterCenter.Font).Height;
-            _lblFooterCenter.Location = new Point((W - fcW) / 2, fy + (footerH - fcH) / 2);
-
-            // W.O.T. 31 ! — centered below the main footer line
+            // W.O.T. 31 ! — second footer line
             var lblWot = new Label
             {
                 Text      = "W.O.T. 31 !",
@@ -1413,7 +1409,14 @@ namespace WindowsFormsApp1
             };
             this.Controls.Add(lblWot);
             int wotW = TextRenderer.MeasureText(lblWot.Text, lblWot.Font).Width;
-            lblWot.Location = new Point((W - wotW) / 2, fy + (footerH - fcH) / 2 + fcH + (int)(2 * _scale));
+            int wotH = TextRenderer.MeasureText(lblWot.Text, lblWot.Font).Height;
+
+            // §Giff 06-19: pin BOTH lines from the BOTTOM up so the last line (W.O.T.) always clears the
+            // window's bottom edge with a cardPad cushion below it (it kept getting cut off).
+            int wotTop = H - cardPad - wotH;
+            int fcTop  = wotTop - gap - fcH;
+            lblWot.Location           = new Point((W - wotW) / 2, wotTop);
+            _lblFooterCenter.Location = new Point((W - fcW) / 2, fcTop);
         }
 
         // ── Hidden TrackBars (audio logic compatibility) ───────────────────────
