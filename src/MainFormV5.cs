@@ -67,7 +67,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "8.9";
+        private const string APP_VERSION = "9.0";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -317,7 +317,10 @@ namespace WindowsFormsApp1
             // min-size clamp could raise height back up to wa.Height, which is why the
             // bottom/top kept touching while the sides had their margin.)
             int w = wa.Width  - marginPx * 2;
-            int h = wa.Height - marginPx * 2;
+            // Extra VERTICAL cushion (Giff 06-19): the window was getting cut off at the BOTTOM on laptop /
+            // secondary screens (the footer fell below the screen edge). Reserve more height so the whole
+            // window — footer included — stays comfortably on-screen even when scaling differs per monitor.
+            int h = wa.Height - marginPx * 2 - (int)(marginPx * 0.9f);
             if (w < 480) w = Math.Min(480, wa.Width);   // tiny-screen safety net
             if (h < 360) h = Math.Min(360, wa.Height);
 
@@ -407,11 +410,15 @@ namespace WindowsFormsApp1
                 }
                 return false;
             }
+            // §Giff 06-19: draw EXACTLY 7 stars (he counted only 1 before — the count is now what actually
+            // renders, not attempts). Try random spots until 7 land clear of every control; cap the attempts.
             var rnd = new Random(W * H);
-            for (int i = 0; i < 23; i++) {
+            int starsDrawn = 0;
+            for (int i = 0; i < 600 && starsDrawn < 7; i++) {
                 int sx = rnd.Next(W);
                 int sy = rnd.Next(H);
                 if (StarBlocked(sx, sy)) continue;
+                starsDrawn++;
                 // Size skewed toward small — most stars are tiny, few are large (realistic distribution)
                 double r1 = rnd.NextDouble(), r2 = rnd.NextDouble();
                 float sz = (float)(Math.Min(r1, r2) * 3.2f + 0.4f);
@@ -559,7 +566,7 @@ namespace WindowsFormsApp1
         // ── Window buttons ────────────────────────────────────────────────────
         private void BuildWindowButtons(int W, int cardPad)
         {
-            int btnSz     = (int)(30 * _scale);
+            int btnSz     = (int)(34 * _scale);   // Giff 06-19: a touch bigger so the minimize/close glyphs sit clean + centered
             int btnMargin = cardPad + (int)(10 * _scale);
             int btnY      = cardPad + (int)(10 * _scale);
 
@@ -1014,7 +1021,8 @@ namespace WindowsFormsApp1
                     
                     var font = new Font("Segoe UI", SF(20f), FontStyle.Bold);
                     var bounds = pnl.ClientRectangle;
-                    bounds.Y -= (int)(2 * _scale);
+                    // §Giff 06-19: the +/- were shifted UP and read off-center. Center them in the button
+                    // (VerticalCenter already does it) — no upward nudge.
                     
                     // Draw a subtle text glow
                     var textGlowColor = Color.FromArgb(100, accentColor);
@@ -1378,7 +1386,7 @@ namespace WindowsFormsApp1
         // ── Footer ────────────────────────────────────────────────────────────
         private void BuildFooter(int W, int H, int cardPad)
         {
-            int footerH = (int)(44 * _scale);
+            int footerH = (int)(58 * _scale); // Giff 06-19: taller so the 2nd line (W.O.T.) has cushion and isn't cut off
             int fy      = H - cardPad - footerH;
 
             _lblFooterCenter = new Label
