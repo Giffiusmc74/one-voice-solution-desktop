@@ -67,7 +67,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "9.6";
+        private const string APP_VERSION = "9.7";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -83,6 +83,8 @@ namespace WindowsFormsApp1
         private Bitmap _bgCache = null;
         private Size   _bgCacheSize = Size.Empty;
         private float SF(float pt) => Math.Max(7f, (float)Math.Round(pt * _scale, 1));
+        // Giff 06-19: "chrome" text — labels, buttons, footer — sits 15% smaller than the meters/header.
+        private float SFc(float pt) => SF(pt * 0.85f);
 
         // DPI helper
         [DllImport("user32.dll")]
@@ -756,7 +758,7 @@ namespace WindowsFormsApp1
                                        Color baseColor, Color keyColor)
         {
             // We render this as a single owner-draw panel for exact color control
-            var font     = new Font("Segoe UI", SF(15f), FontStyle.Bold);
+            var font     = new Font("Segoe UI", SFc(15f), FontStyle.Bold);
             int prefW    = TextRenderer.MeasureText(prefix,  font).Width;
             int keyW     = TextRenderer.MeasureText(keyword, font).Width;
             int sufW     = TextRenderer.MeasureText(suffix,  font).Width;
@@ -1003,7 +1005,7 @@ namespace WindowsFormsApp1
             }
 
             // 8. Section Label (drawn directly on panel to prevent WinForms clipping artifacts)
-            using (var lblFont = new Font("Segoe UI", SF(11f), FontStyle.Bold))
+            using (var lblFont = new Font("Segoe UI", SFc(11f), FontStyle.Bold))
             {
                 var szL = TextRenderer.MeasureText(labelText, lblFont);
                 TextRenderer.DrawText(g, labelText, lblFont,
@@ -1014,9 +1016,9 @@ namespace WindowsFormsApp1
         // ── [–] [dB] [+] control row ──────────────────────────────────────────
         private void BuildDbControl(int meterX, int y, int meterW, Color accentColor, int channelIndex)
         {
-            int btnW   = (int)(48 * _scale);
-            int btnH   = (int)(46 * _scale);
-            int valW   = (int)(159 * _scale); // combined previous width + gaps
+            int btnW   = (int)(48 * _scale * 0.85f);  // Giff 06-19: chrome 15% smaller (meters/header unchanged)
+            int btnH   = (int)(46 * _scale * 0.85f);
+            int valW   = (int)(159 * _scale * 0.85f); // combined previous width + gaps
             int totalW = btnW * 2 + valW;
             int startX = meterX + (meterW - totalW) / 2;
 
@@ -1043,7 +1045,7 @@ namespace WindowsFormsApp1
                 }
 
                 // Volume Text in center
-                var font = new Font("Segoe UI", SF(12f), FontStyle.Bold);
+                var font = new Font("Segoe UI", SFc(12f), FontStyle.Bold);
                 var textRect = new Rectangle(btnW, 0, valW, btnH);
                 TextRenderer.DrawText(gg, "VOLUME", font, textRect, Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
                 font.Dispose();
@@ -1235,8 +1237,8 @@ namespace WindowsFormsApp1
         // ── Device buttons ────────────────────────────────────────────────────
         private void BuildDeviceButtons(int W, int H, int cardPad)
         {
-            int btnH     = (int)(70 * _scale);
-            int btnW     = (int)(Math.Min(W * 0.36f, 400 * _scale));
+            int btnH     = (int)(70 * _scale * 0.85f);  // Giff 06-19: chrome 15% smaller
+            int btnW     = (int)(Math.Min(W * 0.36f, 400 * _scale) * 0.85f);
             // §Giff 06-19: center the mic/speaker buttons in the MIDDLE between the ACTUAL bottom of the volume
             // row (_volRowBottom, set in BuildMeterSection) and the ACTUAL top of the "One United Global LLC"
             // footer line (read its real Y — BuildFooter runs just before this). No height-guessing this time.
@@ -1284,7 +1286,7 @@ namespace WindowsFormsApp1
                         using (var glow = new Pen(Color.FromArgb(100, accent), 5f)) g.DrawPath(glow, path);
                         using (var pen = new Pen(currentBorder, 2f)) g.DrawPath(pen, path);
                     }
-                    var font = new Font("Segoe UI", SF(16f), FontStyle.Bold);
+                    var font = new Font("Segoe UI", SFc(16f), FontStyle.Bold);
                     
                     int iconSz = (int)(26 * _scale);
                     int ix = (int)(22 * _scale);
@@ -1472,7 +1474,7 @@ namespace WindowsFormsApp1
                 Text      = $"One United Global LLC 2026.  V {APP_VERSION}",
                 ForeColor = Color.White,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(13f), FontStyle.Regular),
+                Font      = new Font("Segoe UI", SFc(13f), FontStyle.Regular),
                 AutoSize  = true
             };
             this.Controls.Add(_lblFooterCenter);
@@ -1484,7 +1486,7 @@ namespace WindowsFormsApp1
                 Text      = "W.O.T. 31 !",
                 ForeColor = Color.White,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SF(12f), FontStyle.Regular),
+                Font      = new Font("Segoe UI", SFc(12f), FontStyle.Regular),
                 AutoSize  = true
             };
             this.Controls.Add(lblWot);
