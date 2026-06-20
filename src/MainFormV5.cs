@@ -67,7 +67,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "9.4";
+        private const string APP_VERSION = "9.5";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -77,6 +77,7 @@ namespace WindowsFormsApp1
         private float _builtScale = -1f;
         private string _builtForScreen = "";
         private System.Windows.Forms.Timer _relayoutTimer;
+        private int _volRowBottom = 0; // bottom Y of the volume +/- row — so device buttons sit equidistant below it
 
         // ── Background cache (prevents OutOfMemory from rapid GDI+ repaints) ─────
         private Bitmap _bgCache = null;
@@ -708,7 +709,10 @@ namespace WindowsFormsApp1
             int spacingToCtrl = (int)(10 * _scale); // gap between meter panel and volume controls
             int blockH = meterPanelH + spacingToCtrl + dbCtrlH;
             
-            int meterTop = topBoundary + (availableH - blockH) / 2;
+            // §Giff 06-19: nudge the whole meters+volume block UP a little so the bottom gets more cushion.
+            int meterTop = Math.Max(topBoundary, topBoundary + (availableH - blockH) / 2 - (int)(22 * _scale));
+            // Remember where the volume +/- row ENDS so the device buttons can sit equidistant below it.
+            _volRowBottom = meterTop + meterPanelH + spacingToCtrl + dbCtrlH;
 
             // ── Section labels ──────────────────────────────────────────────────
             // Left label spans over meters 0+1, right label spans over meters 2+3
@@ -1083,21 +1087,26 @@ namespace WindowsFormsApp1
                             gg.DrawPath(pen, path);
                     }
                     
-                    var font = new Font("Segoe UI", SF(20f), FontStyle.Bold);
-                    var bounds = pnl.ClientRectangle;
-                    // §Giff 06-19: the +/- were shifted UP and read off-center. Center them in the button
-                    // (VerticalCenter already does it) — no upward nudge.
-                    
-                    // Draw a subtle text glow
-                    var textGlowColor = Color.FromArgb(100, accentColor);
-                    TextRenderer.DrawText(gg, txt, font, new Rectangle(bounds.X - 1, bounds.Y, bounds.Width, bounds.Height), textGlowColor, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
-                    TextRenderer.DrawText(gg, txt, font, new Rectangle(bounds.X + 1, bounds.Y, bounds.Width, bounds.Height), textGlowColor, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
-                    TextRenderer.DrawText(gg, txt, font, new Rectangle(bounds.X, bounds.Y - 1, bounds.Width, bounds.Height), textGlowColor, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
-                    TextRenderer.DrawText(gg, txt, font, new Rectangle(bounds.X, bounds.Y + 1, bounds.Width, bounds.Height), textGlowColor, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
-                    
-                    // Draw the core text
-                    TextRenderer.DrawText(gg, txt, font, bounds, Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
-                    font.Dispose();
+                    // §Giff 06-19: draw +/- as GEOMETRIC LINES, not font glyphs. A thin dash/plus glyph never
+                    // truly vertically-centered in the text box (read low/off no matter the flags). Two crossed
+                    // strokes are mathematically centered and look identical on every machine.
+                    int cx  = pnl.Width  / 2;
+                    int cy  = pnl.Height / 2;
+                    int arm = (int)(Math.Min(pnl.Width, pnl.Height) * 0.24f); // half-length of each stroke
+                    float penW = Math.Max(2.2f, 3.2f * _scale);
+                    using (var glowPen = new Pen(Color.FromArgb(120, accentColor), penW + 3.5f) {
+                               StartCap = System.Drawing.Drawing2D.LineCap.Round, EndCap = System.Drawing.Drawing2D.LineCap.Round })
+                    using (var corePen = new Pen(Color.White, penW) {
+                               StartCap = System.Drawing.Drawing2D.LineCap.Round, EndCap = System.Drawing.Drawing2D.LineCap.Round })
+                    {
+                        gg.DrawLine(glowPen, cx - arm, cy, cx + arm, cy); // horizontal stroke (both − and +)
+                        gg.DrawLine(corePen, cx - arm, cy, cx + arm, cy);
+                        if (txt == "+")
+                        {
+                            gg.DrawLine(glowPen, cx, cy - arm, cx, cy + arm); // vertical stroke (plus only)
+                            gg.DrawLine(corePen, cx, cy - arm, cx, cy + arm);
+                        }
+                    }
                 };
 
                 containerPnl.Controls.Add(pnl);
@@ -1226,11 +1235,15 @@ namespace WindowsFormsApp1
         // ── Device buttons ────────────────────────────────────────────────────
         private void BuildDeviceButtons(int W, int H, int cardPad)
         {
-            int footerH  = (int)(66 * _scale); // Giff 06-19: reserve more for the 2-line footer so it doesn't overlap these buttons
-            int btnAreaH = (int)(90 * _scale);
             int btnH     = (int)(70 * _scale);
             int btnW     = (int)(Math.Min(W * 0.36f, 400 * _scale));
-            int btnY     = H - footerH - btnAreaH + (btnAreaH - btnH) / 2 - (int)(25 * _scale);
+            // §Giff 06-19: sit the mic/speaker buttons EQUIDISTANT between the bottom of the volume row and the
+            // top of the footer (they were crammed against the footer). _volRowBottom is set in BuildMeterSection,
+            // which BuildUI runs before this.
+            int footerTop = H - cardPad - (int)(52 * _scale);              // ~top of the 2-line footer block
+            int zoneTop   = _volRowBottom > 0 ? _volRowBottom : (H - (int)(156 * _scale));
+            int btnY      = zoneTop + (footerTop - zoneTop - btnH) / 2;
+            if (btnY < zoneTop + (int)(10 * _scale)) btnY = zoneTop + (int)(10 * _scale); // never hug the volume row
             int gap      = (int)(30 * _scale);
             int totalBtnW = btnW * 2 + gap;
             int btnX0    = (W - totalBtnW) / 2;
