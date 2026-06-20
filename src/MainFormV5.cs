@@ -67,10 +67,16 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "9.1";
+        private const string APP_VERSION = "9.2";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
+        // §Giff 06-19: re-fit the window when it lands on a DIFFERENT monitor (e.g. dragged to the laptop).
+        // The window is sized for the screen it OPENS on; without this it keeps that size on a smaller screen
+        // and runs off the edges. These track what the UI was last laid out for so we only rebuild on a change.
+        private float _builtScale = -1f;
+        private string _builtForScreen = "";
+        private System.Windows.Forms.Timer _relayoutTimer;
 
         // ── Background cache (prevents OutOfMemory from rapid GDI+ repaints) ─────
         private Bitmap _bgCache = null;
@@ -286,6 +292,57 @@ namespace WindowsFormsApp1
             if (this.WindowState != FormWindowState.Normal)
                 this.WindowState = FormWindowState.Normal;
             CenterWithMargin();
+            // The UI was built at construction against the cursor's monitor; if the window actually landed
+            // on a different-scaled monitor, _scale changed → rebuild so the content fits that screen.
+            if (Math.Abs(_scale - _builtScale) > 0.001f) RebuildUI();
+            // Re-fit whenever the window is later dragged onto a different monitor (the laptop fix).
+            this.LocationChanged -= OnLocationChangedRefit;
+            this.LocationChanged += OnLocationChangedRefit;
+        }
+
+        // §Giff 06-19: when the window is moved to a DIFFERENT monitor (e.g. dragged to the laptop), re-size
+        // + rebuild it so it FITS that screen. Debounced so it fires once after the drag settles.
+        private void OnLocationChangedRefit(object sender, EventArgs e)
+        {
+            if (!this.IsHandleCreated || this.WindowState != FormWindowState.Normal) return;
+            string cur;
+            try { cur = Screen.FromHandle(this.Handle).DeviceName; } catch { return; }
+            if (cur == _builtForScreen) return; // same monitor → nothing to do
+            if (_relayoutTimer == null)
+            {
+                _relayoutTimer = new System.Windows.Forms.Timer { Interval = 280 };
+                _relayoutTimer.Tick += (s2, e2) =>
+                {
+                    _relayoutTimer.Stop();
+                    string now;
+                    try { now = Screen.FromHandle(this.Handle).DeviceName; } catch { return; }
+                    if (now == _builtForScreen) return;
+                    CenterWithMargin(); // re-sizes + recomputes _scale for the NEW monitor (sets _builtForScreen)
+                    RebuildUI();        // re-lays-out the content at the new scale so it fits the screen
+                };
+            }
+            _relayoutTimer.Stop();
+            _relayoutTimer.Start();
+        }
+
+        // Tear down + recreate every child control at the current _scale. Audio capture and the level fields
+        // are independent of these controls, and the meter timer reads the meter panels BY FIELD — both
+        // survive (BuildUI reassigns the fields). Used after the window moves to a different-scaled monitor.
+        private void RebuildUI()
+        {
+            _meterTimer?.Stop();   // don't let the 50ms meter tick Invalidate a half-disposed panel mid-rebuild
+            this.SuspendLayout();
+            try
+            {
+                var old = new System.Collections.Generic.List<Control>();
+                foreach (Control c in this.Controls) old.Add(c);
+                this.Controls.Clear();
+                foreach (var c in old) { try { c.Dispose(); } catch { } }
+                _bgCache?.Dispose(); _bgCache = null; // rebuild the cached space background at the new size
+                BuildUI();
+            }
+            catch (Exception ex) { Log.Warn("[UI] RebuildUI failed: " + ex.Message); }
+            finally { this.ResumeLayout(true); this.Invalidate(); _meterTimer?.Start(); }
         }
 
         private void CenterWithMargin()
@@ -296,6 +353,7 @@ namespace WindowsFormsApp1
                 ? Screen.FromHandle(this.Handle)
                 : Screen.FromPoint(Cursor.Position);
             Rectangle wa  = screen.WorkingArea;
+            _builtForScreen = screen.DeviceName; // remember which monitor this sizing is for (move-refit)
 
             float dpi = 96f;
             try
@@ -513,6 +571,7 @@ namespace WindowsFormsApp1
             BuildFooter(W, H, cardPad);
             BuildWindowButtons(W, cardPad);
             BuildHiddenTrackBars(); // keep audio logic wired
+            _builtScale = _scale;   // remember the scale this UI was laid out at (move-refit / OnShown rebuild)
         }
 
         // ── Header ────────────────────────────────────────────────────────────
@@ -601,14 +660,18 @@ namespace WindowsFormsApp1
             _btnMinimize.Click += (s, e) => { this.WindowState = FormWindowState.Minimized; };
             this.Controls.Add(_btnMinimize);
 
-            this.MouseDown += (s, e) =>
+            // Drag the window by its title strip. Remove-then-add so a rebuild (monitor re-fit) never stacks it.
+            this.MouseDown -= FormTitleBarDrag;
+            this.MouseDown += FormTitleBarDrag;
+        }
+
+        private void FormTitleBarDrag(object sender, MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left && e.Y < (int)(90 * _scale) + (int)(18 * _scale))
             {
-                if (e.Button == MouseButtons.Left && e.Y < (int)(90 * _scale) + (int)(18 * _scale))
-                {
-                    ReleaseCapture();
-                    SendMessage(this.Handle, WM_NCLBUTTONDOWN, HTCAPTION, 0);
-                }
-            };
+                ReleaseCapture();
+                SendMessage(this.Handle, WM_NCLBUTTONDOWN, HTCAPTION, 0);
+            }
         }
 
         // ── Meter section ─────────────────────────────────────────────────────
