@@ -141,9 +141,15 @@ namespace WindowsFormsApp1
                                 string batPath = Path.Combine(tempDir, "one_voice_update.bat");
                                 File.WriteAllText(batPath,
                                     $"@echo off\r\n" +
+                                    $"set /a n=0\r\n" +
                                     $":wait\r\n" +
                                     $"tasklist /FI \"PID eq {pid}\" 2>NUL | find /I \"{pid}\" >NUL\r\n" +
-                                    $"if not errorlevel 1 (timeout /t 1 /nobreak >NUL & goto wait)\r\n" +
+                                    $"if errorlevel 1 goto run\r\n" +              // process gone → install now
+                                    $"set /a n+=1\r\n" +
+                                    $"if %n% geq 25 goto run\r\n" +               // safety: never wait > ~25s
+                                    $"timeout /t 1 /nobreak >NUL\r\n" +
+                                    $"goto wait\r\n" +
+                                    $":run\r\n" +
                                     $"timeout /t 2 /nobreak >NUL\r\n" +
                                     $"\"{tempPath}\" /VERYSILENT /NORESTART\r\n");
 
@@ -152,12 +158,16 @@ namespace WindowsFormsApp1
                                     FileName        = "cmd.exe",
                                     Arguments       = $"/C \"{batPath}\"",
                                     UseShellExecute = true,
-                                    WindowStyle     = ProcessWindowStyle.Normal
+                                    WindowStyle     = ProcessWindowStyle.Minimized // minimized, not a scary popup
                                     // No Verb = "runas" — installer handles its own elevation
                                 });
 
-                                // Exit so the batch file can run the installer cleanly
-                                form.BeginInvoke(new Action(() => Application.Exit()));
+                                // Exit so the batch can run the installer cleanly. MUST fully terminate the
+                                // PROCESS (Environment.Exit, not Application.Exit) — Application.Exit only ends
+                                // the message loop, but the bridge/audio/heartbeat foreground threads keep the
+                                // process ALIVE, so the batch's "wait for PID to exit" loop spun forever and the
+                                // cmd window sat frozen, never running the installer (Giff 06-19).
+                                Environment.Exit(0);
                             }
                             catch (Exception ex)
                             {
