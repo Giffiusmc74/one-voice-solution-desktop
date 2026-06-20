@@ -67,7 +67,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "9.5";
+        private const string APP_VERSION = "9.6";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -570,8 +570,8 @@ namespace WindowsFormsApp1
 
             BuildHeader(W, cardPad);
             BuildMeterSection(W, H, cardPad);
+            BuildFooter(W, H, cardPad);        // before the device buttons so we can read the footer's REAL Y to center them
             BuildDeviceButtons(W, H, cardPad);
-            BuildFooter(W, H, cardPad);
             BuildWindowButtons(W, cardPad);
             BuildHiddenTrackBars(); // keep audio logic wired
             _builtScale = _scale;   // remember the scale this UI was laid out at (move-refit / OnShown rebuild)
@@ -1237,13 +1237,15 @@ namespace WindowsFormsApp1
         {
             int btnH     = (int)(70 * _scale);
             int btnW     = (int)(Math.Min(W * 0.36f, 400 * _scale));
-            // §Giff 06-19: sit the mic/speaker buttons EQUIDISTANT between the bottom of the volume row and the
-            // top of the footer (they were crammed against the footer). _volRowBottom is set in BuildMeterSection,
-            // which BuildUI runs before this.
-            int footerTop = H - cardPad - (int)(52 * _scale);              // ~top of the 2-line footer block
+            // §Giff 06-19: center the mic/speaker buttons in the MIDDLE between the ACTUAL bottom of the volume
+            // row (_volRowBottom, set in BuildMeterSection) and the ACTUAL top of the "One United Global LLC"
+            // footer line (read its real Y — BuildFooter runs just before this). No height-guessing this time.
             int zoneTop   = _volRowBottom > 0 ? _volRowBottom : (H - (int)(156 * _scale));
+            int footerTop = (_lblFooterCenter != null && !_lblFooterCenter.IsDisposed)
+                                ? _lblFooterCenter.Top
+                                : (H - cardPad - (int)(52 * _scale));
             int btnY      = zoneTop + (footerTop - zoneTop - btnH) / 2;
-            if (btnY < zoneTop + (int)(10 * _scale)) btnY = zoneTop + (int)(10 * _scale); // never hug the volume row
+            if (btnY < zoneTop + (int)(8 * _scale)) btnY = zoneTop + (int)(8 * _scale); // never hug the volume row
             int gap      = (int)(30 * _scale);
             int totalBtnW = btnW * 2 + gap;
             int btnX0    = (W - totalBtnW) / 2;
