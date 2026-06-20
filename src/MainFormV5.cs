@@ -67,7 +67,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "9.3";
+        private const string APP_VERSION = "9.4";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -340,6 +340,8 @@ namespace WindowsFormsApp1
                 foreach (var c in old) { try { c.Dispose(); } catch { } }
                 _bgCache?.Dispose(); _bgCache = null; // rebuild the cached space background at the new size
                 BuildUI();
+                LoadSettings();    // re-apply saved volumes/prefs to the freshly-built controls
+                PopulateDevices(); // re-fill the mic/speaker dropdowns + restore selection — else they show "SELECT…" and can't be picked
             }
             catch (Exception ex) { Log.Warn("[UI] RebuildUI failed: " + ex.Message); }
             finally { this.ResumeLayout(true); this.Invalidate(); _meterTimer?.Start(); }
@@ -1224,7 +1226,7 @@ namespace WindowsFormsApp1
         // ── Device buttons ────────────────────────────────────────────────────
         private void BuildDeviceButtons(int W, int H, int cardPad)
         {
-            int footerH  = (int)(44 * _scale);
+            int footerH  = (int)(66 * _scale); // Giff 06-19: reserve more for the 2-line footer so it doesn't overlap these buttons
             int btnAreaH = (int)(90 * _scale);
             int btnH     = (int)(70 * _scale);
             int btnW     = (int)(Math.Min(W * 0.36f, 400 * _scale));
