@@ -320,11 +320,12 @@ namespace WindowsFormsApp1.src
                 switch (path)
                 {
                     case "/play":     _log.Info($"[Bridge] HTTP POST /play from {req.RemoteEndPoint} bodyChars={body?.Length ?? 0}"); json = await HandlePlay(body); break;
+                    case "/play-bytes": _log.Info($"[Bridge] HTTP POST /play-bytes from {req.RemoteEndPoint} bodyChars={body?.Length ?? 0}"); json = HandlePlayBytes(body); break;
                     case "/prefetch": _log.Info($"[Bridge] HTTP POST /prefetch from {req.RemoteEndPoint}"); json = HandlePrefetch(body); break;
                     case "/stop":   StopAudio(); json = "{\"ok\":true}"; break;
                     case "/volume": json = HandleVolume(body); break;
                     case "/mic-mute": json = HandleMicMute(body); break;
-                    case "/status": json = "{\"ok\":true,\"playing\":" + (isAudioPlaying ? "true" : "false") + ",\"micMuted\":" + (MicMuted ? "true" : "false") + "}"; break;
+                    case "/status": json = "{\"ok\":true,\"playing\":" + (isAudioPlaying ? "true" : "false") + ",\"micMuted\":" + (MicMuted ? "true" : "false") + ",\"playBytes\":true}"; break;
                     default:        resp.StatusCode = 404; json = "{\"error\":\"Not found\"}"; break;
                 }
                 byte[] buf = Encoding.UTF8.GetBytes(json);
@@ -644,6 +645,51 @@ namespace WindowsFormsApp1.src
                 }
             }
 
+            return StartPlaybackFromBytes(bytes, ext, playAgentVol, playCustVol);
+        }
+
+        // ── /play-bytes (Giff 07-06) — play converted avatar audio straight from memory ──
+        // The portal's PTT-avatar path sends the ElevenLabs MP3 as base64 instead of uploading it to
+        // storage and having us re-download by URL (kills the ~500-850ms double storage hop). Same
+        // playback path as /play — we already have the bytes, so we skip the network fetch. Older
+        // portals never call this and keep using /play, so this endpoint is purely additive.
+        private string HandlePlayBytes(string body)
+        {
+            _log.Info($"[Bridge] /play-bytes ENTER jsonChars={body?.Length ?? 0}");
+            dynamic data = JsonConvert.DeserializeObject(body);
+            string audioBase64 = (string)data?.audioBase64;
+            if (string.IsNullOrWhiteSpace(audioBase64))
+                return "{\"error\":\"audioBase64 is required\"}";
+
+            byte[] bytes;
+            try { bytes = Convert.FromBase64String(audioBase64.Trim()); }
+            catch (Exception ex) { return "{\"error\":\"bad_base64\",\"message\":\"" + ex.Message.Replace("\"", "'") + "\"}"; }
+            if (bytes == null || bytes.Length == 0)
+                return "{\"error\":\"empty audio\"}";
+
+            // STS output is mp3_44100_128; resolver falls back to .mp3 when no URL/mime is present.
+            string ext = ResolveBridgeTempExtension("", (string)data?.mimeType);
+
+            // Portal may send volume (0–100); channel is reserved (both outputs render when devices exist).
+            int playAgentVol = _agentVol;
+            int playCustVol  = _customerVol;
+            try
+            {
+                int? pv = (int?)data?.volume;
+                if (pv.HasValue) { int v = Math.Max(0, Math.Min(100, pv.Value)); playAgentVol = playCustVol = v; }
+            }
+            catch { /* ignore malformed volume */ }
+
+            _log.Info($"[Bridge] /play-bytes decoded {bytes.Length} bytes ext={ext} vol agent={playAgentVol}% customer={playCustVol}%");
+            return StartPlaybackFromBytes(bytes, ext, playAgentVol, playCustVol);
+        }
+
+        // ── Shared playback (extracted from /play so /play-bytes reuses the EXACT same audio path) ──
+        // Writes bytes to a temp file, then renders on VB-Cable (customer) + headset (agent) with the
+        // meter loop. Body is byte-identical to the original inline /play tail — only the method
+        // boundary was added, so /play behavior is unchanged.
+        private string StartPlaybackFromBytes(byte[] bytes, string ext, int playAgentVol, int playCustVol)
+        {
             string tmpPath = Path.Combine(Path.GetTempPath(), "ov_script_" + Guid.NewGuid().ToString("N") + ext);
             File.WriteAllBytes(tmpPath, bytes);
             _log.Info($"[Bridge] /play saved temp ext={ext} path={Clip(tmpPath, 120)}");
