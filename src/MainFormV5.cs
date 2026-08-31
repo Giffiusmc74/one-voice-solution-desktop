@@ -82,9 +82,81 @@ namespace WindowsFormsApp1
         // ── Background cache (prevents OutOfMemory from rapid GDI+ repaints) ─────
         private Bitmap _bgCache = null;
         private Size   _bgCacheSize = Size.Empty;
-        private float SF(float pt) => Math.Max(7f, (float)Math.Round(pt * _scale, 1));
+        /// <summary>
+        /// Absolute floor for scaled type. Below this, text stops being readable, so we clamp — but a clamp is
+        /// the START of a problem, not the end of one: clamped text no longer shrinks with its container, so the
+        /// container has to accommodate it instead. Every drawn label now goes through FitFont for that reason.
+        /// Giff 08-31: this was a silent Math.Max(7f, …) inline. Silent is what hid it for ten weeks.
+        /// </summary>
+        /// <summary>
+        /// The floor expressed in PHYSICAL PIXELS, which is the only unit in which "too small to read" means
+        /// anything. Roughly the height 7pt renders at 96 DPI — the value this floor was originally chosen as.
+        /// </summary>
+        private const float MIN_FONT_PX = 9.5f;
+        /// <summary>Screen DPI, captured in CenterWithMargin. 96 until the first layout pass.</summary>
+        private int _dpiForFonts = 96;
+        /// <summary>
+        /// The floor in POINTS at the current DPI.
+        ///
+        /// Giff 08-31: this was a flat 7pt constant, and that is a 96-DPI number masquerading as a universal
+        /// one. Points are a physical unit — GDI multiplies by dpi/72 — so a 7pt floor renders ~9px tall at 96
+        /// DPI (a genuine readability limit) but ~28px tall at 288 DPI, which is merely "medium sized text".
+        /// The consequence was measurable: the mic button fitted all the way down to the floor and was STILL
+        /// 690px wide in a 598px box, so EndEllipsis cropped it to "…Audio De…" while the speaker button, with
+        /// eight fewer characters, squeaked in at 568px. Same code, same floor, different string length.
+        /// Anchoring the floor in pixels lets the fit keep going exactly as far as it needs to at any DPI.
+        /// </summary>
+        private float MinFontPt => Math.Max(1f, MIN_FONT_PX * 72f / Math.Max(1, _dpiForFonts));
+        /// <summary>Set when SF() has to clamp, so the condition is observable instead of invisible.</summary>
+        private bool _fontFloorEngaged;
+        /// <summary>Actual rendered height of the section-label row, vs the sectionLblH guess. See LAYOUT-V.</summary>
+        private int _lastSectionLabelH;
+        /// <summary>Last device-button signature logged, so the [BTN:] diagnostic fires once, not per paint.</summary>
+        private string _loggedBtnSig;
+        private float SF(float pt)
+        {
+            float want = (float)Math.Round(pt * _scale, 1);
+            if (want < MinFontPt)
+            {
+                if (!_fontFloorEngaged)
+                {
+                    _fontFloorEngaged = true;
+                    Log.Warn($"[UI] Font floor engaged: {pt}pt x scale {_scale:F3} = {want}pt, clamped to {MinFontPt}pt. " +
+                             "Text no longer scales with its container here - FitFont is what keeps it inside.");
+                }
+                return MinFontPt;
+            }
+            return want;
+        }
         // Giff 06-19: "chrome" text — labels, buttons, footer — sits 15% smaller than the meters/header.
         private float SFc(float pt) => SF(pt * 0.85f);
+
+        /// <summary>
+        /// The largest font from <paramref name="startPt"/> down whose rendering of <paramref name="text"/> fits
+        /// <paramref name="maxWidth"/>. If nothing fits even at MinFontPt it returns that, and the caller has a
+        /// measured width it can trust — so it can ellipsise deliberately rather than be cropped by GDI.
+        ///
+        /// Giff 08-31: the structural fix. Every clipped label on this screen was centered text drawn into a
+        /// fixed rect — GDI centers, overflows BOTH edges, and crops ("AGENT RECORDINGS" losing a character each
+        /// end, "VOLUME" losing its V and E). Measuring first makes that impossible regardless of DPI, scale,
+        /// which monitor it lands on, or how long a device name is.
+        /// </summary>
+        private Font FitFont(string text, float startPt, FontStyle style, int maxWidth, out Size measured)
+        {
+            if (maxWidth < 1) maxWidth = 1;
+            float pt = Math.Max(MinFontPt, startPt);
+            Font f = new Font("Segoe UI", pt, style);
+            while (true)
+            {
+                measured = TextRenderer.MeasureText(text ?? string.Empty, f,
+                    new Size(int.MaxValue, int.MaxValue), TextFormatFlags.NoPadding);
+                if (measured.Width <= maxWidth || pt <= MinFontPt) return f;
+                pt = (float)Math.Round(pt - 0.5f, 1);
+                if (pt < MinFontPt) pt = MinFontPt;
+                f.Dispose();
+                f = new Font("Segoe UI", pt, style);
+            }
+        }
 
         // DPI helper
         [DllImport("user32.dll")]
@@ -366,6 +438,9 @@ namespace WindowsFormsApp1
                 IntPtr hdc = GetDC(IntPtr.Zero);
                 dpi = GetDeviceCaps(hdc, LOGPIXELSX);
                 ReleaseDC(IntPtr.Zero, hdc);
+                // Feed the font floor (§Giff 08-31). Points are a PHYSICAL unit — GDI multiplies by dpi/72 —
+                // so a fixed point floor is really a 96-DPI-only floor, and three times too large at 288.
+                _dpiForFonts = dpi > 0 ? (int)dpi : 96;
             }
             catch { }
 
@@ -386,8 +461,29 @@ namespace WindowsFormsApp1
             if (w < 480) w = Math.Min(480, wa.Width);   // tiny-screen safety net
             if (h < 360) h = Math.Min(360, wa.Height);
 
+            // ── THE CEILING (§Giff 08-31) ────────────────────────────────────────────────────────────────
+            // This was clamped at 1.20 and that clamp is the whole bug behind "the gauges are too small and
+            // there's a dead band across the middle".
+            //
+            // On a 3840x2160 panel at 288 DPI (300% scaling) the window is 3618x1794, which NEEDS a scale of
+            // 2.19 to fill. Clamped to 1.20, every element was laid out at 55% of the size the window called
+            // for: the gauge came out 408px where it wanted 744px, and the leftover height is the empty band.
+            // Nothing was computing height off the wrong thing — everything was computing off a scale that was
+            // not permitted to grow.
+            //
+            // 2.60 covers 300% DPI on a 4K panel with room to spare, and still stops runaway growth on a wall
+            // display. If it ever binds again the log line below says so explicitly rather than silently
+            // shrinking the UI, which is exactly how this survived nine releases.
+            const float SCALE_MIN = 0.55f;
+            const float SCALE_MAX = 2.60f;
             float sizeScale = Math.Min((float)w / 1400f, (float)h / 820f);
-            _scale = Math.Max(0.55f, Math.Min(sizeScale, 1.20f));
+            _scale = Math.Max(SCALE_MIN, Math.Min(sizeScale, SCALE_MAX));
+            if (sizeScale > SCALE_MAX)
+                Log.Warn($"[UI] Scale ceiling hit: window {w}x{h} wants {sizeScale:F2}, clamped to {SCALE_MAX:F2}. " +
+                         "The layout will not fill the window and a dead band will appear.");
+            else if (sizeScale < SCALE_MIN)
+                Log.Warn($"[UI] Scale floor hit: window {w}x{h} wants {sizeScale:F2}, clamped to {SCALE_MIN:F2}. " +
+                         "Content is larger than the window can hold and may crop.");
 
             int cx = wa.Left + (wa.Width  - w) / 2;
             int cy = wa.Top  + (wa.Height - h) / 2;
@@ -632,6 +728,19 @@ namespace WindowsFormsApp1
             int btnSz     = (int)(34 * _scale);   // Giff 06-19: a touch bigger so the minimize/close glyphs sit clean + centered
             int btnMargin = cardPad + (int)(10 * _scale);
             int btnY      = cardPad + (int)(10 * _scale);
+            // Giff 08-31: keep the buttons clear of the red flare line under the title. The line sits at
+            // cardPad + 90*_scale and is drawn 14*_scale thick, so its top edge is flareY - glowH2/2. If the
+            // buttons would reach it, lift them; if that pushes them off the top of the card, shrink instead.
+            // Both were previously fixed offsets that happened to work at one scale and one DPI.
+            int flareTop  = cardPad + (int)(90 * _scale) - (int)(14f * _scale) / 2;
+            int clearance = (int)(8 * _scale);
+            if (btnY + btnSz > flareTop - clearance)
+            {
+                btnY = Math.Max((int)(6 * _scale), flareTop - clearance - btnSz);
+                if (btnY + btnSz > flareTop - clearance)
+                    btnSz = Math.Max((int)(18 * _scale), flareTop - clearance - btnY);
+                Log.Info($"[LAYOUT] Window buttons lifted clear of the flare line: btnY={btnY} btnSz={btnSz} flareTop={flareTop}");
+            }
 
             _btnClose = new Button
             {
@@ -687,29 +796,61 @@ namespace WindowsFormsApp1
             int sectionTop = cardPad + headerH + (int)(45 * _scale);
             
             // Sizing constants
-            int footerH     = (int)(44 * _scale);
+            // Giff 08-31: RESERVE THE FOOTER'S REAL HEIGHT, same bug as the header one row down. `44 * _scale`
+            // was a guess made before the footer's fonts were known; at 288 DPI two lines render far taller
+            // than the 96px it reserved, so the footer climbed up over the mic/speaker buttons and cut them
+            // in half. Measured the same way it is built, so reservation and render cannot disagree.
+            int footerH     = MeasureFooterHeight();
             int btnAreaH    = (int)(90 * _scale);
             int dbCtrlH     = (int)(50 * _scale);  // Increased to match device button height
             int lblH        = (int)(34 * _scale); // Increased height to prevent font cropping at the top
-            int sectionLblH = (int)(28 * _scale);
-
-            // Meter diameter: fill available width evenly across 4 slots
+            // Horizontal envelope first — the header's height depends on how wide it is allowed to be.
             int innerPad    = cardPad + (int)(24 * _scale);
             int usableW     = W - innerPad * 2;
             int meterSpacing = usableW / 4;
-            int meterDiam   = (int)(meterSpacing * 0.95f);
-            meterDiam = Math.Max(140, Math.Min((int)(340 * _scale), meterDiam));
 
-            // Vertically center only the meters block
+            // ── RESERVE THE HEADER'S REAL HEIGHT (§Giff 08-31) ────────────────────────────────────────────
+            // This was `(int)(28 * _scale)` — a guess made before the header's font is chosen, and at 288 DPI
+            // it was wrong by a factor of two and a half: the guess reserved 61px for a row that actually
+            // renders 153px. The header panel therefore hung 70px INTO the meters, and because it is added to
+            // Controls before them it paints over their tops — which is why all four rings were flat at the
+            // top rather than curved. Measuring the row the same way it is built removes the guess entirely.
+            int sectionLblH = MeasureSectionLabelHeight(meterSpacing * 2);
+
+            // ── Vertical envelope (§Giff 08-31) ───────────────────────────────────────────────────────────
+            // The gauge used to be sized from width and an arbitrary 340*_scale cap, with the available HEIGHT
+            // never consulted at all. That is the second half of "the gauges are too small and there is a dead
+            // band in the middle": the circle could not grow past the cap no matter how much room sat under it.
             int topBoundary = sectionTop + sectionLblH;
             int bottomBoundary = H - btnAreaH - footerH - (int)(10 * _scale);
             int availableH = bottomBoundary - topBoundary;
-            
+            int spacingToCtrl = (int)(10 * _scale); // gap between meter panel and volume controls
+
+            // Meter diameter: fill the available width across 4 slots AND the height left after the volume row.
+            // Whichever runs out first is the limit — so the gauges grow into the space instead of stopping at
+            // a constant. The 340*_scale ceiling is deliberately gone; the room itself is the ceiling now.
+            int widthLimit  = (int)(meterSpacing * 0.95f);
+            int heightLimit = availableH - spacingToCtrl - dbCtrlH;
+            int meterDiam   = Math.Max(140, Math.Min(widthLimit, heightLimit));
+
             // Meter panel height: full diameter to show full inner circle
             int meterPanelH = meterDiam;
-            
-            int spacingToCtrl = (int)(10 * _scale); // gap between meter panel and volume controls
+
             int blockH = meterPanelH + spacingToCtrl + dbCtrlH;
+
+            // ── LAYOUT DIAGNOSTIC (§Giff 08-31) ──────────────────────────────────────────────────────────
+            // Reasoning about this layout from the source has been wrong repeatedly — the numbers are the only
+            // thing that has ever settled it. Dump every horizontal boundary that matters, so "is it clipped"
+            // is a subtraction rather than an opinion. Gauge 3 is the rightmost; if its right edge exceeds
+            // W - cardPad the ring is being cut by the frame.
+            int g3Right = innerPad + 3 * meterSpacing + meterDiam;
+            Log.Info($"[LAYOUT] scale={_scale:F3} W={W} H={H} cardPad={cardPad} innerPad={innerPad} " +
+                     $"usableW={usableW} meterSpacing={meterSpacing} diam={meterDiam} " +
+                     $"(widthLimit={widthLimit} heightLimit={heightLimit}) " +
+                     $"gaugeRights=[{innerPad + meterDiam},{innerPad + meterSpacing + meterDiam}," +
+                     $"{innerPad + 2 * meterSpacing + meterDiam},{g3Right}] " +
+                     $"rightSafeEdge={W - cardPad} overhang={g3Right - (W - cardPad)} " +
+                     $"availH={availableH} blockH={blockH}");
             
             // §Giff 06-19: nudge the whole meters+volume block UP a little so the bottom gets more cushion.
             int meterTop = Math.Max(topBoundary, topBoundary + (availableH - blockH) / 2 - (int)(22 * _scale));
@@ -727,6 +868,23 @@ namespace WindowsFormsApp1
                               Color.FromArgb(195, 195, 205), METER_PURPLE);
 
             // NO vertical divider line — sections separated by natural spacing only
+
+            // ── VERTICAL OVERLAP CHECK (§Giff 08-31) ─────────────────────────────────────────────────────
+            // Logged HERE, after the header panels exist — the earlier position read the field before either
+            // was built and reported 0. `sectionLblH` (28*_scale) is a guess at the header row's height made
+            // before the font is chosen; the panel's real height is textH + 8*_scale. If the real height runs
+            // past `topBoundary`, the header panel sits over the tops of the meter panels and clips all four
+            // rings flat — which is exactly the "cut off at the top" symptom.
+            {
+                int headerBottom = sectionTop + _lastSectionLabelH;
+                int overlapPx = headerBottom - meterTop;
+                Log.Info($"[LAYOUT-V] sectionTop={sectionTop} sectionLblH(guess)={sectionLblH} " +
+                         $"headerPanelH(actual)={_lastSectionLabelH} headerBottom={headerBottom} " +
+                         $"topBoundary={topBoundary} meterTop={meterTop} overlap={overlapPx}");
+                if (overlapPx > 0)
+                    Log.Warn($"[LAYOUT-V] HEADER OVERLAPS THE METERS by {overlapPx}px — ring tops will be clipped. " +
+                             $"sectionLblH guess ({sectionLblH}) is smaller than the real header height ({_lastSectionLabelH}).");
+            }
 
             // ── 4 Meters ─────────────────────────────────────────────────────────────
             // 0: Customer Voice (RED)       — left side (AGENT HEARS)
@@ -752,25 +910,125 @@ namespace WindowsFormsApp1
             }
         }
 
+        /// <summary>
+        /// How tall the two footer lines actually render, plus their gap and a little breathing room
+        /// (§Giff 08-31). Mirrors BuildFooter's fonts exactly — change one, change the other.
+        /// </summary>
+        private int MeasureFooterHeight()
+        {
+            using (var f1 = new Font("Segoe UI", SFc(9f), FontStyle.Regular))
+            using (var f2 = new Font("Segoe UI", SFc(8f), FontStyle.Regular))
+            {
+                int h1 = TextRenderer.MeasureText($"One United Global LLC 2026.  V {APP_VERSION}", f1).Height;
+                int h2 = TextRenderer.MeasureText("W.O.T. 31 !", f2).Height;
+                int gap = (int)(3 * _scale);
+                // + a cushion so the footer never sits flush against whatever is above it.
+                return h1 + gap + h2 + (int)(14 * _scale);
+            }
+        }
+
+        /// <summary>
+        /// How tall the section-label row will actually be at width <paramref name="w"/>, using the SAME fit
+        /// the row is built with (§Giff 08-31).
+        ///
+        /// The caller used to reserve `28 * _scale` for this row — a constant guessed before the font was
+        /// known. At 288 DPI that reserved 61px for a row that renders 153px, so the header panel hung 70px
+        /// into the meter panels below it and, painting first, flattened the top of all four rings. One
+        /// function now answers "how tall is this row" for both the reservation and the render, so the two
+        /// cannot drift apart again.
+        /// </summary>
+        private int MeasureSectionLabelHeight(int w)
+        {
+            int edgeGapFit = (int)(20 * _scale);
+            int textGapFit = (int)(15 * _scale);
+            int ruleMinFit = (int)(28 * _scale);
+            int textBudget = w - 2 * (edgeGapFit + textGapFit + ruleMinFit);
+            if (textBudget < 1) textBudget = w / 2;
+
+            var infinite = new Size(int.MaxValue, int.MaxValue);
+            // Measure BOTH rows and take the taller. Counter-intuitively that is the row with the SHORTER
+            // text: "WHAT THE AGENT HEARS" is narrower than "WHAT THE CUSTOMER HEARS", so it survives the fit
+            // at a LARGER point size and therefore renders TALLER. Measuring only the wider row (the first
+            // attempt at this) under-reserved by 16px and the rings were still clipped, just less.
+            int tallest = 0;
+            foreach (var keyword in new[] { "AGENT", "CUSTOMER" })
+            {
+                const string pre = "WHAT THE ", suf = " HEARS";
+                float pt = SFc(15f);
+                Font f = new Font("Segoe UI", pt, FontStyle.Bold);
+                try
+                {
+                    while (true)
+                    {
+                        int total = TextRenderer.MeasureText(pre,     f, infinite, TextFormatFlags.NoPadding).Width
+                                  + TextRenderer.MeasureText(keyword, f, infinite, TextFormatFlags.NoPadding).Width
+                                  + TextRenderer.MeasureText(suf,     f, infinite, TextFormatFlags.NoPadding).Width;
+                        if (total <= textBudget || pt <= MinFontPt) break;
+                        pt = (float)Math.Round(pt - 0.5f, 1);
+                        if (pt < MinFontPt) pt = MinFontPt;
+                        f.Dispose();
+                        f = new Font("Segoe UI", pt, FontStyle.Bold);
+                    }
+                    tallest = Math.Max(tallest, TextRenderer.MeasureText(keyword, f).Height);
+                }
+                finally { f.Dispose(); }
+            }
+            return tallest + (int)(8 * _scale);
+        }
+
         // ── Section label with colored keyword ────────────────────────────────
         private void BuildSectionLabel(int x, int y, int w,
                                        string prefix, string keyword, string suffix,
                                        Color baseColor, Color keyColor)
         {
-            // We render this as a single owner-draw panel for exact color control
-            var font     = new Font("Segoe UI", SFc(15f), FontStyle.Bold);
-            int prefW    = TextRenderer.MeasureText(prefix,  font).Width;
-            int keyW     = TextRenderer.MeasureText(keyword, font).Width;
-            int sufW     = TextRenderer.MeasureText(suffix,  font).Width;
-            int totalTW  = prefW + keyW + sufW;
-            int textH    = TextRenderer.MeasureText(keyword, font).Height;
+            // We render this as a single owner-draw panel for exact color control.
+            //
+            // Giff 08-31: the header must leave room for its own margins AND for the two divider rules, so the
+            // font is fitted to the space that is left after both are reserved — not to the raw panel width.
+            // Before this, the text simply grew with _scale until it ran to the panel edges: at 300% DPI it
+            // touched the window frame on both sides, and because drawSubtleLine() below is a no-op whenever
+            // x2 <= x1, the rules either side of "WHAT THE AGENT HEARS" silently stopped drawing altogether.
+            // That is why the two headers read as one run-on line. Reserving the space fixes both at once.
+            int edgeGapFit = (int)(20 * _scale);   // outer margin, mirrored from the paint below
+            int textGapFit = (int)(15 * _scale);   // gap between the text block and each rule
+            int ruleMinFit = (int)(28 * _scale);   // a rule shorter than this is not worth drawing
+            int textBudget = w - 2 * (edgeGapFit + textGapFit + ruleMinFit);
+            if (textBudget < 1) textBudget = w / 2;
+
+            // Fit against the SUM OF THE THREE PARTS, which is how the row is actually drawn — not against the
+            // joined string. Giff 08-31, second pass: fitting "WHAT THE " + "AGENT" + " HEARS" as one string
+            // under-measures, because each of the three pieces carries its own side bearings when drawn
+            // separately. The diagnostic caught it exactly: panel=1718, fit budget=1446, actual laid-out
+            // text=1565 — 119px wider than the fit believed, which ate the margins and both rules and left
+            // 1px per side. Measure it the way it is drawn or the fit is fiction.
+            var measFlags = TextFormatFlags.NoPadding;
+            var infinite  = new Size(int.MaxValue, int.MaxValue);
+            float pt = SFc(15f);
+            Font font = new Font("Segoe UI", pt, FontStyle.Bold);
+            int prefW, keyW, sufW, totalTW;
+            while (true)
+            {
+                prefW = TextRenderer.MeasureText(prefix,  font, infinite, measFlags).Width;
+                keyW  = TextRenderer.MeasureText(keyword, font, infinite, measFlags).Width;
+                sufW  = TextRenderer.MeasureText(suffix,  font, infinite, measFlags).Width;
+                totalTW = prefW + keyW + sufW;
+                if (totalTW <= textBudget || pt <= MinFontPt) break;
+                pt = (float)Math.Round(pt - 0.5f, 1);
+                if (pt < MinFontPt) pt = MinFontPt;
+                font.Dispose();
+                font = new Font("Segoe UI", pt, FontStyle.Bold);
+            }
+            int textH = TextRenderer.MeasureText(keyword, font).Height;
 
             // Left divider line + text + right divider line
             var panel = new Panel
             {
                 Bounds    = new Rectangle(x, y, w, textH + (int)(8 * _scale)),
+                // NOTE: the caller sizes the space for this row as sectionLblH = 28*_scale, a guess made
+                // before the font is known. The real height is recorded below so LAYOUT-V can compare them.
                 BackColor = Color.Transparent
             };
+            _lastSectionLabelH = Math.Max(_lastSectionLabelH, panel.Height);
             string pref = prefix, kw = keyword, suf = suffix;
             Color bc = baseColor, kc = keyColor;
             panel.Paint += (s, e) =>
@@ -780,25 +1038,37 @@ namespace WindowsFormsApp1
                 int pw = panel.Width;
                 int ph = panel.Height;
                 int textY = (ph - textH) / 2;
-
-                // Center text block
-                int startX = (pw - totalTW) / 2;
                 int lineY  = ph / 2 + (int)(1 * _scale);
-                int textGap = (int)(15 * _scale); // gap between text and line
-                int edgeGap = (int)(20 * _scale); // gap at the outer edges of the section
 
-                // Draw thin, subtle glowing lines on both sides
+                // ── ONE UNIT (§Giff 08-31) ───────────────────────────────────────────────────────────────
+                // The header is laid out as a single row — margin | rule | gap | text | gap | rule | margin —
+                // measured together against the panel width. Previously the text was centred first and each
+                // rule was then given whatever happened to be left, so as the text grew with _scale the rules
+                // collapsed to 5px stubs (drawSubtleLine is a silent no-op when x2 <= x1) and the text ran to
+                // the panel edge. Now the margins and a minimum rule are reserved FIRST and the text is fitted
+                // into what remains, so every piece has room by construction and the row can never eat itself.
+                int edgeGap = (int)(20 * _scale); // hard margin at both outer edges — never encroached on
+                int textGap = (int)(15 * _scale); // gap between the text block and each rule
+                int minRule = (int)(28 * _scale); // below this a rule reads as a stub, not a rule
+
+                // Text is centred in the row; the rules fill the space either side of it, symmetrically.
+                int startX = (pw - totalTW) / 2;
+                int leftRuleEnd    = startX - textGap;
+                int rightRuleStart = startX + totalTW + textGap;
+
                 Action<int, int> drawSubtleLine = (x1, x2) => {
-                    if (x2 <= x1) return;
+                    if (x2 - x1 < minRule) return;   // still guarded, but the fit above means it should not fire
                     using (var gp1 = new Pen(Color.FromArgb(100, kc), 2f * _scale)) g.DrawLine(gp1, x1, lineY, x2, lineY);
                     using (var gp2 = new Pen(Color.FromArgb(220, kc), 1f * _scale)) g.DrawLine(gp2, x1, lineY, x2, lineY);
                 };
 
-                // Left line (indented from left edge to leave a gap in the center of the screen)
-                drawSubtleLine(edgeGap, startX - textGap);
+                drawSubtleLine(edgeGap, leftRuleEnd);
+                drawSubtleLine(rightRuleStart, pw - edgeGap);
 
-                // Right line (indented from right edge)
-                drawSubtleLine(startX + totalTW + textGap, pw - edgeGap);
+                if (leftRuleEnd - edgeGap < minRule || (pw - edgeGap) - rightRuleStart < minRule)
+                    Log.Warn($"[LAYOUT] Section rule squeezed: panel={pw} text={totalTW} " +
+                             $"left={leftRuleEnd - edgeGap}px right={(pw - edgeGap) - rightRuleStart}px (min {minRule}). " +
+                             "The fit budget in BuildSectionLabel is too generous for this width.");
 
                 // Text segments
                 TextRenderer.DrawText(g, pref, font, new Point(startX, textY), bc);
@@ -1005,11 +1275,23 @@ namespace WindowsFormsApp1
             }
 
             // 8. Section Label (drawn directly on panel to prevent WinForms clipping artifacts)
-            using (var lblFont = new Font("Segoe UI", SFc(11f), FontStyle.Bold))
+            // Giff 08-31: fit the font to the panel BEFORE drawing. This label is centered on cx, so when it is
+            // wider than the panel it overflows equally left and right and the panel crops both ends — which is
+            // exactly how "AGENT RECORDINGS" lost a character at each edge. The label is now guaranteed to fit
+            // whatever width the meter ended up with, at any scale or DPI.
+            // Giff 08-31: fit the label to the RING, not to the panel. The panel is `diam` wide but the ring
+            // inside it is only diam - 2*margin across (margin = 26*_scale, same constant the dial uses), so
+            // fitting to the panel let "AGENT RECORDINGS" render visibly wider than the circle it belongs to —
+            // which is what reads as "the label runs wider than its gauge" and, on the rightmost gauge, as the
+            // ring looking flattened beside an overrunning label. The diagnostic confirmed the panel itself is
+            // NOT clipped by the frame (right edge 3484 vs safe edge 3581), so the mismatch was always here.
+            int lblBudget = diam - 2 * (int)(26 * _scale);
+            Size szL;
+            using (var lblFont = FitFont(labelText, SFc(11f), FontStyle.Bold, lblBudget, out szL))
             {
-                var szL = TextRenderer.MeasureText(labelText, lblFont);
                 TextRenderer.DrawText(g, labelText, lblFont,
-                    new Point(cx - szL.Width / 2, diam - szL.Height), Color.White);
+                    new Point(cx - szL.Width / 2, diam - szL.Height), Color.White,
+                    TextFormatFlags.NoPadding);
             }
         }
 
@@ -1044,11 +1326,17 @@ namespace WindowsFormsApp1
                         gg.DrawPath(pen, path);
                 }
 
-                // Volume Text in center
-                var font = new Font("Segoe UI", SFc(12f), FontStyle.Bold);
-                var textRect = new Rectangle(btnW, 0, valW, btnH);
-                TextRenderer.DrawText(gg, "VOLUME", font, textRect, Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
-                font.Dispose();
+                // Volume Text in center.
+                // Giff 08-31: fit to valW first. This rect sits BETWEEN the − and + buttons, so overflow did not
+                // merely clip — centered text spilled out of both ends of the rect and over the two buttons,
+                // which is the overlap on the screenshot, and "VOLUME" lost its V and its E to the crop.
+                Size szV;
+                using (var font = FitFont("VOLUME", SFc(12f), FontStyle.Bold, valW, out szV))
+                {
+                    var textRect = new Rectangle(btnW, 0, valW, btnH);
+                    TextRenderer.DrawText(gg, "VOLUME", font, textRect, Color.White,
+                        TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+                }
             };
             this.Controls.Add(containerPnl);
 
@@ -1286,16 +1574,46 @@ namespace WindowsFormsApp1
                         using (var glow = new Pen(Color.FromArgb(100, accent), 5f)) g.DrawPath(glow, path);
                         using (var pen = new Pen(currentBorder, 2f)) g.DrawPath(pen, path);
                     }
-                    var font = new Font("Segoe UI", SFc(16f), FontStyle.Bold);
-                    
                     int iconSz = (int)(26 * _scale);
                     int ix = (int)(22 * _scale);
-                    
+
                     // Shift text to the right so it never overlaps the icon
                     int textLeft = ix + iconSz + (int)(10 * _scale);
                     var textRect = new Rectangle(textLeft, 0, pnl.Width - textLeft - (int)(10 * _scale), pnl.Height);
-                    TextRenderer.DrawText(g, pnl.Tag as string, font, textRect, Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
-                    font.Dispose();
+                    // Giff 08-31: fit to the rect rather than relying on EndEllipsis. The ellipsis was GDI
+                    // reporting defeat — it is why these read "Microp…" and "Speake…". Shrinking to fit shows
+                    // the whole device name; EndEllipsis stays as a last resort for names too long even at the
+                    // minimum size, so the fallback is still graceful rather than a crop.
+                    // Giff 08-31 (second pass): the DRAW must use the same flags the FIT measured with.
+                    // FitFont measures with NoPadding; this call did not pass it, so GDI added its own internal
+                    // padding on top of a string already fitted to the last few pixels — and EndEllipsis fired
+                    // regardless. That is why the mic button still read "…Audio D…" while the speaker button
+                    // beside it, with a shorter name and more slack, rendered in full. Mismatched flags, not a
+                    // mismatched width.
+                    const TextFormatFlags DeviceBtnFlags =
+                        TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter |
+                        TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis;
+                    Size szB;
+                    using (var font = FitFont(pnl.Tag as string, SFc(16f), FontStyle.Bold, textRect.Width, out szB))
+                    {
+                        // DIAGNOSTIC (§Giff 08-31): logged ONCE per button per text, not per paint — this is a
+                        // Paint handler and the meters repaint constantly, so an unconditional log here would
+                        // bury the file. Kept because it is what found the bug: the fit was reaching this
+                        // button all along and bottoming out on a DPI-blind 7pt floor while still 92px too
+                        // wide. If a device name ever truncates again, this line says why in one read.
+                        string btnSig = iconType + "|" + (pnl.Tag as string ?? "") + "|" + textRect.Width;
+                        if (_loggedBtnSig != btnSig)
+                        {
+                            _loggedBtnSig = btnSig;
+                            int drawnW = TextRenderer.MeasureText(pnl.Tag as string, font,
+                                            new Size(int.MaxValue, int.MaxValue), DeviceBtnFlags).Width;
+                            Log.Info($"[BTN:{iconType}] pnlW={pnl.Width} textLeft={textLeft} rectW={textRect.Width} " +
+                                     $"startPt={SFc(16f):F1} fittedPt={font.SizeInPoints:F1} fitW={szB.Width} " +
+                                     $"drawnW={drawnW} over={drawnW - textRect.Width} tagLen={(pnl.Tag as string ?? "").Length} " +
+                                     $"tag=\"{pnl.Tag as string}\"");
+                        }
+                        TextRenderer.DrawText(g, pnl.Tag as string, font, textRect, Color.White, DeviceBtnFlags);
+                    }
 
                     // Draw custom vector icon on the left
                     if (!string.IsNullOrEmpty(iconType)) {
@@ -1352,22 +1670,34 @@ namespace WindowsFormsApp1
 
             _cboMic.SelectedIndexChanged += (s, e) => {
                 if (_cboMic.SelectedIndex >= 0) {
-                    btnMic.Tag = TruncateDevice(_cboMic.Text, 22) + "   \u25BC";
+                    btnMic.Tag = TruncateDevice(_cboMic.Text) + "   \u25BC";
                     btnMic.Invalidate();
                 }
             };
             _cboHeadset.SelectedIndexChanged += (s, e) => {
                 if (_cboHeadset.SelectedIndex >= 0) {
-                    btnSpk.Tag = TruncateDevice(_cboHeadset.Text, 22) + "   \u25BC";
+                    btnSpk.Tag = TruncateDevice(_cboHeadset.Text) + "   \u25BC";
                     btnSpk.Invalidate();
                 }
             };
         }
 
-        private string TruncateDevice(string name, int maxLen)
+        /// <summary>
+        /// Device names are no longer cut at a character count (§Giff 08-31).
+        ///
+        /// The old signature took maxLen and chopped at 22 characters regardless of font, scale, DPI or how wide
+        /// the button actually was — so it truncated names that would have fitted comfortably, and it looked
+        /// identical at every Windows scaling, which is why one of the two symptoms on this screen never varied
+        /// with DPI. The button now shrinks its own font to fit (see FitFont at the paint), so the full name is
+        /// passed through and only a genuinely absurd string is cut — measured, not counted.
+        /// </summary>
+        private string TruncateDevice(string name)
         {
             if (string.IsNullOrEmpty(name)) return name;
-            return name.Length > maxLen ? name.Substring(0, maxLen) + "…" : name;
+            // A sane upper bound so a pathological driver string cannot blow out the fit loop. Not a layout
+            // decision: the layout decision is made by measurement in FitFont.
+            const int Absurd = 120;
+            return name.Length > Absurd ? name.Substring(0, Absurd) + "…" : name;
         }
 
         private void ShowMicDropdown(Control anchor)
@@ -1474,7 +1804,9 @@ namespace WindowsFormsApp1
                 Text      = $"One United Global LLC 2026.  V {APP_VERSION}",
                 ForeColor = Color.White,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SFc(13f), FontStyle.Regular),
+                // Giff 08-31: 13 -> 9. The footer is a credit line, not content; at 288 DPI the old size
+                // rendered tall enough to climb over the mic/speaker buttons above it.
+                Font      = new Font("Segoe UI", SFc(9f), FontStyle.Regular),
                 AutoSize  = true
             };
             this.Controls.Add(_lblFooterCenter);
@@ -1486,7 +1818,7 @@ namespace WindowsFormsApp1
                 Text      = "W.O.T. 31 !",
                 ForeColor = Color.White,
                 BackColor = Color.Transparent,
-                Font      = new Font("Segoe UI", SFc(12f), FontStyle.Regular),
+                Font      = new Font("Segoe UI", SFc(8f), FontStyle.Regular),   // Giff 08-31: 12 -> 8, see above
                 AutoSize  = true
             };
             this.Controls.Add(lblWot);
