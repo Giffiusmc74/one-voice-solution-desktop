@@ -728,6 +728,13 @@ namespace WindowsFormsApp1
             int btnSz     = (int)(34 * _scale);   // Giff 06-19: a touch bigger so the minimize/close glyphs sit clean + centered
             int btnMargin = cardPad + (int)(10 * _scale);
             int btnY      = cardPad + (int)(10 * _scale);
+            // Size the GLYPH from the BUTTON, in pixels (§Giff 08-31). This was SF(11f) — a POINT size — while
+            // the button is sized in PIXELS (34*_scale). Points are physical: at 288 DPI SF(11) = 24pt renders
+            // ~96px tall inside a 74px button, so the glyph overflowed and Windows clipped it. The close "X"
+            // lost its top half and read as a checkmark; the minimize bar was cut away entirely, leaving an
+            // empty grey square. Deriving the point size from the button height at the live DPI keeps the
+            // glyph proportional to its button at any scaling.
+            float glyphPt = Math.Max(4f, (btnSz * 0.42f) * 72f / Math.Max(1, _dpiForFonts));
             // Giff 08-31: keep the buttons clear of the red flare line under the title. The line sits at
             // cardPad + 90*_scale and is drawn 14*_scale thick, so its top edge is flareY - glowH2/2. If the
             // buttons would reach it, lift them; if that pushes them off the top of the card, shrink instead.
@@ -748,7 +755,7 @@ namespace WindowsFormsApp1
                 FlatStyle = FlatStyle.Flat,
                 ForeColor = Color.White,
                 BackColor = Color.FromArgb(55, 55, 65),
-                Font      = new Font("Segoe UI", SF(11f), FontStyle.Bold),
+                Font      = new Font("Segoe UI", glyphPt, FontStyle.Bold),
                 Bounds    = new Rectangle(W - btnSz - btnMargin, btnY, btnSz, btnSz),
                 Cursor    = Cursors.Hand,
                 TabStop   = false
@@ -764,7 +771,7 @@ namespace WindowsFormsApp1
                 FlatStyle = FlatStyle.Flat,
                 ForeColor = Color.White,
                 BackColor = Color.FromArgb(55, 55, 65),
-                Font      = new Font("Segoe UI", SF(11f), FontStyle.Bold),
+                Font      = new Font("Segoe UI", glyphPt, FontStyle.Bold),
                 Bounds    = new Rectangle(W - btnSz * 2 - btnMargin - (int)(8 * _scale), btnY, btnSz, btnSz),
                 Cursor    = Cursors.Hand,
                 TabStop   = false
