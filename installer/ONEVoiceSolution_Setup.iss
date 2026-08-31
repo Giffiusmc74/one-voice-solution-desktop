@@ -98,17 +98,32 @@ Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 ; Startup shortcut removed — registry Run key (below) is used instead to prevent dual-launch
 
 [Run]
-; ── Step 1: Silently install VB-Audio Virtual Cable ───────────────────────────
-; 64-bit Windows
-Filename: "{tmp}\vbcable\VBCABLE_Setup_x64.exe"; \
-  Parameters: "/S /norestart"; \
+; ── Step 1: Install VB-Audio Virtual Cable ────────────────────────────────────
+;
+; §Giff 08-31 — THIS STEP USED TO HANG FOREVER, and did so on every install.
+;
+; It ran the driver setup with `Parameters: "/S /norestart"` and `Flags: waituntilterminated runhidden`.
+; Two problems, and together they deadlock:
+;   1. `/S` is the NSIS silent switch. VB-CABLE's setup is not NSIS and ignores it, so it opens its normal
+;      GUI and waits for the user to click "Install Driver". The vendor's own switches are `-i` (install)
+;      and `-h` (hidden/automatic).
+;   2. `runhidden` then HID that GUI. So Inno hid a dialog that requires a click, and `waituntilterminated`
+;      blocked on it indefinitely. Observed live on 2026-08-31: VBCABLE_Setup_x64.exe sitting at 0.03s CPU
+;      with an invisible window titled "VB-Audio Virtual Cable Driver Installation (Version 2.1.5.8)".
+;      VB-Cable was never actually installed by ANY previous run of this installer.
+;
+; Now runs through a PowerShell wrapper that enforces a hard timeout, so this step can never hang again:
+; if the driver setup has not finished in 3 minutes it is killed, the installer continues, and the user is
+; told rather than staring at a frozen progress bar. Exit code 3 means "timed out" — see CurStepChanged.
+Filename: "powershell.exe"; \
+  Parameters: "-NoProfile -ExecutionPolicy Bypass -NonInteractive -WindowStyle Hidden -Command ""$p = Start-Process -FilePath '{tmp}\vbcable\VBCABLE_Setup_x64.exe' -ArgumentList '-i','-h' -PassThru; if (-not $p.WaitForExit(180000)) {{ try {{ $p.Kill() }} catch {{}} ; exit 3 }} ; exit $p.ExitCode"""; \
   StatusMsg: "Installing audio components (VB-Audio Virtual Cable)..."; \
   Flags: waituntilterminated runhidden; \
   Check: ShouldInstallVBCable and Is64BitInstallMode
 
 ; 32-bit Windows fallback
-Filename: "{tmp}\vbcable\VBCABLE_Setup.exe"; \
-  Parameters: "/S /norestart"; \
+Filename: "powershell.exe"; \
+  Parameters: "-NoProfile -ExecutionPolicy Bypass -NonInteractive -WindowStyle Hidden -Command ""$p = Start-Process -FilePath '{tmp}\vbcable\VBCABLE_Setup.exe' -ArgumentList '-i','-h' -PassThru; if (-not $p.WaitForExit(180000)) {{ try {{ $p.Kill() }} catch {{}} ; exit 3 }} ; exit $p.ExitCode"""; \
   StatusMsg: "Installing audio components (VB-Audio Virtual Cable)..."; \
   Flags: waituntilterminated runhidden; \
   Check: ShouldInstallVBCable and not Is64BitInstallMode
@@ -159,12 +174,18 @@ Root: HKCU; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; \
 
 [Code]
 // ── Check if VB-Audio Cable is already installed ──────────────────────────────
+// §Giff 08-31 — widened beyond the registry. VB-CABLE 2.1.5.8 does not reliably write
+// SOFTWARE\VB-Audio\CABLE, so a machine that already had the driver would run the installer again anyway.
+// The driver .sys in the system directory is present on every real install, so check that too.
 function IsVBAudioInstalled: Boolean;
 var
   regValue: String;
 begin
   Result := RegQueryStringValue(HKLM, 'SOFTWARE\VB-Audio\CABLE', 'DriverVersion', regValue)
-         or RegQueryStringValue(HKLM, 'SOFTWARE\WOW6432Node\VB-Audio\CABLE', 'DriverVersion', regValue);
+         or RegQueryStringValue(HKLM, 'SOFTWARE\WOW6432Node\VB-Audio\CABLE', 'DriverVersion', regValue)
+         or FileExists(ExpandConstant('{sys}\drivers\vbaudio_cable64_win10.sys'))
+         or FileExists(ExpandConstant('{sys}\drivers\vbaudio_cable64_win7.sys'))
+         or FileExists(ExpandConstant('{sys}\drivers\vbaudio_cable_win7.sys'));
 end;
 
 // ── Skip VB-Audio install if already present ──────────────────────────────────
@@ -211,5 +232,21 @@ begin
     startupShortcut := ExpandConstant('{userstartup}\ONE Voice Solution.lnk');
     if FileExists(startupShortcut) then
       DeleteFile(startupShortcut);
+  end;
+
+  // ── Tell the truth about the driver at the end (§Giff 08-31) ────────────────
+  // The VB-Cable step is now time-bounded, so it can legitimately finish WITHOUT having installed the
+  // driver. Silence would be worse than the old hang: the agent opens the app, finds no CABLE device, and
+  // has nothing to go on. Re-check and say plainly what happened.
+  if CurStep = ssPostInstall then
+  begin
+    if not IsVBAudioInstalled then
+      MsgBox('ONE Voice Solution installed successfully.' + #13#10 + #13#10 +
+             'The VB-Audio Virtual Cable driver did NOT finish installing. The app is ready to use, but ' +
+             'card audio will not reach your dialer until that driver is present.' + #13#10 + #13#10 +
+             'To finish it, run this once and click "Install Driver":' + #13#10 +
+             ExpandConstant('{app}\vbcable\VBCABLE_Setup_x64.exe') + #13#10 + #13#10 +
+             'Then reboot. If it still fails, send this message to support.',
+             mbInformation, MB_OK);
   end;
 end;
