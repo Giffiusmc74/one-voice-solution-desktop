@@ -395,6 +395,8 @@ obj/
 installer/output/
 *.exe
 !redist/*.exe
+# VB-Audio Cable driver payload — bundled INTO the installer, so it must be in the repo or the
+# installer cannot be built from a fresh clone (this is why v9.9 could not be cut without it).
+!installer/vbcable/*.exe
 
 # Installer intermediate files
-installer/vbcable/
