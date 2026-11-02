@@ -67,7 +67,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "9.9.1";
+        private const string APP_VERSION = "9.9.2";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -1472,25 +1472,29 @@ namespace WindowsFormsApp1
                     _dbCustomerVoice = Math.Max(-20, Math.Min(6, _dbCustomerVoice + delta));
                     _customerVoiceVolume = DbToLinear(_dbCustomerVoice);
                     AppSettings.Instance.SpeakerSystemVolume = DbToPercent(_dbCustomerVoice);
+                    AppSettings.Instance.CustomerVoiceDb = _dbCustomerVoice;
                     ApplyCustomerVoiceListenEndpointVolume();
                     _customerVoiceMeter?.Invalidate();
                     break;
                 case 1:
                     _dbCustomerScript = Math.Max(-20, Math.Min(6, _dbCustomerScript + delta));
                     AppSettings.Instance.SetVolume("agentScript", DbToLinear(_dbCustomerScript));
+                    AppSettings.Instance.CustomerScriptDb = _dbCustomerScript;
                     LocalBridgeServer.Instance.SetVolume("agent", DbToPercent(_dbCustomerScript));
                     _customerScriptMeter?.Invalidate();
                     break;
                 case 2:
                     _dbAgentVoice = Math.Max(-20, Math.Min(6, _dbAgentVoice + delta));
                     if (_activeMicDevice != null)
-                        try { _activeMicDevice.AudioEndpointVolume.MasterVolumeLevelScalar = DbToLinear(_dbAgentVoice); } catch { }
+                        try { _activeMicDevice.AudioEndpointVolume.MasterVolumeLevelScalar = MicScalar(); } catch { }
                     AppSettings.Instance.MicSystemVolume = DbToPercent(_dbAgentVoice);
+                    AppSettings.Instance.AgentVoiceDb = _dbAgentVoice;
                     _myMicMeterLeft?.Invalidate();
                     break;
                 case 3:
                     _dbAgentScript = Math.Max(-20, Math.Min(6, _dbAgentScript + delta));
                     AppSettings.Instance.SetVolume("customerScript", DbToLinear(_dbAgentScript));
+                    AppSettings.Instance.AgentScriptDb = _dbAgentScript;
                     LocalBridgeServer.Instance.SetVolume("customer", DbToPercent(_dbAgentScript));
                     _agentScriptMeter?.Invalidate();
                     break;
@@ -1500,6 +1504,9 @@ namespace WindowsFormsApp1
         }
 
         private static float DbToLinear(int db) => (float)Math.Pow(10.0, db / 20.0);
+
+        // Windows mic level for the Agent Voice knob (Windows tops out at 100%).
+        private float MicScalar() => Math.Min(1f, DbToLinear(_dbAgentVoice));
         
         // Map the allowed dB range (-20 to +6) to 0% - 100%
         private static int DbToPercent(int db)
@@ -2040,8 +2047,25 @@ namespace WindowsFormsApp1
         private void SetupMeterTimer()
         {
             _meterTimer = new System.Windows.Forms.Timer { Interval = 50 };
+            int micCheckTicks = 0;
             _meterTimer.Tick += (s, e) =>
             {
+                // Every 2 s: if something else moved the Windows mic level (browser auto-gain, Windows, another
+                // app), put it back where the agent set the Agent Voice knob.
+                if (++micCheckTicks >= 40)
+                {
+                    micCheckTicks = 0;
+                    try
+                    {
+                        var vol = _activeMicDevice?.AudioEndpointVolume;
+                        if (vol != null && Math.Abs(vol.MasterVolumeLevelScalar - MicScalar()) > 0.02f)
+                        {
+                            Log.Info($"[Audio] Mic level was moved to {vol.MasterVolumeLevelScalar:P0} - put back to {MicScalar():P0}");
+                            vol.MasterVolumeLevelScalar = MicScalar();
+                        }
+                    }
+                    catch { }
+                }
                 if (_micLevel > 0)
                 {
                     _micLevel = Math.Max(0f, _micLevel - 0.02f);
@@ -2110,7 +2134,7 @@ namespace WindowsFormsApp1
                     try
                     {
                         int savedPct = AppSettings.Instance.MicSystemVolume;
-                        device.AudioEndpointVolume.MasterVolumeLevelScalar = savedPct / 100f;
+                        device.AudioEndpointVolume.MasterVolumeLevelScalar = MicScalar();
                         if (_trkMicVol.InvokeRequired)
                             _trkMicVol.BeginInvoke(new Action(() => { _trkMicVol.Value = savedPct; if (_lblMicVol != null) _lblMicVol.Text = $"{savedPct}%"; }));
                         else { _trkMicVol.Value = savedPct; if (_lblMicVol != null) _lblMicVol.Text = $"{savedPct}%"; }
@@ -2536,7 +2560,7 @@ namespace WindowsFormsApp1
                         try
                         {
                             int savedPct = AppSettings.Instance.SpeakerSystemVolume;
-                            _customerVoiceVolume = savedPct / 100f;
+                            _customerVoiceVolume = DbToLinear(_dbCustomerVoice);
                             if (_trkSpeakerVol != null) { _trkSpeakerVol.Value = savedPct; if (_lblSpeakerVol != null) _lblSpeakerVol.Text = $"{savedPct}%"; }
                         }
                         catch { }
@@ -2815,11 +2839,13 @@ namespace WindowsFormsApp1
             int spkPct     = Math.Max(1, Math.Min(200, s.SpeakerSystemVolume));
             int agentPct   = Math.Max(1, (int)(s.GetVolume("agentScript",    0.90f) * 100));
             int custPct    = Math.Max(1, (int)(s.GetVolume("customerScript", 0.85f) * 100));
-            _dbAgentVoice      = LinearToDb(micPct   / 100f);
-            _dbCustomerVoice   = LinearToDb(spkPct   / 100f);
-            _dbCustomerScript  = LinearToDb(agentPct / 100f);
-            _dbAgentScript     = LinearToDb(custPct  / 100f);
+            _dbAgentVoice      = ClampDb(s.AgentVoiceDb     ?? LinearToDb(micPct   / 100f));
+            _dbCustomerVoice   = ClampDb(s.CustomerVoiceDb  ?? LinearToDb(spkPct   / 100f));
+            _dbCustomerScript  = ClampDb(s.CustomerScriptDb ?? LinearToDb(agentPct / 100f));
+            _dbAgentScript     = ClampDb(s.AgentScriptDb    ?? LinearToDb(custPct  / 100f));
         }
+
+        private static int ClampDb(int db) => Math.Max(-20, Math.Min(6, db));
 
         private static int LinearToDb(float linear)
         {

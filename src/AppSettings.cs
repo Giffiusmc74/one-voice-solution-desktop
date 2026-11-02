@@ -58,6 +58,14 @@ namespace WindowsFormsApp1.src
         public int MicSystemVolume     { get; set; } = 100;
         public int SpeakerSystemVolume { get; set; } = 100;
 
+        // The four knobs exactly as the agent left them, in dB (-20..+6). The % fields above were saved as a
+        // knob position but read back as a loudness, so every restart the levels slid to a different number
+        // (v9.9.2). These are the source of truth now; null = an older settings file, use the % fields once.
+        public int? AgentVoiceDb     { get; set; }
+        public int? CustomerVoiceDb  { get; set; }
+        public int? CustomerScriptDb { get; set; }
+        public int? AgentScriptDb    { get; set; }
+
         // Volume helpers (float 0–1, maps to int 0–100 internally)
         public float GetVolume(string key, float defaultVal = 0.5f)
         {
