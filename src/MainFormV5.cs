@@ -67,7 +67,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "9.9.3";
+        private const string APP_VERSION = "9.9.4";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -287,6 +287,7 @@ namespace WindowsFormsApp1
         private DateTime _micWatchdogLastFix = DateTime.MinValue;
         private int _micWatchdogFails;
         private bool _micWatchdogWaitLogged;
+        private DateTime _lastPlaybackUtc = DateTime.MinValue;
         /// <summary>
         /// Mic gate constants for RED (customer voice) meter suppression.
         /// When the agent mic is active above MicGateThreshold, the VB-Cable loopback
@@ -2123,6 +2124,11 @@ namespace WindowsFormsApp1
         {
             if (string.IsNullOrEmpty(_activeMicName)) return;
             var now = DateTime.UtcNow;
+            // §Giff 11-03 (v9.9.4) "recordings are cutting out": while a recording plays the pass-through is shut OFF
+            // on purpose (OnPlaybackStarted), and v9.9.3 took that for a dead mic and restarted it mid-card. Hands off
+            // while a recording plays and for 3 s after (OnPlaybackStopped restarts the pass-through itself).
+            if (LocalBridgeServer.Instance.IsPlaying) { _lastPlaybackUtc = now; return; }
+            if ((now - _lastPlaybackUtc).TotalSeconds < 3) return;
             bool micDead  = _micCapture == null || _micStopped || (now - _micLastDataUtc).TotalSeconds > 3;
             bool passDead = LocalBridgeServer.Instance.CableDeviceNumber >= 0 &&
                             (_micPassWaveIn == null || _micPassStopped || (now - _micPassLastDataUtc).TotalSeconds > 3);
