@@ -67,7 +67,7 @@ namespace WindowsFormsApp1
         private static readonly Color METER_GREEN   = Color.FromArgb(0, 220, 80);
 
         // ── Version ───────────────────────────────────────────────────────────
-        private const string APP_VERSION = "9.9.2";
+        private const string APP_VERSION = "9.9.3";
 
         // ── Scale ─────────────────────────────────────────────────────────────
         private float _scale = 1.0f;
@@ -279,6 +279,14 @@ namespace WindowsFormsApp1
         /// </summary>
         private DateTime _micPassLastRestart = DateTime.MinValue;
         private const int MicPassDriftRestartMs = 4 * 60 * 1000; // 4 minutes
+        // Mic watchdog (v9.9.3): last time each mic stream delivered audio, and whether it stopped on its own.
+        private DateTime _micLastDataUtc = DateTime.MinValue;
+        private DateTime _micPassLastDataUtc = DateTime.MinValue;
+        private volatile bool _micStopped, _micPassStopped;
+        private string _activeMicName;
+        private DateTime _micWatchdogLastFix = DateTime.MinValue;
+        private int _micWatchdogFails;
+        private bool _micWatchdogWaitLogged;
         /// <summary>
         /// Mic gate constants for RED (customer voice) meter suppression.
         /// When the agent mic is active above MicGateThreshold, the VB-Cable loopback
@@ -2055,6 +2063,7 @@ namespace WindowsFormsApp1
                 if (++micCheckTicks >= 40)
                 {
                     micCheckTicks = 0;
+                    CheckMicAlive();
                     try
                     {
                         var vol = _activeMicDevice?.AudioEndpointVolume;
@@ -2106,6 +2115,34 @@ namespace WindowsFormsApp1
             _meterTimer.Start();
         }
 
+        // §Giff 11-03 "my mic went out - almost lost 2 sales": after a day of running, the mic capture died
+        // silently (wireless drop / device reset) and nothing brought it back until the app was restarted.
+        // Every 2 s: if the mic capture or the pass-through to the call stopped delivering audio, restart both
+        // on the SAME mic. Never falls back to another device (that could be the customer line) - waits for it.
+        private void CheckMicAlive()
+        {
+            if (string.IsNullOrEmpty(_activeMicName)) return;
+            var now = DateTime.UtcNow;
+            bool micDead  = _micCapture == null || _micStopped || (now - _micLastDataUtc).TotalSeconds > 3;
+            bool passDead = LocalBridgeServer.Instance.CableDeviceNumber >= 0 &&
+                            (_micPassWaveIn == null || _micPassStopped || (now - _micPassLastDataUtc).TotalSeconds > 3);
+            if (!micDead && !passDead) { _micWatchdogFails = 0; _micWatchdogWaitLogged = false; return; }
+            if ((now - _micWatchdogLastFix).TotalSeconds < (_micWatchdogFails < 3 ? 5 : 30)) return;
+            _micWatchdogLastFix = now;
+            bool present = false;
+            try { present = _deviceEnum.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active).Any(d => d.FriendlyName == _activeMicName); }
+            catch { }
+            if (!present)
+            {
+                if (!_micWatchdogWaitLogged) Log.Warn($"[Audio] Mic watchdog: '{_activeMicName}' is gone - waiting for it to come back");
+                _micWatchdogWaitLogged = true;
+                return;
+            }
+            _micWatchdogFails++;
+            Log.Warn($"[Audio] Mic watchdog: {(micDead ? "mic capture" : "call pass-through")} stopped - restarting '{_activeMicName}' (try {_micWatchdogFails})");
+            StartAudioCapture(_activeMicName);
+        }
+
         // ── Audio capture (microphone) ────────────────────────────────────────
         private void StartAudioCapture(string deviceName = null)
         {
@@ -2129,6 +2166,7 @@ namespace WindowsFormsApp1
                         !d.FriendlyName.Contains("Virtual")) ?? devices.First();
                 Log.Info($"[Audio] Capturing: {device.FriendlyName}");
                 _activeMicDevice = device;
+                _activeMicName   = device.FriendlyName;
                 if (_trkMicVol != null)
                 {
                     try
@@ -2142,9 +2180,19 @@ namespace WindowsFormsApp1
                     catch { }
                 }
 
-                _micCapture = new WasapiCapture(device, false);
+                var cap = new WasapiCapture(device, false);
+                _micCapture = cap;
+                _micStopped = false;
+                _micLastDataUtc = DateTime.UtcNow;
+                cap.RecordingStopped += (s, e) =>
+                {
+                    if (!ReferenceEquals(cap, _micCapture)) return;
+                    _micStopped = true;
+                    Log.Warn($"[Audio] Mic capture stopped: {e.Exception?.Message ?? "no error"}");
+                };
                 _micCapture.DataAvailable += (s, e) =>
                 {
+                    _micLastDataUtc = DateTime.UtcNow;
                     if (e.BytesRecorded < 4) return;
                     float max    = 0f;
                     int   stride = (_micCapture.WaveFormat.BitsPerSample == 16) ? 2 : 4;
@@ -2222,6 +2270,15 @@ namespace WindowsFormsApp1
                     BufferDuration = TimeSpan.FromMilliseconds(500)  // 500ms headroom vs 250ms — absorbs USB stalls
                 };
                 _micPassWaveIn.DataAvailable += MicPassWaveIn_DataAvailable;
+                var passIn = _micPassWaveIn;
+                _micPassStopped = false;
+                _micPassLastDataUtc = DateTime.UtcNow;
+                passIn.RecordingStopped += (s, e) =>
+                {
+                    if (!ReferenceEquals(passIn, _micPassWaveIn)) return;
+                    _micPassStopped = true;
+                    Log.Warn($"[PassThrough] Mic stream stopped: {e.Exception?.Message ?? "no error"}");
+                };
 
                 _micPassWaveOut = new WaveOutEvent
                 {
@@ -2245,6 +2302,7 @@ namespace WindowsFormsApp1
 
         private void MicPassWaveIn_DataAvailable(object sender, WaveInEventArgs e)
         {
+            _micPassLastDataUtc = DateTime.UtcNow;
             if (_micPassBuffer == null || e.BytesRecorded < 2) return;
 
             // §Avatar mode: when the portal flips the mic mute (POST /mic-mute), drop the
